@@ -2,25 +2,15 @@ from pkg_resources import resource_filename
 import os
 import numpy as np
 
-from frb.galaxies import hosts
+from scipy import interpolate
 
 from IPython import embed
 
-'''
-# Globals -- to speed up calculations
-r_dat, mag_uniq, _ = hosts.read_r_mags(
-    resource_filename('frb', os.path.join('data', 'Galaxies', 'driver2016_t3data.fits')))
-eb17_spl = hosts.interpolate.UnivariateSpline(x=mag_uniq,
-                                   y=np.log10(r_dat),
-                                   bbox=[-100, 100],
-                                   k=3)
-'''
 
 # Spline parameters(globals) are for rmag vs sigma
 driver_tck = (np.array([15., 15., 15., 15., 30., 30., 30., 30.]),
        np.array([-6.41580144, -3.53188049, -1.68500105, -0.63090954, 0., 0., 0., 0.]), 3)
-driver_spl = hosts.interpolate.UnivariateSpline._from_tck(driver_tck)
-
+driver_spl = interpolate.UnivariateSpline._from_tck(driver_tck)
 
 
 def driver_sigma(rmag):
@@ -59,6 +49,8 @@ def bloom_sigma(rmag):
 def pchance(rmag, sep, r_half, sigR, scale_rhalf=2., nsigma=2., ndens_eval='driver',
             orig_theff=False):
     """
+    Calculate P_chance -- the probability of a chance association based
+    on the number density of galaxies on the sky and the search area
 
     Args:
         rmag (np.ndarray):
@@ -77,6 +69,7 @@ def pchance(rmag, sep, r_half, sigR, scale_rhalf=2., nsigma=2., ndens_eval='driv
             'bloom': Hogg et al.
             'driver':  Driver et al. 2016
         orig_theff (bool, optional):
+            Use the Bloom et al. 2002 prescription for theta_eff
 
     Returns:
         tuple: Pchance, nden
@@ -87,11 +80,10 @@ def pchance(rmag, sep, r_half, sigR, scale_rhalf=2., nsigma=2., ndens_eval='driv
     if orig_theff:
         Rs = np.stack([scale_rhalf * r_half, np.ones_like(r_half) * nsigma * sigR,
                        np.sqrt(sep ** 2 + (scale_rhalf * r_half) ** 2)])
-        reff = np.max(Rs, axis=0)
+        theta_eff = np.max(Rs, axis=0)
     else:
         # More conservative than usual
-        reff = np.sqrt(4*sigR**2 + 4*r_half**2 + sep**2)
-
+        theta_eff = np.sqrt(4*sigR**2 + 4*r_half**2 + sep**2)
 
     # Number density
     if ndens_eval =='bloom':
@@ -101,10 +93,8 @@ def pchance(rmag, sep, r_half, sigR, scale_rhalf=2., nsigma=2., ndens_eval='driv
     else:
         raise IOError("Bad ndens evaluation")
 
-
-
     # Nbar
-    Nbar = np.pi * reff ** 2 * nden
+    Nbar = np.pi * theta_eff ** 2 * nden
 
     # Return Pchance and nden
     return 1. - np.exp(-Nbar), nden

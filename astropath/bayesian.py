@@ -23,10 +23,10 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
         Sigma_m (np.ndarray):
             Number density of sources on the sky brighter than m
         method (str):
-            linear
             orig_inverse :: Assign inverse to P_chance
             inverse :: Assign inverse to Sigma_m
             identical :: All the same
+            linear :: 1-Pchance (not recommended)
 
     Returns:
         np.ndarray:
@@ -42,7 +42,6 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
         return np.ones_like(Pchance)
     else:
         raise IOError("Bad method {} for prior_Oi".format(method))
-
 
 
 
@@ -65,7 +64,6 @@ def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
     """
     p = np.zeros_like(r_w)
     ok_w = r_w < theta_prior['max']*theta_half
-    norm = 0
     if theta_prior['method'] == 'core':
         # Wolfram
         norm = theta_half * np.log(theta_prior['max']+1)
@@ -76,7 +74,6 @@ def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
         if np.any(ok_w):
             p[ok_w] = 1. / norm
     elif theta_prior['method'] == 'exp':
-        #norm = theta_half  - theta_half * (theta_prior['max']+1) * np.exp(-theta_prior['max'])
         norm = theta_half*scale_half * (scale_half - (
                 scale_half+theta_prior['max'])*np.exp(-theta_prior['max']/scale_half))
         if np.any(ok_w):
@@ -103,19 +100,21 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
     Args:
         box_radius (float):
             Maximum radius for analysis, in arcsec
+        frb_coord (SkyCoord):
         eellipse (dict):
             Error ellipse for the FRB
             a, b, theta
-        frb_coord (SkyCoord):
         cand_coords (SkyCoord):
             Coordinates of the candidate hosts
         theta_prior (dict):
             Parameters for theta prior
         step_size (float, optional):
             Step size for grid, in arcsec
+        return_grids (bool, optional):
+            if True, return the calcualtion grid
 
     Returns:
-        np.ndarray:
+        np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
 
     """
     # Error ellipse
@@ -134,11 +133,6 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
     p_xMis, grids = [], []
     # TODO -- multiprocess this
     for icand, cand_coord in enumerate(cand_coords):
-
-        # Calculate observed FRB location
-        #dra, ddec = cand_coord.spherical_offsets_to(frb_coord)
-        #xFRB = -dra.to('arcsec').value
-        #yFRB = ddec.to('arcsec').value
 
         # #####################
         # l(w) -- 2D Gaussian
@@ -188,7 +182,7 @@ def renorm_priors(raw_Oi, U):
             Prior for the FRB galaxy being undetected
 
     Returns:
-        tuple: Normalized priors
+        np.ndarray: Normalized priors
 
     """
     raw_sum = np.sum(raw_Oi)
