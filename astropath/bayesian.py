@@ -10,17 +10,14 @@ from astropy.coordinates import SkyCoord
 from IPython import embed
 
 
-
 def raw_prior_Oi(Pchance, Sigma_m, method):
     """
-    Raw prior for a given set of Pchance values
-
-    Proper normalization requires P(U) so that is done below
+    Raw prior for a given set of Pchance values and/or n(m)
 
     Args:
-        Pchance (np.ndarray):
+        Pchance (float or np.ndarray):
             Chance probability
-        Sigma_m (np.ndarray):
+        Sigma_m (float or np.ndarray):
             Number density of sources on the sky brighter than m
         method (str):
             orig_inverse :: Assign inverse to P_chance
@@ -29,7 +26,7 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
             linear :: 1-Pchance (not recommended)
 
     Returns:
-        np.ndarray:
+        float or np.ndarray:
 
     """
     if method == 'linear':
@@ -42,7 +39,6 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
         return np.ones_like(Pchance)
     else:
         raise IOError("Bad method {} for prior_Oi".format(method))
-
 
 
 def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
