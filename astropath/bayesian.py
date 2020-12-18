@@ -44,8 +44,6 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
         raise IOError("Bad method {} for prior_Oi".format(method))
 
 
-
-
 def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
     """
     Calculate p(w|O_i) for a given galaxy
@@ -135,11 +133,6 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
     # TODO -- multiprocess this
     for icand, cand_coord in enumerate(cand_coords):
 
-        # Calculate observed FRB location
-        #dra, ddec = cand_coord.spherical_offsets_to(frb_coord)
-        #xFRB = -dra.to('arcsec').value
-        #yFRB = ddec.to('arcsec').value
-
         # #####################
         # l(w) -- 2D Gaussian
 
@@ -148,18 +141,12 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
         pa_gal = frb_coord.position_angle(cand_coord).to('deg')
         new_pa_gal = pa_gal + dtheta * units.deg
 
-        #r_wsq = (xcoord-xFRB)**2 + (ycoord-yFRB)**2
-        #l_w = np.exp(-r_wsq/(2*sigR**2)) / sigR / np.sqrt(2*np.pi)
-
         # p(w|M_i)
         # x, y gal
         x_gal = -r.value * np.sin(new_pa_gal).value
         y_gal = r.value * np.cos(new_pa_gal).value
         r_w = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)
-        try:
-            p_wMi = pw_Oi(r_w, theta_prior['r_half'][icand], theta_prior)
-        except:
-            embed(header='190 of bayesian')
+        p_wMi = pw_Oi(r_w, theta_prior['r_half'][icand], theta_prior)
 
         # Product
         grid_p = l_w * p_wMi

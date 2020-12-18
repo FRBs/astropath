@@ -1,5 +1,4 @@
-from pkg_resources import resource_filename
-import os
+""" Calculations related to P_chance """
 import numpy as np
 
 from frb.galaxies import hosts
