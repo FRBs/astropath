@@ -44,7 +44,7 @@ if os.path.isdir('bin'):
     setup_keywords['scripts'] = [fname for fname in glob.glob(os.path.join('bin', '*'))
         if not os.path.basename(fname).endswith('.rst')]
 setup_keywords['provides'] = [setup_keywords['name']]
-setup_keywords['requires'] = ['Python (>3.6.0)']
+setup_keywords['requires'] = ['Python (>3.7.0)']
 setup_keywords['zip_safe'] = False
 setup_keywords['packages'] = find_packages()
 #setup_keywords['package_dir'] = {'':'py'}
