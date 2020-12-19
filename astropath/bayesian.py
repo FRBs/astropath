@@ -2,23 +2,19 @@
 
 import numpy as np
 
-import copy
-
 from astropy import units
 from astropy.coordinates import SkyCoord
+
+from astropath import chance
 
 from IPython import embed
 
 
-def raw_prior_Oi(Pchance, Sigma_m, method, half_light=None):
+def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
     """
     Raw prior for a given set of Pchance values and/or n(m)
 
     Args:
-        Pchance (float or np.ndarray):
-            Chance probability
-        Sigma_m (float or np.ndarray):
-            Number density of sources on the sky brighter than m
         method (str):
             inverse :: Assign inverse to Sigma_m
             inverse1 :: Assign inverse to Sigma_m * half_light
@@ -26,14 +22,23 @@ def raw_prior_Oi(Pchance, Sigma_m, method, half_light=None):
             orig_inverse :: Assign inverse to P_chance
             identical :: All the same
             linear :: 1-Pchance (not recommended)
+        mag (float or np.ndarray):
+            Magnitudes of the sources;  assumed r-band
         half_light (float or np.ndarray, optional):
             Angular size of the galaxy
             Only required for several methods
+        Pchance (float or np.ndarray, optional):
+            Chance probability
+            Required for linear and orig_inverse methods
 
     Returns:
         float or np.ndarray:
 
     """
+    # Sigma_m -- not always used but that's ok
+    Sigma_m = chance.driver_sigma(mag)
+
+    # Do it
     if method == 'linear':
         return 1 - Pchance
     elif method == 'orig_inverse':
@@ -41,11 +46,15 @@ def raw_prior_Oi(Pchance, Sigma_m, method, half_light=None):
     elif method == 'inverse':
         return 1. / Sigma_m
     elif method == 'inverse1':
+        if half_light is None:
+            raise IOError("You must input angular size for method={}".format(method))
         return 1. / Sigma_m / half_light
     elif method == 'inverse2':
+        if half_light is None:
+            raise IOError("You must input angular size for method={}".format(method))
         return 1. / Sigma_m / half_light**2
     elif method == 'identical':
-        return np.ones_like(Pchance)
+        return np.ones_like(Sigma_m)
     else:
         raise IOError("Bad method {} for prior_Oi".format(method))
 
@@ -152,7 +161,7 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
         x_gal = -r.value * np.sin(new_pa_gal).value
         y_gal = r.value * np.cos(new_pa_gal).value
         r_w = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)
-        p_wMi = pw_Oi(r_w, theta_prior['r_half'][icand], theta_prior)
+        p_wMi = pw_Oi(r_w, theta_prior['ang_size'][icand], theta_prior)
 
         # Product
         grid_p = l_w * p_wMi
