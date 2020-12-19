@@ -10,7 +10,7 @@ from astropy.coordinates import SkyCoord
 from IPython import embed
 
 
-def raw_prior_Oi(Pchance, Sigma_m, method):
+def raw_prior_Oi(Pchance, Sigma_m, method, half_light=None):
     """
     Raw prior for a given set of Pchance values and/or n(m)
 
@@ -20,10 +20,15 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
         Sigma_m (float or np.ndarray):
             Number density of sources on the sky brighter than m
         method (str):
-            orig_inverse :: Assign inverse to P_chance
             inverse :: Assign inverse to Sigma_m
+            inverse1 :: Assign inverse to Sigma_m * half_light
+            inverse2 :: Assign inverse to Sigma_m * half_light**2
+            orig_inverse :: Assign inverse to P_chance
             identical :: All the same
             linear :: 1-Pchance (not recommended)
+        half_light (float or np.ndarray, optional):
+            Angular size of the galaxy
+            Only required for several methods
 
     Returns:
         float or np.ndarray:
@@ -35,6 +40,10 @@ def raw_prior_Oi(Pchance, Sigma_m, method):
         return 1. / Pchance
     elif method == 'inverse':
         return 1. / Sigma_m
+    elif method == 'inverse1':
+        return 1. / Sigma_m / half_light
+    elif method == 'inverse2':
+        return 1. / Sigma_m / half_light**2
     elif method == 'identical':
         return np.ones_like(Pchance)
     else:
