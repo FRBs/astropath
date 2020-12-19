@@ -73,4 +73,4 @@ jobs:
         python -m pip install pycodestyle
     - name: Check for runtime errors using pycodestyle
       run: |
-        pycodestyle pypeit --count --select=E9
+        pycodestyle astropath --count --select=E9
