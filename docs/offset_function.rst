@@ -17,7 +17,7 @@ Definitions
 Here are the key items related to :math:`p(\omega|O)`:
 
 * :math:`\omega`: 3-D true position of the transient
-* :math:`O`: galaxy
+* :math:`O`: galaxy properties (e.g. position, angular size)
 * :math:`\theta`: offset between the
   transient and the center of a galaxy.
 * :math:`\phi`: galaxy angular size
@@ -37,7 +37,7 @@ offset function.  It currently holds three items:
   in units of :math:`\phi`.  :math:`p(\omega|O) = 0` for
   :math:`\theta > \theta_{max}`
 * ang_size -- An array of angular sizes :math:`\phi`
-  for all of the galaxies.
+  for all of the candidate galaxies.
 
 Below are the 3 offset functions currently coded.
 Note that each of these are normalized to unit total
