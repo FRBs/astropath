@@ -25,12 +25,12 @@ astropath depends on the following list of Python packages.
 We recommend that you use `Anaconda <https://www.continuum.io/downloads/>`_
 to install and/or update these packages.
 
-* `python <http://www.python.org/>`_ versions 3.6 or later
-* `numpy <http://www.numpy.org/>`_ version 1.17 or later
-* `astropy <http://www.astropy.org/>`_ version 4.0 or later
-* `scipy <http://www.scipy.org/>`_ version 1.2 or later
+* `python <http://www.python.org/>`_ versions 3.7 or later
+* `numpy <http://www.numpy.org/>`_ version 1.18 or later
+* `astropy <http://www.astropy.org/>`_ version 4.2 or later
+* `scipy <http://www.scipy.org/>`_ version 1.4 or later
 * `pandas <https://pandas.pydata.org/>`_ version 0.25 or later
-* `photutils <https://photutils.readthedocs.io/en/stable/>`_  version 0.7.1 or later
+* `photutils <https://photutils.readthedocs.io/en/stable/>`_  version 1.0.1 or later
 
 If you are using Anaconda, you can check the presence of these packages with::
 
