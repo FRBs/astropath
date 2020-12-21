@@ -20,7 +20,7 @@ def driver_sigma(rmag):
     Spline parameters (globals) are for rmag vs sigma
 
     Args:
-        rmag (float or np.ndarray):
+        rmag (float or np.ndarray): r band magnitude of galaxy
 
     Returns:
         float or np.ndarray:  Galaxy number density
@@ -32,9 +32,10 @@ def driver_sigma(rmag):
 def bloom_sigma(rmag):
     """
     Estimated incidence of galaxies per sq arcsec with r > rmag
+    using Equation 3 of Bloom et al. 2002
 
     Args:
-        rmag (float or np.ndarray):
+        rmag (float or np.ndarray): r band magnitude of galaxy
 
     Returns:
         float or np.ndarray:  Galaxy density
@@ -59,10 +60,11 @@ def pchance(rmag, sep, r_half, sigR, scale_rhalf=2., nsigma=2., ndens_eval='driv
         r_half (np.ndarray):
             Half light radii of the galaxies; arcsec
         sigR (float):
-            1 sigma error in FRB localization; assumed symmetric; arcsec
+            1 sigma error in transient localization; assumed symmetric; arcsec
         scale_rhalf (float, optional):
             Weighting factor for the half-light radius
         nsigma:
+            Weighting factor for the transient localization error
         ndens_eval (str, optinal):
             Number count source used
             'bloom': Hogg et al.
@@ -71,7 +73,7 @@ def pchance(rmag, sep, r_half, sigR, scale_rhalf=2., nsigma=2., ndens_eval='driv
             Use the Bloom et al. 2002 prescription for theta_eff
 
     Returns:
-        tuple: Pchance, nden
+        tuple: Pchance, nden -- chance probability and number density of sources given rmag
 
     """
 
