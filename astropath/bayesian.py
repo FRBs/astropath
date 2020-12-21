@@ -19,24 +19,22 @@ def raw_prior_Oi(Pchance, Sigma_m, method, half_light=None):
             Chance probability
         Sigma_m (float or np.ndarray):
             Number density of sources on the sky brighter than m
+            number per sq arcsec
         method (str):
             inverse :: Assign inverse to Sigma_m
             inverse1 :: Assign inverse to Sigma_m * half_light
             inverse2 :: Assign inverse to Sigma_m * half_light**2
-            orig_inverse :: Assign inverse to P_chance
+            pchance_inverse :: Assign inverse to P_chance
             identical :: All the same
-            linear :: 1-Pchance (not recommended)
         half_light (float or np.ndarray, optional):
-            Angular size of the galaxy
+            Angular size of the galaxy in arcsec
             Only required for several methods
 
     Returns:
         float or np.ndarray:
 
     """
-    if method == 'linear':
-        return 1 - Pchance
-    elif method == 'orig_inverse':
+    if method == 'pchance_inverse':
         return 1. / Pchance
     elif method == 'inverse':
         return 1. / Sigma_m
@@ -61,6 +59,8 @@ def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
             Half-light radius of this galaxy in arcsec
         theta_prior (dict):
             Parameters for theta prior
+            Three methods are currently supported: core, uniform, exp
+            See docs for further details
         scale_half (float):
 
     Returns:
@@ -99,8 +99,8 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
 
     Main concept:
         1. Set an area to analyze
-        2. Discretize it to 0.1"
-        3. Convolve
+        2. Discretize it to the step-size (e.g. 0.1")
+        3. Convolve the FRB localization with the galaxy offset function
 
     Args:
         box_radius (float):
@@ -108,7 +108,7 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
         frb_coord (SkyCoord):
         eellipse (dict):
             Error ellipse for the FRB
-            a, b, theta
+            a, b in arcsec, theta in deg
         cand_coords (SkyCoord):
             Coordinates of the candidate hosts
         theta_prior (dict):
@@ -132,15 +132,15 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
     x = np.linspace(-box_radius, box_radius, ngrid)
     xcoord, ycoord = np.meshgrid(x,x)
 
+    # #####################
     # Build the grid around the FRB (orient semi-major axis "a" on our x axis)
+    # l(w) -- 2D Gaussian
     l_w = np.exp(-xcoord ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(-ycoord ** 2 / (2 * eellipse['b'] ** 2))
 
     p_xMis, grids = [], []
     # TODO -- multiprocess this
     for icand, cand_coord in enumerate(cand_coords):
 
-        # #####################
-        # l(w) -- 2D Gaussian
 
         # Rotate the galaxy
         r = frb_coord.separation(cand_coord).to('arcsec')
