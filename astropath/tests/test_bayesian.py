@@ -8,8 +8,8 @@ import pytest
 
 def test_raw_prior():
     # Inverse
-    raw_PO = bayesian.raw_prior_Oi(0., np.array([0.001, 0.002]), 'inverse')
-    assert np.all(raw_PO == np.array([1000., 500.]))
+    raw_PO = bayesian.raw_prior_Oi('inverse', np.array([21.,22.]))
+    assert np.all(np.isclose(raw_PO, np.array([2736.80588898, 1074.04504448])))
 
 
 def test_renorm_priors():
