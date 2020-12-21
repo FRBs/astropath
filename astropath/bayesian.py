@@ -156,7 +156,7 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
         pa_gal = frb_coord.position_angle(cand_coord).to('deg')
         new_pa_gal = pa_gal + dtheta * units.deg
 
-        # p(w|M_i)
+        # p(w|O_i)
         # x, y gal
         x_gal = -r.value * np.sin(new_pa_gal).value
         y_gal = r.value * np.cos(new_pa_gal).value
