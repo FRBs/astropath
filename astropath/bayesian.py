@@ -100,7 +100,7 @@ def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
     return p
 
 
-def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
+def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
           theta_prior, step_size=0.1, return_grids=False):
     """
     Calculate p(x|O_i), the primary piece of the analysis
@@ -111,8 +111,8 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
         3. Convolve the FRB localization with the galaxy offset function
 
     Args:
-        box_radius (float):
-            Maximum radius for analysis, in arcsec
+        box_hwidth (float):
+            Half-width of the analysis box, in arcsec
         frb_coord (SkyCoord):
         eellipse (dict):
             Error ellipse for the FRB
@@ -136,16 +136,17 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
     # Set Equinox (for spherical offsets)
     frb_coord.equinox = cand_coords[0].equinox
     #
-    ngrid = int(np.round(2*box_radius / step_size))
-    x = np.linspace(-box_radius, box_radius, ngrid)
+    ngrid = int(np.round(2*box_hwidth / step_size))
+    x = np.linspace(-box_hwidth, box_hwidth, ngrid)
     xcoord, ycoord = np.meshgrid(x,x)
 
     # #####################
     # Build the grid around the FRB (orient semi-major axis "a" on our x axis)
-    # l(w) -- 2D Gaussian
-    l_w = np.exp(-xcoord ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(-ycoord ** 2 / (2 * eellipse['b'] ** 2))
+    # l(w) -- 2D Gaussian, normalized
+    l_w = np.exp(-xcoord ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(
+        -ycoord ** 2 / (2 * eellipse['b'] ** 2)) / (2*np.pi*eellipse['a']*eellipse['b'])
 
-    p_xMis, grids = [], []
+    p_xOis, grids = [], []
     # TODO -- multiprocess this
     for icand, cand_coord in enumerate(cand_coords):
 
@@ -160,23 +161,23 @@ def px_Oi(box_radius, frb_coord, eellipse, cand_coords,
         x_gal = -r.value * np.sin(new_pa_gal).value
         y_gal = r.value * np.cos(new_pa_gal).value
         r_w = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)
-        p_wMi = pw_Oi(r_w, theta_prior['ang_size'][icand], theta_prior)
+        p_wOi = pw_Oi(r_w, theta_prior['ang_size'][icand], theta_prior)
 
         # Product
-        grid_p = l_w * p_wMi
+        grid_p = l_w * p_wOi
 
         # Save grids if returning
         if return_grids:
             grids.append(grid_p.copy())
 
-        # Average
-        p_xMis.append(np.mean(grid_p))
+        # Sum
+        p_xOis.append(np.sum(grid_p))
 
     # Return
     if return_grids:
-        return np.array(p_xMis), grids
+        return np.array(p_xOis), grids
     else:
-        return np.array(p_xMis)
+        return np.array(p_xOis)
 
 
 def renorm_priors(raw_Oi, U):
