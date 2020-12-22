@@ -12,7 +12,9 @@ from IPython import embed
 
 def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
     """
-    Raw prior for a given set of Pchance values and/or n(m)
+    Raw prior for a given set of magnitudes or Pchance values
+
+    For the former, we adopt the Driver et al. 2016 evaluation of Sigma(m)
 
     Args:
         method (str):
@@ -28,7 +30,7 @@ def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
             Only required for several methods
         Pchance (float or np.ndarray, optional):
             Chance probability
-            Required for linear and orig_inverse methods
+            Required for orig_inverse methods
 
     Returns:
         float or np.ndarray:
