@@ -58,41 +58,41 @@ def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
         raise IOError("Bad method {} for prior_Oi".format(method))
 
 
-def pw_Oi(r_w, theta_half, theta_prior, scale_half=1.):
+def pw_Oi(r_w, phi, theta_prior, scale_half=1.):
     """
     Calculate p(w|O_i) for a given galaxy
 
     Args:
         r_w (np.ndarray):
             offset from galaxy center in arcsec
-        theta_half (float):
-            Half-light radius of this galaxy in arcsec
+        phi (float):
+            Angular size of the galaxy in arcsec
         theta_prior (dict):
             Parameters for theta prior
             Three methods are currently supported: core, uniform, exp
             See docs for further details
-        scale_half (float):
+        scale_half (float, optional):
+            Alternative scaling in the exponential
 
     Returns:
         np.ndarray: Probability values; un-normalized
 
     """
     p = np.zeros_like(r_w)
-    ok_w = r_w < theta_prior['max']*theta_half
+    ok_w = r_w < theta_prior['max']*phi
     if theta_prior['method'] == 'core':
-        # Wolfram
-        norm = theta_half * np.log(theta_prior['max']+1)
+        # Wolfram + Clancy
+        norm = phi * np.log(theta_prior['max']/phi+1)
         if np.any(ok_w):
-            p[ok_w] = theta_half / (r_w[ok_w] + theta_half) / norm
+            p[ok_w] = phi / (r_w[ok_w] + phi) / norm
     elif theta_prior['method'] == 'uniform':
-        norm = theta_half * theta_prior['max']
+        norm = theta_prior['max']
         if np.any(ok_w):
             p[ok_w] = 1. / norm
     elif theta_prior['method'] == 'exp':
-        norm = theta_half*scale_half * (scale_half - (
-                scale_half+theta_prior['max'])*np.exp(-theta_prior['max']/scale_half))
+        norm = phi - np.exp(-scale_half*theta_prior['max']/phi) * (scale_half*theta_prior['max'] + phi)
         if np.any(ok_w):
-            p[ok_w] = (r_w[ok_w] / theta_half) * np.exp(-r_w[ok_w]/(scale_half*theta_half)) / norm
+            p[ok_w] = (r_w[ok_w] / phi) * np.exp(-scale_half*r_w[ok_w]/phi) / norm
     else:
         raise IOError("Bad theta method")
     #
