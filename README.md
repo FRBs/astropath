@@ -4,5 +4,6 @@
 
 ### J. Xavier Prochaska (UC Santa Cruz)
 ### Kshitij Aggarwal (West Virginia U.)
+### Tarraneh Eftekhari (Harvard U.)
 
 ## Additional contributors include:
