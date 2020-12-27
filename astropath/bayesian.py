@@ -142,6 +142,9 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
     x = np.linspace(-box_hwidth, box_hwidth, ngrid)
     xcoord, ycoord = np.meshgrid(x,x)
 
+    # Grid spacing
+    grid_spacing_arcsec = x[1]-x[0]
+
     # #####################
     # Build the grid around the FRB (orient semi-major axis "a" on our x axis)
     # l(w) -- 2D Gaussian, normalized
@@ -173,7 +176,7 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
             grids.append(grid_p.copy())
 
         # Sum
-        p_xOis.append(np.sum(grid_p))
+        p_xOis.append(np.sum(grid_p*grid_spacing_arcsec**2))
 
     # Return
     if return_grids:
