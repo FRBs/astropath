@@ -182,6 +182,23 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
         return np.array(p_xOis)
 
 
+def px_U(box_hwidth):
+    """
+
+    Args:
+        box_hwidth (float):
+            Half-width of the analysis box, in arcsec
+
+    Returns:
+        float: p(x|U)
+
+    """
+    box_sqarcsec = (2*box_hwidth)**2
+    box_steradians = 4 * np.pi * (box_sqarcsec/3600/3600) / (180./np.pi)**2
+    #
+    return 1./box_steradians
+
+
 def renorm_priors(raw_Oi, U):
     """
     Simple method to normalize the Priors
