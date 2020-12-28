@@ -60,7 +60,7 @@ def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
         raise IOError("Bad method {} for prior_Oi".format(method))
 
 
-def pw_Oi(theta, phi, theta_prior, scale_half=1.):
+def pw_Oi(theta, phi, theta_prior):
     """
     Calculate p(w|O_i) for a given galaxy
 
@@ -75,18 +75,17 @@ def pw_Oi(theta, phi, theta_prior, scale_half=1.):
             Parameters for theta prior
             Three methods are currently supported: core, uniform, exp
             See docs for further details
-        scale_half (float, optional):
-            Alternative scaling in the exponential
 
     Returns:
-        np.ndarray: Probability values; un-normalized
+        np.ndarray: Probability values without grid-size normalization
 
     """
     p = np.zeros_like(theta)
     ok_w = theta < theta_prior['max']*phi
     if theta_prior['method'] == 'core':
-        # Wolfram + Clancy
-        norm = phi * np.log(theta_prior['max']/phi+1)
+        # Wolfram
+        norm = 2 * np.pi * phi**2 * (theta_prior['max']/phi - np.log(theta_prior['max']/phi+1))
+        #norm = phi * np.log(theta_prior['max']/phi+1)
         if np.any(ok_w):
             p[ok_w] = phi / (theta[ok_w] + phi) / norm
     elif theta_prior['method'] == 'uniform':
@@ -94,9 +93,12 @@ def pw_Oi(theta, phi, theta_prior, scale_half=1.):
         if np.any(ok_w):
             p[ok_w] = 1. / norm
     elif theta_prior['method'] == 'exp':
-        norm = phi - np.exp(-scale_half*theta_prior['max']/phi) * (scale_half*theta_prior['max'] + phi)
+        # Wolfram
+        #norm = phi - np.exp(-scale_half*theta_prior['max']/phi) * (scale_half*theta_prior['max'] + phi)
+        norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max']/phi)*np.exp(
+            -theta_prior['max']/phi))
         if np.any(ok_w):
-            p[ok_w] = (theta[ok_w] / phi) * np.exp(-scale_half*theta[ok_w]/phi) / norm
+            p[ok_w] = np.exp(-theta[ok_w]/phi) / norm
     else:
         raise IOError("Bad theta method")
     #
