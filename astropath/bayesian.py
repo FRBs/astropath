@@ -60,12 +60,14 @@ def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
         raise IOError("Bad method {} for prior_Oi".format(method))
 
 
-def pw_Oi(r_w, phi, theta_prior, scale_half=1.):
+def pw_Oi(theta, phi, theta_prior, scale_half=1.):
     """
     Calculate p(w|O_i) for a given galaxy
 
+    Must integrate to 1 when integrating over w
+
     Args:
-        r_w (np.ndarray):
+        theta (np.ndarray):
             offset from galaxy center in arcsec
         phi (float):
             Angular size of the galaxy in arcsec
@@ -80,21 +82,21 @@ def pw_Oi(r_w, phi, theta_prior, scale_half=1.):
         np.ndarray: Probability values; un-normalized
 
     """
-    p = np.zeros_like(r_w)
-    ok_w = r_w < theta_prior['max']*phi
+    p = np.zeros_like(theta)
+    ok_w = theta < theta_prior['max']*phi
     if theta_prior['method'] == 'core':
         # Wolfram + Clancy
         norm = phi * np.log(theta_prior['max']/phi+1)
         if np.any(ok_w):
-            p[ok_w] = phi / (r_w[ok_w] + phi) / norm
+            p[ok_w] = phi / (theta[ok_w] + phi) / norm
     elif theta_prior['method'] == 'uniform':
-        norm = theta_prior['max']
+        norm = np.pi * (phi*theta_prior['max'])**2
         if np.any(ok_w):
             p[ok_w] = 1. / norm
     elif theta_prior['method'] == 'exp':
         norm = phi - np.exp(-scale_half*theta_prior['max']/phi) * (scale_half*theta_prior['max'] + phi)
         if np.any(ok_w):
-            p[ok_w] = (r_w[ok_w] / phi) * np.exp(-scale_half*r_w[ok_w]/phi) / norm
+            p[ok_w] = (theta[ok_w] / phi) * np.exp(-scale_half*theta[ok_w]/phi) / norm
     else:
         raise IOError("Bad theta method")
     #
@@ -118,11 +120,13 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
         box_hwidth (float):
             Half-width of the analysis box, in arcsec
         frb_coord (SkyCoord):
+            Observed position of the FRB (x)
         eellipse (dict):
             Error ellipse for the FRB
-            a, b in arcsec, theta in deg
+            a, b in arcsec, theta (PA) in deg
+            This defines L(x-w)
         cand_coords (SkyCoord):
-            Coordinates of the candidate hosts
+            Coordinates of the candidate host centroids of O_i
         theta_prior (dict):
             Parameters for theta prior
         step_size (float, optional):
@@ -135,8 +139,8 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
 
     """
     # Error ellipse
-    pa_ee = eellipse['theta'] # deg
-    dtheta = 90. - pa_ee  # Place a of ellipse along the x-axis
+    pa_ee = eellipse['theta'] # PA of FRB error ellipse on the sky; deg
+    dtheta = 90. - pa_ee  # Rotation to place the semi-major axis "a" of the ellipse along the x-axis we define
     # Set Equinox (for spherical offsets)
     frb_coord.equinox = cand_coords[0].equinox
     #
@@ -146,18 +150,17 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
 
     # Grid spacing
     grid_spacing_arcsec = x[1]-x[0]
-    grid_spacing_steradian = sqarcsec_steradians * grid_spacing_arcsec**2
+    #grid_spacing_steradian = sqarcsec_steradians * grid_spacing_arcsec**2
 
     # #####################
     # Build the grid around the FRB (orient semi-major axis "a" on our x axis)
-    # l(w) -- 2D Gaussian, normalized
-    l_w = np.exp(-xcoord ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(
+    # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
+    L_wx = np.exp(-xcoord ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(
         -ycoord ** 2 / (2 * eellipse['b'] ** 2)) / (2*np.pi*eellipse['a']*eellipse['b'])
 
     p_xOis, grids = [], []
     # TODO -- multiprocess this
     for icand, cand_coord in enumerate(cand_coords):
-
 
         # Rotate the galaxy
         r = frb_coord.separation(cand_coord).to('arcsec')
@@ -168,18 +171,20 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
         # x, y gal
         x_gal = -r.value * np.sin(new_pa_gal).value
         y_gal = r.value * np.cos(new_pa_gal).value
-        r_w = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)
-        p_wOi = pw_Oi(r_w, theta_prior['ang_size'][icand], theta_prior)
+        theta = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)  # arc sec
+        p_wOi = pw_Oi(theta,
+                      theta_prior['ang_size'][icand],  # phi
+                      theta_prior)
 
         # Product
-        grid_p = l_w * p_wOi
+        grid_p = L_wx * p_wOi
 
         # Save grids if returning
         if return_grids:
             grids.append(grid_p.copy())
 
         # Sum
-        p_xOis.append(np.sum(grid_p*grid_spacing_steradian))
+        p_xOis.append(np.sum(grid_p)*grid_spacing_arcsec**2)
 
     # Return
     if return_grids:
@@ -200,9 +205,9 @@ def px_U(box_hwidth):
 
     """
     box_sqarcsec = (2*box_hwidth)**2
-    box_steradians = box_sqarcsec * sqarcsec_steradians
+    #box_steradians = box_sqarcsec * sqarcsec_steradians
     #
-    return 1./box_steradians
+    return 1./box_sqarcsec  # box_steradians
 
 
 def renorm_priors(raw_Oi, U):
