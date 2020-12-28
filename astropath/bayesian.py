@@ -9,6 +9,8 @@ from astropath import chance
 
 from IPython import embed
 
+sqarcsec_steradians = 4 * np.pi * (1 / 3600 / 3600) / (180. / np.pi) ** 2
+
 
 def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
     """
@@ -144,6 +146,7 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
 
     # Grid spacing
     grid_spacing_arcsec = x[1]-x[0]
+    grid_spacing_steradian = sqarcsec_steradians * grid_spacing_arcsec**2
 
     # #####################
     # Build the grid around the FRB (orient semi-major axis "a" on our x axis)
@@ -176,7 +179,7 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
             grids.append(grid_p.copy())
 
         # Sum
-        p_xOis.append(np.sum(grid_p*grid_spacing_arcsec**2))
+        p_xOis.append(np.sum(grid_p*grid_spacing_steradian))
 
     # Return
     if return_grids:
@@ -197,7 +200,7 @@ def px_U(box_hwidth):
 
     """
     box_sqarcsec = (2*box_hwidth)**2
-    box_steradians = 4 * np.pi * (box_sqarcsec/3600/3600) / (180./np.pi)**2
+    box_steradians = box_sqarcsec * sqarcsec_steradians
     #
     return 1./box_steradians
 
@@ -217,5 +220,4 @@ def renorm_priors(raw_Oi, U):
     """
     raw_sum = np.sum(raw_Oi)
     return (1.-U) * raw_Oi/raw_sum
-
 
