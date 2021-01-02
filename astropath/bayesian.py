@@ -199,6 +199,25 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
 def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
                   coord_sys='C',
                   debug = False):
+    """
+
+    Args:
+        transient (np.ndarray):
+            Healpix probability values
+        nside (int):
+            Healpix NSIDE
+        cand_coords (astropy.coordinates.SkyCoord):
+        theta_prior (dict):
+        step_size (float, optional):
+            Step size of the galaxy grid scaled by phi
+        coord_sys (str, optional):
+            Coordinate system of the healpix
+        debug:
+
+    Returns:
+        np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
+
+    """
     # Unpack
     # IF Celestial
     if coord_sys == 'C':
