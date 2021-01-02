@@ -212,7 +212,7 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
             Step size of the galaxy grid scaled by phi
         coord_sys (str, optional):
             Coordinate system of the healpix
-        debug:
+        debug (bool, optional):
 
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
