@@ -28,3 +28,10 @@ Priors
 
    offset_function
 
+Notebooks
+---------
+
+.. toctree::
+   :maxdepth: 1
+
+   nb/FRB_example
