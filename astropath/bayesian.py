@@ -203,16 +203,22 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
 
     Args:
         transient (np.ndarray):
-            Healpix probability values
+            Healpix probability values for the localization
         nside (int):
             Healpix NSIDE
         cand_coords (astropy.coordinates.SkyCoord):
+            SkyCoord object for the candidate galaxies
         theta_prior (dict):
+            Contains information related to the offset function
+            This includes the angular size "ang_size" in units of arcsec
+            here referred to as phi.
         step_size (float, optional):
             Step size of the galaxy grid scaled by phi
         coord_sys (str, optional):
             Coordinate system of the healpix
+            'C' = Celestial [only supported option]
         debug (bool, optional):
+            If true, hit an embed in the main loop
 
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
@@ -223,7 +229,7 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
     if coord_sys == 'C':
         lon, lat = cand_coords.ra.deg, cand_coords.dec.deg
     else:
-        raise IOError("Not ready for this")
+        raise IOError("Only coord_sys='C' is currently supported")
 
     # Loop on galaxies
     p_xOis = []
@@ -250,7 +256,7 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
         p_xOis.append(np.sum(grid_p)*step_size_phi**2)
         # Debug
         if debug and icand == 11:
-            embed(header='207 of bay')
+            embed(header='207 of bayesian.py')
     # Return
     return np.array(p_xOis)
 
