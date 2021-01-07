@@ -31,6 +31,8 @@ to install and/or update these packages.
 * `scipy <http://www.scipy.org/>`_ version 1.4 or later
 * `pandas <https://pandas.pydata.org/>`_ version 0.25 or later
 * `photutils <https://photutils.readthedocs.io/en/stable/>`_  version 1.0.1 or later
+* `healpy <https://github.com/healpy/healpy>`_  version 1.14 or later
+* `astropy-healpix <https://pypi.org/project/astropy-healpix/>`_  version 0.5 or later
 
 If you are using Anaconda, you can check the presence of these packages with::
 

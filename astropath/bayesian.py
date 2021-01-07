@@ -2,6 +2,8 @@
 
 import numpy as np
 
+import healpy as hp
+
 from astropy import units
 from astropy.coordinates import SkyCoord
 
@@ -193,6 +195,70 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
         return np.array(p_xOis), grids
     else:
         return np.array(p_xOis)
+
+def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
+                  coord_sys='C',
+                  debug = False):
+    """
+
+    Args:
+        transient (np.ndarray):
+            Healpix probability values for the localization
+        nside (int):
+            Healpix NSIDE
+        cand_coords (astropy.coordinates.SkyCoord):
+            SkyCoord object for the candidate galaxies
+        theta_prior (dict):
+            Contains information related to the offset function
+            This includes the angular size "ang_size" in units of arcsec
+            here referred to as phi.
+        step_size (float, optional):
+            Step size of the galaxy grid scaled by phi
+        coord_sys (str, optional):
+            Coordinate system of the healpix
+            'C' = Celestial [only supported option]
+        debug (bool, optional):
+            If true, hit an embed in the main loop
+
+    Returns:
+        np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
+
+    """
+    # Unpack
+    # IF Celestial
+    if coord_sys == 'C':
+        lon, lat = cand_coords.ra.deg, cand_coords.dec.deg
+    else:
+        raise IOError("Only coord_sys='C' is currently supported")
+
+    # Loop on galaxies
+    p_xOis = []
+    for icand, cand_coord in enumerate(cand_coords):
+        phi_cand = theta_prior['ang_size'][icand]   # arcsec
+        step_size_phi = phi_cand * step_size        # arcsec
+        box_hwidth = phi_cand * theta_prior['max']  # arcsec
+        # Grid the galaxy
+        ngrid = int(np.round(2 * box_hwidth / step_size_phi))
+        x = np.linspace(-box_hwidth, box_hwidth, ngrid)
+        xcoord, ycoord = np.meshgrid(x,x)
+        theta = np.sqrt(xcoord**2 + ycoord**2)
+        # p(w|O)
+        p_wOi = pw_Oi(theta, phi_cand, theta_prior)
+        # Generate coords for FRB (flat sky)
+        loncoord = lon[icand] + xcoord/3600.
+        latcoord = lat[icand] + ycoord/3600.
+        hp_index = hp.ang2pix(nside, loncoord, latcoord, lonlat=True)
+        L_wx = transient[hp_index]
+
+        # Finish
+        grid_p = L_wx * p_wOi
+        #
+        p_xOis.append(np.sum(grid_p)*step_size_phi**2)
+        # Debug
+        if debug and icand == 11:
+            embed(header='207 of bayesian.py')
+    # Return
+    return np.array(p_xOis)
 
 
 def px_U(box_hwidth):

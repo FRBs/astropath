@@ -8,6 +8,6 @@
 
 ## Additional contributors include:
 
-## Submitted to the Astrophysical Journal:
+## Publications
 
-https://drive.google.com/file/d/12iPFlFisDFKdR6-LC5_XhjdXI7-K2vol/view?usp=sharing
+### [PATH](https://drive.google.com/file/d/12iPFlFisDFKdR6-LC5_XhjdXI7-K2vol/view?usp=sharing)
