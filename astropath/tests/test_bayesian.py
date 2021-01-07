@@ -15,6 +15,8 @@ from astropath import bayesian
 
 import pytest
 
+remote_data = pytest.mark.skipif(os.getenv('PATH_DATA') is None,
+                                 reason='test requires dev suite')
 
 def test_raw_prior():
     # Inverse
@@ -125,12 +127,8 @@ def test_healpix():
 
     # Galaxies
     galfile = os.path.join(resource_filename('astropath', 'data'), 'gw_examples',
-                           'GW170817_galaxies.fits.gz')
-    gw170817_gal = Table.read(galfile).to_pandas()
-
-    # Cut down
-    cut_galaxies = gw170817_gal.iloc[667000 + np.arange(5000)].copy()
-    cut_galaxies = cut_galaxies[np.isfinite(cut_galaxies.maj)]
+                           'GW170817_galaxies.csv')
+    cut_galaxies = pandas.read_csv(galfile)
 
     # Coords
     cut_gal_coord = SkyCoord(ra=cut_galaxies.RAJ2000, dec=cut_galaxies.DEJ2000, unit='deg')
