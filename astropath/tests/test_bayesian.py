@@ -5,7 +5,11 @@ from pkg_resources import resource_filename
 
 import numpy as np
 import pandas
+import healpy as hp
+
+from astropy.table import Table
 from astropy.coordinates import SkyCoord
+from astropy.io import fits
 
 from astropath import bayesian
 
@@ -58,6 +62,7 @@ def test_pw_Oi():
     pw_Oi_e = np.sum(bayesian.pw_Oi(theta, phi, theta_prior)) * grid_spacing_arcsec**2
     assert np.isclose(pw_Oi_e, 1., atol=1e-4)
 
+
 def test_PU():
     # FRB
     frb_coord = SkyCoord('05h31m58.7013s +33d08m52.5536s', frame='icrs')
@@ -109,4 +114,47 @@ def test_PU():
 
 
     pass
+
+
+def test_healpix():
+    # Load up the healpix
+    lfile = os.path.join(resource_filename('astropath', 'data'), 'gw_examples',
+                         'GW170817_skymap.fits.gz')
+    gw170817 = hp.read_map(lfile)
+    header = fits.open(lfile)[1].header
+
+    # Galaxies
+    galfile = os.path.join(resource_filename('astropath', 'data'), 'gw_examples',
+                           'GW170817_galaxies.fits.gz')
+    gw170817_gal = Table.read(galfile).to_pandas()
+
+    # Cut down
+    cut_galaxies = gw170817_gal.iloc[667000 + np.arange(5000)].copy()
+    cut_galaxies = cut_galaxies[np.isfinite(cut_galaxies.maj)]
+
+    # Coords
+    cut_gal_coord = SkyCoord(ra=cut_galaxies.RAJ2000, dec=cut_galaxies.DEJ2000, unit='deg')
+
+    # PATH
+    offset_prior = dict(method='exp',
+                        max=6.,  # units of ang_size
+                        ang_size=cut_galaxies.maj.values * 60.,  # arcsec
+                        )
+    priors = dict(offset=offset_prior,
+                  O='inverse',
+                  U=0.,
+                  name='Adopted')
+
+    # Priors
+    raw_prior_Oi = bayesian.raw_prior_Oi(priors['O'],
+                                         cut_galaxies.Bmag.values)
+    cut_galaxies['P_O_raw'] = raw_prior_Oi
+    cut_galaxies['P_O'] = bayesian.renorm_priors(cut_galaxies.P_O_raw.values, priors['U'])
+
+    # Calculate p(x|O)
+    p_xOi = bayesian.px_Oi_healpix(gw170817, header['NSIDE'],
+                                   cut_gal_coord, offset_prior)  # , debug=True)
+    np.isclose(np.max(p_xOi), 0.05150504596867476)
+
+
 
