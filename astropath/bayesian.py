@@ -9,6 +9,8 @@ from astropy.coordinates import SkyCoord
 
 from astropath import chance
 
+from mocpy import MOC
+
 from IPython import embed
 
 sqarcsec_steradians = 4 * np.pi * (1 / 3600 / 3600) / (180. / np.pi) ** 2
