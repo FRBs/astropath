@@ -13,6 +13,7 @@ from IPython import embed
 
 sqarcsec_steradians = 4 * np.pi * (1 / 3600 / 3600) / (180. / np.pi) ** 2
 
+
 def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
     """
     Raw prior for a given set of magnitudes or Pchance values
