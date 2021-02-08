@@ -351,7 +351,7 @@ def fig_pchance(frb_name='FRB180924', outfile='fig_pchance.png'):
         #           alpha=0.5)
 
     # FRB localization
-    apermap = plot_frb_localization(frbA.frb, frbA.wcs)
+    apermap = plot_frb_localization(frbA.frb, frbA.wcs, scale=5.)
     apermap.plot(color='red', lw=1, ls='dotted')
 
     plt.grid(color='gray', ls='dashed', lw=0.5)
@@ -1324,12 +1324,12 @@ def fig_galaxy_posteriors(frb_name, outfile='fig_galaxy_posteriors.png',
 
 
 
-def plot_frb_localization(ifrb, wcs):
+def plot_frb_localization(ifrb, wcs, scale=1.):
     # FRB localization
     theta = ifrb.eellipse['theta']
     aper = SkyEllipticalAperture(positions=ifrb.coord,
-                                 a=ifrb.sig_a * units.arcsecond,
-                                 b=ifrb.sig_b * units.arcsecond,
+                                 a=scale*ifrb.sig_a * units.arcsecond,
+                                 b=scale*ifrb.sig_b * units.arcsecond,
                                  theta=theta * units.deg)
     apermap = aper.to_pixel(wcs)
     return apermap
@@ -1465,9 +1465,9 @@ if __name__ == '__main__':
     if len(sys.argv) == 1:
         flg_fig = 0
         #flg_fig += 2**0   # P(w|O)
-        flg_fig += 2**1   # P(O)
+        #flg_fig += 2**1   # P(O)
         #flg_fig += 2**2   # p(O|x) for FRBs
-        #flg_fig += 2**3   # PChance
+        flg_fig += 2**3   # PChance
         #flg_fig += 2**4   # Prior vs. posterior for p(w|O)
         #flg_fig += 2**5   # m-Macquart mag vs. DM
         #flg_fig += 2**6   # P(L)
