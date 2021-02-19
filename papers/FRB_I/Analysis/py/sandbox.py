@@ -667,13 +667,51 @@ def main(flg):
         analyze_box(galaxies_file, results_file, stats_file, sbox+'_AU0.1.pdf')
 
 
+    # More PU10
+    if flg & (2**9):
+        # Prior
+        prior = associate_defs.adopted.copy()
+
+        # FRB
+        # Files
+        sbox = 'PU10'
+
+        # m<25
+        galaxies_file = os.path.join('SandBox', sbox, 'frbs_with_galaxies_50000_mag_20-25_oU2_locU_0.1-1_PU10.csv')
+        frb_file = os.path.join('SandBox', sbox, 'frbs_50000_mag_20-25_oU2_locU_0.1-1_PU10.csv')
+        results_file = os.path.join('SandBox', sbox, sbox + 'mag25_A0_results.csv')
+        stats_file = os.path.join('SandBox', sbox, sbox + 'mag25_A0_stats.csv')
+
+        # Run
+        run_it(prior, 'loc_sig', frb_file, stats_file, results_file, stats_only=False)
+        # Analyze
+        analyze_box(galaxies_file, results_file, stats_file, sbox + 'mag25_A0.pdf')
+
+        # Prior -- Conservative
+        prior = associate_defs.conservative.copy()
+
+        # FRB
+        # Files
+        sbox = 'PU10'
+
+        # m<25
+        galaxies_file = os.path.join('SandBox', sbox, 'frbs_with_galaxies_50000_mag_20-25_oU2_locU_0.1-1_PU10.csv')
+        frb_file = os.path.join('SandBox', sbox, 'frbs_50000_mag_20-25_oU2_locU_0.1-1_PU10.csv')
+        results_file = os.path.join('SandBox', sbox, sbox + 'mag25_C_results.csv')
+        stats_file = os.path.join('SandBox', sbox, sbox + 'mag25_C_stats.csv')
+
+        # Run
+        run_it(prior, 'loc_sig', frb_file, stats_file, results_file, stats_only=False)
+        # Analyze
+        analyze_box(galaxies_file, results_file, stats_file, sbox + 'mag25_C.pdf')
+
 
 # Command line execution
 if __name__ == '__main__':
 
     if len(sys.argv) == 1:
         flg = 0
-        flg += 2**0   # First 100k + inverse
+        #flg += 2**0   # First 100k + inverse
         #flg += 2**1   # First 100k + conservative
         #flg += 2**2   # First 100k + adopted + P(U)=0.05
         #flg += 2**3   # SB-2, 3, 4
@@ -682,6 +720,7 @@ if __name__ == '__main__':
         #flg += 2**6   # First 100k + inverse2
         #flg += 2**7   # SB-1 match with inverse
         #flg += 2**8   # Unseen FRBs
+        flg += 2**9   # More PU10
 
     else:
         flg = int(sys.argv[1])

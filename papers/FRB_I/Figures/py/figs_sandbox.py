@@ -209,9 +209,9 @@ def fig_sb_PP(outfile='fig_sb_PP.png', exploring=False, SB3=False):
     nbin = 10
     nsub = len(truth) // nbin
     if exploring:
-        dictU, dictU05, dictC, dictM = dict(lbl=r'$\Sigma(m)$'), \
-                                dict(lbl=r'$\Sigma(m) \phi$'), \
-                                       dict(lbl=r'$\Sigma(m) \phi^2$'), \
+        dictU, dictU05, dictC, dictM = dict(lbl=r'$1/\Sigma(m)$'), \
+                                dict(lbl=r'$1/\Sigma(m) \phi$'), \
+                                       dict(lbl=r'$1/\Sigma(m) \phi^2$'), \
                                             dict(lbl=r'$U + \Sigma(m)$')
     elif SB3:
         dictU = dict(lbl='Adopted')
@@ -580,10 +580,10 @@ if __name__ == '__main__':
         #flg_fig += 2**0   # Posteriors
         #flg_fig += 2**1   # PP
         #flg_fig += 2**2   # COSMOS
-        #flg_fig += 2**3   # Figuring out the 'best' prior
+        flg_fig += 2**3   # Figuring out the 'best' prior
         #flg_fig += 2**4   # PP ASKAP
         #flg_fig += 2**5   # PU
-        flg_fig += 2**6   # Stats with magnitude
+        #flg_fig += 2**6   # Stats with magnitude
     else:
         flg_fig = sys.argv[1]
 
