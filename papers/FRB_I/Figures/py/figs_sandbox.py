@@ -1,6 +1,6 @@
 
 import numpy as np
-import sys
+import sys, os
 
 import matplotlib as mpl
 import seaborn as sns
@@ -510,9 +510,10 @@ def fig_sb_mag(outfile='fig_sb_POx_mags.png', Psecure=0.95):
 def read_unseen(name, truth='frbs_with_galaxies_50000_mag_20-25_oU2_locU_0.1-1_PU10.csv'):
     # read stats and results of SB with unseen galaxies and return results only for unseen
     # FRB hosts
-    truth_file = truth
-    stats_file = f'{name}_stats.csv'
-    results_file = f'{name}_results.csv'
+    dpath = '../Analysis/SandBox/PU10/'
+    truth_file = os.path.join(dpath, truth)
+    stats_file = os.path.join(dpath, f'{name}_stats.csv')
+    results_file = os.path.join(dpath, f'{name}_results.csv')
 
     stats = pandas.read_csv(stats_file, index_col=0)
     truth = pandas.read_csv(truth_file, index_col=0)
@@ -523,6 +524,11 @@ def read_unseen(name, truth='frbs_with_galaxies_50000_mag_20-25_oU2_locU_0.1-1_P
 
 
 def fig_unseen_hosts_cdf(outfile='fig_unseen_hosts_cdf.png'):
+    """[summary]
+
+    Args:
+        outfile (str, optional): [description]. Defaults to 'fig_unseen_hosts_cdf.png'.
+    """
     unseen_stats_C, unseen_results_C, truth_file = read_unseen(name='PU10mag25_C')
     unseen_stats_A, unseen_results_A, truth_file = read_unseen(name='PU10mag25_A0')
 
@@ -553,21 +559,37 @@ def fig_unseen_hosts_cdf(outfile='fig_unseen_hosts_cdf.png'):
     cdf_A = np.cumsum(hist_A)/len(unseen_stats_A)
     cdf_A_secure = np.cumsum(hist_A_secure)/len(unseen_stats_A_secure)
 
-    fig, ax1 = plt.subplots(1,1)
+    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8,12))
+
+    # Full plot
     ax1.plot(bins[:-1], cdf_C, color='g', label='Conservative')
-    ax1.plot(bins[:-1], cdf_C_secure, color='g', linestyle='--')
-
     ax1.plot(bins[:-1], cdf_A, color='b', label='Adopted')
-    ax1.plot(bins[:-1], cdf_A_secure, color='b', linestyle='--')
+    #ax1.set_xlim([0, 6])
+    ax1.set_ylim([0, 1])
+    ax1.legend(loc='lower right', scatterpoints=1, borderpad=0.2,
+                       handletextpad=handletextpad, fontsize='large')
 
-    ax1.set_xlim([0, 6])
-    ax1.set_ylim([0, 0.13])
-    ax1.set_xlabel(r'$\theta/\phi$')
-    ax1.set_ylabel(r'CDF')
-    ax1.minorticks_on()
-    plt.grid()
-    plt.legend()
-    plt.savefig(outfile)
+    # Zoom-in
+    ax2.plot(bins[:-1], cdf_C, color='g', label='Conservative')
+    #ax1.plot(bins[:-1], cdf_C_secure, color='g', linestyle='--')
+    ax2.plot(bins[:-1], cdf_A, color='b', label='Adopted')
+    #ax1.plot(bins[:-1], cdf_A_secure, color='b', linestyle='--')
+
+    ax2.set_xlim([0, 6])
+    ax2.set_ylim([0, 0.13])
+    for ax in [ax1, ax2]:
+        ax.set_xlabel(r'$\theta/\phi$')
+        ax.set_ylabel(r'CDF')
+        ax.minorticks_on()
+        ax.grid()
+        set_fontsize(ax, 15.)
+    # Finish
+    plt.tight_layout(pad=0.2, h_pad=0., w_pad=0.1)
+    kwargs = {}
+    if 'png' in outfile:
+        kwargs['dpi'] = 500
+    plt.savefig(outfile, **kwargs)
+    print("Wrote: {}".format(outfile))
 
 
 def set_fontsize(ax,fsz):
@@ -631,6 +653,10 @@ def main(flg_fig):
     if flg_fig & (2**6):
         fig_sb_mag()
 
+    # P(O|x) for SB-1 and mag cuts
+    if flg_fig & (2**7):
+        fig_unseen_hosts_cdf()
+
 
 # Command line execution
 if __name__ == '__main__':
@@ -641,10 +667,11 @@ if __name__ == '__main__':
         #flg_fig += 2**0   # Posteriors
         #flg_fig += 2**1   # PP
         #flg_fig += 2**2   # COSMOS
-        flg_fig += 2**3   # Figuring out the 'best' prior
+        #flg_fig += 2**3   # Figuring out the 'best' prior
         #flg_fig += 2**4   # PP ASKAP
         #flg_fig += 2**5   # PU
         #flg_fig += 2**6   # Stats with magnitude
+        flg_fig += 2**7   # Fig unseen
     else:
         flg_fig = sys.argv[1]
 
