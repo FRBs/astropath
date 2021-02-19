@@ -507,6 +507,68 @@ def fig_sb_mag(outfile='fig_sb_POx_mags.png', Psecure=0.95):
     plt.close()
 
 
+def read_unseen(name, truth='frbs_with_galaxies_50000_mag_20-25_oU2_locU_0.1-1_PU10.csv'):
+    # read stats and results of SB with unseen galaxies and return results only for unseen
+    # FRB hosts
+    truth_file = truth
+    stats_file = f'{name}_stats.csv'
+    results_file = f'{name}_results.csv'
+
+    stats = pandas.read_csv(stats_file, index_col=0)
+    truth = pandas.read_csv(truth_file, index_col=0)
+    results = pandas.read_csv(results_file, index_col=0, keep_default_na=False)
+    unseen_results = results[results['iFRB'] > truth.index.max()]
+    unseen_stats = stats[stats['iFRB'] > truth.index.max()]
+    return unseen_stats, unseen_results, truth
+
+
+def fig_unseen_hosts_cdf(outfile='fig_unseen_hosts_cdf.png'):
+    unseen_stats_C, unseen_results_C, truth_file = read_unseen(name='PU10mag25_C')
+    unseen_stats_A, unseen_results_A, truth_file = read_unseen(name='PU10mag25_A0')
+
+    psecure = 0.95
+
+    print(f"Fraction of secure for Conservative (for unseen host FRBs): "
+          f"{(unseen_stats_C['max_POx']  > psecure).sum()/len(unseen_stats_C)}")
+
+    print(f"Fraction of secure for Adopted (for unseen host FRBs): "
+          f"{(unseen_stats_A['max_POx']  > psecure).sum()/len(unseen_stats_A)}")
+
+    unseen_stats_C['theta_over_phi'] = unseen_stats_C['best_offset'] / unseen_stats_C['best_half']
+    unseen_stats_A['theta_over_phi'] = unseen_stats_A['best_offset'] / unseen_stats_A['best_half']
+
+    secure_prob = 0.95
+    unseen_stats_C_secure = unseen_stats_C[unseen_stats_C['max_POx'] > secure_prob]
+    unseen_stats_A_secure = unseen_stats_A[unseen_stats_A['max_POx'] > secure_prob]
+
+    hist_C, bins = np.histogram(unseen_stats_C['theta_over_phi'], bins=500)
+    hist_C_secure, bins = np.histogram(unseen_stats_C_secure['theta_over_phi'], bins=bins)
+
+    cdf_C = np.cumsum(hist_C)/len(unseen_stats_C)
+    cdf_C_secure = np.cumsum(hist_C_secure)/len(unseen_stats_C_secure)
+
+    hist_A, bins = np.histogram(unseen_stats_A['theta_over_phi'], bins=bins)
+    hist_A_secure, bins = np.histogram(unseen_stats_A_secure['theta_over_phi'], bins=bins)
+
+    cdf_A = np.cumsum(hist_A)/len(unseen_stats_A)
+    cdf_A_secure = np.cumsum(hist_A_secure)/len(unseen_stats_A_secure)
+
+    fig, ax1 = plt.subplots(1,1)
+    ax1.plot(bins[:-1], cdf_C, color='g', label='Conservative')
+    ax1.plot(bins[:-1], cdf_C_secure, color='g', linestyle='--')
+
+    ax1.plot(bins[:-1], cdf_A, color='b', label='Adopted')
+    ax1.plot(bins[:-1], cdf_A_secure, color='b', linestyle='--')
+
+    ax1.set_xlim([0, 6])
+    ax1.set_ylim([0, 0.13])
+    ax1.set_xlabel(r'$\theta/\phi$')
+    ax1.set_ylabel(r'CDF')
+    ax1.minorticks_on()
+    plt.grid()
+    plt.legend()
+    plt.savefig(outfile)
+
 
 def set_fontsize(ax,fsz):
     '''
@@ -568,7 +630,6 @@ def main(flg_fig):
     # P(O|x) for SB-1 and mag cuts
     if flg_fig & (2**6):
         fig_sb_mag()
-
 
 
 # Command line execution
