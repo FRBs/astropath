@@ -1,0 +1,1963 @@
+%% using aastex version 6.3
+\documentclass[twocolumn,linenumbers]{aastex63}
+%%
+%%
+\newcommand{\vdag}{(v)^\dagger}
+\newcommand{\aastex}{AAS\TeX}
+\newcommand{\latex}{La\TeX}
+
+\newcounter{daggerfootnote}
+\newcommand*{\daggerfootnote}[1]{%
+    \setcounter{daggerfootnote}{\value{footnote}}%
+    \renewcommand*{\thefootnote}{\fnsymbol{footnote}}%
+    \footnote[2]{#1}%
+    \setcounter{footnote}{\value{daggerfootnote}}%
+    \renewcommand*{\thefootnote}{\arabic{footnote}}%
+    }
+
+% Packages
+\usepackage{amsmath}
+\usepackage{color}
+
+% Misc
+\newcommand{\smm}{\sum\limits}
+
+% units
+\newcommand{\mmsun}{M_\odot}  % Solar mass
+\newcommand{\mkms}{{\rm km \, s^{-1}}}
+
+% Galaxy properties
+\newcommand{\mmstar}{M_\star}
+\newcommand{\mstar}{$\mmstar$}
+\newcommand{\mebv}{E(B-V)}
+\newcommand{\ebv}{$\mebv$}
+\newcommand{\mgmag}{m}
+\newcommand{\gmag}{$\mgmag$}
+\newcommand{\mragal}{\alpha_i} % RA of candidate galaxy
+\newcommand{\ragal}{$\mragal$}
+\newcommand{\mdecgal}{\delta_i} % DEC of candidate galaxy
+\newcommand{\decgal}{$\mdecgal$}
+\newcommand{\mgalhalflight}{\phi_{i}} % Angular half-light radius of candidate galaxies
+\newcommand{\galhalflight}{$\mgalhalflight$}
+\newcommand{\mlstar}{L*}
+\newcommand{\lstar}{$\mlstar$}
+\newcommand{\mtkron}{\phi_{\rm Kron}}
+\newcommand{\tkron}{$\mtkron$}
+\newcommand{\photutils}{{\sc photutils}}
+
+% Bayesian Analysis
+\newcommand{\mNc}{N_c} % Number of candidates
+\newcommand{\Nc}{$\mNc$}
+\newcommand{\mnhalf}{n_{1/2}} % Number of half-light radii to analyze
+\newcommand{\nhalf}{$\mnhalf$}
+\newcommand{\nnhalf}{10}  % Actual number of half-light used
+
+
+% FRB
+\newcommand{\mrafrb}{\alpha_{\rm FRB}} % RA of the FRB
+\newcommand{\rafrb}{$\mrafrb$}
+\newcommand{\mdecfrb}{\delta_{\rm FRB}} % DEC of the FRB
+\newcommand{\decfrb}{$\mdecfrb$}
+\newcommand{\meefrb}{\epsilon_{\rm FRB}} % Error ellipse of the FRB
+\newcommand{\eefrb}{$\meefrb$}
+\newcommand{\msigmafrb}{\sigma_{\rm FRB}} % FRB uncertainty (circular estimate)
+\newcommand{\sigmafrb}{$\msigmafrb$}
+\newcommand{\meea}{\epsilon_a}  % Error ellipse a
+\newcommand{\eea}{$\meea$}
+\newcommand{\meeb}{\epsilon_b}  % Error ellipse b
+\newcommand{\eeb}{$\meeb$}
+\newcommand{\meep}{\epsilon_{\rm PA}}  % Error ellipse PA
+\newcommand{\eep}{$\meep$}
+\newcommand{\nsecure}{nine}  % Number of secure FRBs
+\newcommand{\frblocal}{99.9\%}  % Percent considered
+
+
+% Angular
+\newcommand{\msep}{\theta} % Angular separation
+\newcommand{\sep}{$\msep$}
+\newcommand{\mhalflight}{\phi} % Angular size
+\newcommand{\halflight}{$\mhalflight$}
+\newcommand{\aimage}{\texttt{a\_image}}
+
+% Chance probability
+\newcommand{\mtheff}{\theta_{\rm eff}} % Effective radius for Pchance
+\newcommand{\theff}{$\mtheff$}
+\newcommand{\mpchance}{P^c}
+\newcommand{\pchance}{$\mpchance$}
+\newcommand{\mipchance}{\mpchance_i}
+\newcommand{\ipchance}{$\mipchance$}
+\newcommand{\achance}{0.05}
+\newcommand{\mnumden}{\Sigma(\mgmag)}
+\newcommand{\numden}{$\mnumden$}
+\newcommand{\minumden}{\Sigma(\mgmag_i)}
+
+% Priors
+\newcommand{\mthmax}{\theta_{\rm max}}  % Maximum offset (Prior)
+\newcommand{\thmax}{$\mthmax$}
+\newcommand{\mpoffset}{p(\omega|O_i)}  % Offset probability
+\newcommand{\poffset}{$\mpoffset$}
+\newcommand{\mPO}{P(O)}  % P(O)
+\newcommand{\PO}{$\mPO$}
+\newcommand{\mPOi}{P(O_i)}  % P(O)
+\newcommand{\POi}{$\mPOi$}
+\newcommand{\mPU}{P(U)}  % P(U)
+\newcommand{\PU}{$\mPU$}
+\newcommand{\uguess}{0}  % Guess for P(U)
+\newcommand{\nsets}{two}  % Number of prior sets
+
+\newcommand{\mpxOi}{p(x|O_i)}  % p(x|O_i)
+\newcommand{\pxOi}{$\mpxOi$}
+\newcommand{\adopted}{adopted}
+
+% Posteriors
+\newcommand{\mPOx}{P(O|x)}  % P(O|x)
+\newcommand{\POx}{$\mPOx$}
+\newcommand{\mPOix}{P(O_i|x)}  % P(O_i|x)
+\newcommand{\POix}{$\mPOix$}
+\newcommand{\mPUx}{P(U|x)}  % P(U|x)
+\newcommand{\PUx}{$\mPUx$}
+\newcommand{\mPOsec}{P_{\rm secure}}  % P_secure
+\newcommand{\POsec}{$\mPOsec$}
+\newcommand{\POvsec}{0.95}  % Probability for secure
+
+% Sandbox
+\newcommand{\simsecure}{35}  % Probability for secure
+
+% Samples
+\newcommand{\ntot}{13} % Total number
+\newcommand{\nsampA}{10} % Number of hosts in Sample A
+
+% Redshifts
+\newcommand{\mzspec}{z_{\rm spec}}
+\newcommand{\zspec}{$\mzspec$}
+\newcommand{\mzphot}{z_{\rm phot}}
+\newcommand{\zphot}{$\mzphot$}
+
+% Morphology
+\newcommand{\mReff}{R_{\rm eff}}
+\newcommand{\Reff}{$\mReff$}
+
+% DM
+\newcommand{\mdmunits}{{\rm pc\,cm^{-3}}} 
+\newcommand{\dmunits}{$\mdmunits$}
+\newcommand{\mdmcosmic}{{\rm DM}_{\rm cosmic}}
+\newcommand{\dmcosmic}{$\mdmcosmic$}
+\newcommand{\mdmacosmic}{\langle {\rm DM}_{\rm cosmic} \rangle}
+\newcommand{\mdmahalos}{\langle {\rm DM}_{\rm halos} \rangle}
+\newcommand{\mdmaigm}{\langle {\rm DM}_{\rm IGM} \rangle}
+\newcommand{\dmacosmic}{$\mdmacosmic$}
+\newcommand{\dmahalos}{$\mdmahalos$}
+\newcommand{\dmaigm}{$\mdmaigm$}
+\newcommand{\mdmfrb}{{\rm DM}_{\rm FRB}}
+\newcommand{\dmfrb}{$\mdmfrb$}
+\newcommand{\mdmigm}{{\rm DM}_{\rm IGM}}
+\newcommand{\dmigm}{$\mdmigm$}
+\newcommand{\mdmhalos}{{\rm DM}_{\rm halos}}
+\newcommand{\dmhalos}{$\mdmhalos$}
+\newcommand{\mdmhost}{{\rm DM}_{\rm host}}
+\newcommand{\dmhost}{$\mdmhost$}
+\newcommand{\mdmmwhalo}{{\rm DM}_{\rm MW,halo}}
+\newcommand{\dmmwhalo}{$\mdmmwhalo$}
+\newcommand{\mdmmwism}{{\rm DM}_{\rm MW,ISM}}
+\newcommand{\dmmwism}{$\mdmmwism$}
+\newcommand{\mdmprogen}{{\rm DM}_{\rm progen}}
+\newcommand{\dmprogen}{$\mdmprogen$}
+\newcommand{\mdmfrbc}{{\rm DM}_{\rm FRB,C}}
+\newcommand{\dmfrbc}{$\mdmfrbc$}
+\newcommand{\mdmslime}{\mdmigm^{\rm slime}}
+\newcommand{\dmslime}{$\mdmslime$}
+
+% comment
+\newcommand{\tamas}[1]{\color{blue}{TB: #1}\color{black}}
+\newcommand{\st}{\textcolor{purple}} % Text suggestion from Shriharsh
+\newcommand{\stcomment}[1]{\footnote{[SPT comment: {\color{purple} #1 }]}} % comment from Shriharsh
+\newcommand{\atd}{\textcolor{magenta}} % Text suggestion or comment from Adam
+
+
+%% Reintroduced the \received and \accepted commands from AASTeX v5.2
+
+% Stats
+\newcommand{\mpks}{P_{\rm KS}}
+\newcommand{\pks}{$\mpks$}
+
+%%
+%% You can add a light gray and diagonal water-mark to the first page 
+%% with this command:
+%% \watermark{text}
+%% where "text", e.g. DRAFT, is the text to appear.  If the text is 
+%% long you can control the water-mark size with:
+%% \setwatermarkfontsize{dimension}
+%% where dimension is any recognized LaTeX dimension, e.g. pt, in, etc.
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% \graphicspath{{./}{figures/}}
+%% This is the end of the preamble.  Indicate the beginning of the
+%% manuscript itself with \begin{document}.
+
+\begin{document}
+
+\title{Probabilistic Association of Transients to their Hosts (PATH)}
+
+\correspondingauthor{J. Xavier Prochaska}
+\email{xavier@ucolick.org}
+
+\author[0000-0002-2059-0525]{Kshitij Aggarwal}
+\affil{Department of Physics and Astronomy, West Virginia University, Morgantown, WV 26506, USA}
+\affil{Center for Gravitational Waves and Cosmology, West Virginia University, Chestnut Ridge Research Building, Morgantown, WV, USA}
+
+\author[0000-0002-7034-4621]{Tam\'as Budav\'ari}
+\affil{Department of Applied Mathematics and Statistics, Johns Hopkins University, Baltimore, MD, USA}
+\affil{Department of Physics and Astronomy, Johns Hopkins University, Baltimore, MD, USA}
+
+\author[0000-0001-9434-3837]{Adam T. Deller}
+\affil{Centre for Astrophysics and Supercomputing, Swinburne University of Technology, Hawthorn, VIC 3122, Australia}
+
+\author[0000-0003-0307-9984]{Tarraneh Eftekhari}
+\affil{Center for Astrophysics $|$ Harvard \& Smithsonian, Cambridge, MA 02138, USA}
+
+\author[0000-0002-6437-6176]{Clancy W. James}
+\affil{International Centre for Radio Astronomy Research, Curtin University, Bentley, WA 6102, Australia}
+
+\author[0000-0002-7738-6875]{J. Xavier Prochaska}
+\affil{University of California - Santa Cruz, 1156 High St., Santa Cruz, CA, USA 95064}
+\affil{Kavli Institute for the Physics and Mathematics of the Universe (Kavli IPMU), 5-1-5 Kashiwanoha, Kashiwa, 277-8583, Japan}
+
+\author[0000-0003-2548-2926]{Shriharsh P. Tendulkar}
+\affiliation{Department of Astronomy and Astrophysics, Tata Institute of Fundamental Research, Homi Bhabha Road, Colaba, Mumbai, Maharashtra, 400005, India}
+\affiliation{National Centre for Radio Astrophysics, Pune University Campus, Post Bag 3, Ganeshkhind, Pune, Maharashtra, 411007, India}
+
+
+\shorttitle{FRB host galaxy associations}
+\shortauthors{FRB Association Team}
+
+\received{\today}
+\revised{\today}
+\accepted{\today}
+%% Command to document which AAS Journal the manuscript was submitted to.
+%% Adds "Submitted to " the argument.
+\submitjournal{ApJ}
+
+
+\begin{abstract}
+We introduce a new method to estimate the probability
+that an extragalactic transient source 
+is associated with a candidate host galaxy.  This approach relies
+solely on simple observables: 
+sky coordinates and their uncertainties, 
+galaxy fluxes and angular sizes.
+The formalism invokes Bayes' rule to calculate the
+posterior probability \POix\ from the galaxy prior
+\PO, observables $x$, and an assumed 
+model for the true distribution
+of transients in/around their host galaxies.
+Using simulated transients placed in the well-studied 
+COSMOS field, we consider several agnostic and 
+physically motivated priors and offset distributions
+to explore the method sensitivity.
+We then apply the methodology to the set of 
+13~fast radio bursts (FRBs) localized with an uncertainty of several
+arcseconds.  Our methodology finds 
+\nsecure\ of these are securely associated to a
+single host galaxy, $\mPOix>0.95$.
+We examine the observed and intrinsic properties of
+these secure FRB hosts, 
+recovering similar  distributions as previous works.
+Furthermore, we find a strong correlation between 
+the apparent magnitude of the securely identified 
+host galaxies and the estimated cosmic dispersion 
+measures of the corresponding FRBs, which results
+from the Macquart relation.
+Future work with FRBs will leverage this relation and
+other measures from the secure hosts as priors for
+future associations.
+The methodology is generic to transient type,
+localization error, and image quality.
+We encourage its application to other transients
+where host galaxy associations are critical to the
+science, e.g. gravitational wave events, 
+gamma-ray bursts, and supernovae.
+We have encoded the technique in Python 
+on GitHub:
+https://github.com/FRBs/astropath.
+\end{abstract}
+
+\keywords{Galaxies: ISM, star formation -- stars: general -- Radio bursts -- magnetars}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction} \label{sec:intro}
+
+Transient phenomena offer terrific potential to
+explore astrophysical processes on the smallest scales
+and in the most extreme conditions.  This includes spectacular
+explosions, intense magnetic fields, gravity in the 
+strong limit, and the structure of dark matter.
+Given the very short time-scales, the majority of these 
+events are linked to compact objects, e.g.\ neutron stars
+and black holes \citep[e.g.][]{Fishman95,GalYam19,Cordes19}, 
+and therefore they give unique insight to the
+processes that generate and destroy these exotic bodies.
+
+The three-dimensional location of transient sources is a critical aspect influencing the interpretation of their nature, allowing measured properties to be translated into absolute energetics and determining the nature of their environment.  While many transient sources can be reasonably well-localised on the sky, depending on the nature of the discovery instrument (and any sufficiently prompt follow-up), the third dimension of distance is often challenging to obtain.
+%To fully unlock the scientific potential of transient studies, 
+% however, one must ascertain their distance,
+%i.e.\ to establish energetics and environments.
+%\stcomment{Also mention offsets, galaxy types --- we can get all of those from the associations.}
+For some transient phenomena --- supernovae, the afterglows
+of gamma-ray bursts (GRBs) ---
+spectra of their electromagnetic emission can be used to identify their redshift \citep[e.g.][]{blondin2007,Fynbo09}.
+Many other transients, however, encode no direct measure of
+the source redshift.  This includes the enigmatic fast
+radio bursts (FRBs) whose dispersion measures (DMs)
+imply a cosmological origin \citep{Lorimer07}, yet
+do not provide a precise redshift estimate 
+\citep[e.g.][]{McQuinn14,xyz19}. 
+%\atd{Is it worth making an analogy between DM and photo-z?}
+Another example includes short-duration GRBs whose
+afterglows are too faint to record a high S/N
+spectrum for precise redshift estimation \citep[e.g.][]{Fong10}.
+% and the gravitational
+%wave (GW) events. CWJ: GW events provide a distance estimate, since their frequency structure encodes the masses, and hence luminosity
+
+When a redshift cannot be measured based on the transient source itself, 
+a suitable alternative is to associate the transient event with a galaxy and then measure the galaxy redshift
+\citep[e.g.][]{Tendulkar17}.  
+This presumes, of course,  that the transient is generated in 
+(or at least near) a galaxy -- a reasonable assumption for compact objects
+which, aside from exotic and unproven phenomena such as
+primordial black holes,
+are born in the dense regions of galaxies.
+Some progenitors of transient sources may travel considerable distances from their birth sites, for instance via `kicks' during
+formation events or disruptions of stellar multiples.
+For most such cases, however, offsets of up to tens kpc or several arcseconds on the sky
+can be expected for distant events \citep[e.g.][]{Fong13}. 
+
+The process of associating a transient
+to its host galaxy is a non-trivial exercise.  Primarily, this is influenced by the uncertainty in the transient localization combined with
+the relatively high surface density of galaxies on the
+sky, meaning that the allowed region for the transient site can potentially overlap with multiple galaxies.  The initially unknown origins of many such phenomena --- 
+including the transients of our interest, FRBs  --- further compounds the problem by introducing an uncertainty in the characteristic offset of a source from the centre of a galaxy.
+
+To date, host associations for transient sources have focused
+on the probability of chance association.
+\cite{Bloom02} introduced the concept of a chance
+probability \pchance\ 
+to ascertain the likelihood that a given galaxy was
+a coincident association to a transient event.
+By inference, a galaxy with a very low \pchance\ value 
+might be considered the host,
+while galaxies with $\mpchance \sim 1$ may be disfavored
+as unrelated sources.
+\cite{Tunnicliffe14} advanced this approach by allowing
+for galaxy-galaxy clustering which modifies the random 
+incidence from a strictly Poisson process.
+Most recently, \cite{EftekhariBerger2017} discussed
+this approach in the context of FRBs, emphasizing the
+need for sub-arcsecond localizations for secure
+host galaxy associations.
+
+While we are primarily motivated by FRB science, 
+the formalism introduced here is general, and
+we identify obvious applications to other
+transients, e.g.\ GRBs and GW events.
+Our guiding principles for the development of a new
+methodology to assess host associations are to:
+
+\begin{itemize}
+ \item Be driven by simple observables (which are defined below).
+ \item Assign a posterior probability to every candidate galaxy in consideration.
+ \item Develop an extendable framework that can evolve as the 
+ field matures.  This includes incorporation of
+ additional observational constraints and priors.
+ \item Accommodate transients both in the local 
+ (hundred Mpc) and very distant universe. 
+ \item Allow for insufficient data, e.g.\ the non-detection
+ of the host galaxy due to imaging depth.
+\end{itemize}
+
+In the following, we strive to limit the analysis to
+these easily attainable, direct observables:
+
+\begin{enumerate}
+    \item The transient localization (RA, DEC, uncertainty ellipse): 
+    \rafrb, \decfrb, \eefrb.
+    \item The apparent magnitudes of the galaxy candidates:
+    $\mgmag_i$.
+    \item The candidate galaxy coordinates:
+    \ragal, \decgal.
+    \item The angular size of the
+    galaxy candidates: \galhalflight.
+\end{enumerate}
+Future work will consider additional observables (e.g.\ the FRB DM) 
+and also priors based on ``secure'' host associations.
+
+
+This paper introducing the probabilistic association of
+transients to hosts (PATH) is organized as follows:
+section~\ref{sec:chance} briefly reviews the historical approaches
+to associations, section~\ref{sec:bayesian} introduces our
+new method, section~\ref{sec:priors} defines the priors adopted
+for our FRB analysis, section~\ref{sec:sim} presents analysis
+of simulated transients, and section~\ref{sec:results} 
+applies the formalism to real FRBs.
+Throughout we adopt the \cite{Planck15} cosmology as
+encoded in {\sc astropy}.
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=0.5\textwidth]{Figs/fig_pchance.png}
+    \caption{
+    Cutout $g$-band image (VLT/FORS2) centered on FRB~180924
+    (small red circle indicates the $5\sigma$ localization).  There are four extended sources with
+    separation $\theta < 10''$ marked as candidates for the
+    host galaxy of the FRB.
+    These are labeled (just above them, 
+    except for the brightest)
+    by their $\theta$, angular size
+    \halflight, apparent magnitude $m$, and the chance
+    probability \pchance\ of an association.
+    %\stcomment{[CWJ: Agreed! Use arrows to link labels to respective smudges]}
+    }
+	\label{fig:chance}
+\end{figure}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Historical: Chance Probability} \label{sec:chance}
+
+A standard approach to associating transients to their
+host galaxies is through assessing the chance 
+probabilities \pchance\ of galaxies 
+being located close to the transient position.
+We reintroduce the formalism for evaluating \pchance\ here,
+propose a new variant, and comment further 
+on its application and limitations.
+
+\subsection{Formalism}
+
+Figure~\ref{fig:chance} shows a VLT/FORS2 $g$-band
+cutout image ($30'' \times 30''$)
+of the field surrounding FRB~180924 with its localization
+marked by a red circle.
+As described by \cite{Bannister19}, this localization lies
+$\approx 1''$ from the centroid of galaxy 
+DES~J214425.25$-$405400.81 and 
+within $5''$ of two additional galaxies.
+%The apparent magnitudes \gmag, separations $\theta$, and estimated
+%angular half-light radii \halflight\ are labeled on the Figure.  
+At their redshifts \citep{Bannister19}, 
+the galaxies all have projected separations of 
+less than 40\,kpc, i.e.\ 
+separations less than the estimated radii of their
+halos.
+%\stcomment{We should talk (here or previously) about how far away things could be from their galaxies. Most FRB and pulsar astronomers won't have a clue.}  
+Therefore, while one may be predisposed to assign 
+FRB~180924 to the brighter and closer galaxy, one
+should also entertain the possibility that the FRB occurred in the 
+stellar halo of one of the others.
+
+The chance probability approach is powerfully simple:
+estimate the Poisson probability of finding one or more 
+galaxies as bright or brighter within an effective
+search area $A$ around the FRB, with $A$ determined from the 
+angular size \halflight, 
+the separation \sep, and the 
+FRB localization uncertainty \sigmafrb.
+Namely, one defines the probability of a chance
+coincidence 
+
+\begin{equation}
+  \mpchance(\mtheff, \mgmag)  = 1 - \exp(-\bar N) \;\;\; ,
+\label{eqn:chance}
+\end{equation}
+where $\bar N$ is the average number of sources
+in $A$. It is given by
+
+\begin{equation}
+\bar N(\mtheff, \mgmag_i)  = \pi \mtheff^2 \, \Sigma(\mgmag_i) \;\;\; ,
+\label{eqn:avgN}
+\end{equation}
+where \numden\ is the angular surface density of 
+galaxies on the sky with magnitude $\mgmag \le \mgmag_i$,
+and \theff\ is the effective search radius ($A = \pi \mtheff^2$).
+For the former, we adopt the galaxy number count distribution
+of \cite{driver16},
+while the latter quantity bears some arbitrariness.
+%[explain i-band; TE] 
+
+Previous works have considered several definitions
+for \theff.  We introduce yet another more conservative
+one here: the quadrature sum of all three
+angular quantities with semi-arbitrary weightings,
+
+\begin{equation}
+\mtheff = \sqrt{4 \msigmafrb^2 + \theta^2 + 4 \mhalflight^2} 
+\;\; .
+\label{eqn:theta_eff}
+\end{equation}
+
+Adopting these, we estimate $\mpchance = 0.01$ for 
+DES~J214425.25$-$405400.81 and $\mpchance > 0.1$ for
+the other sources owing to their fainter magnitudes and
+larger angular separations.  
+From this perspective, the probability of a chance
+association is nearly negligible for DES~J214425.25$-$405400.81 
+and sufficiently large for the other sources that one is inclined
+to favor the former.
+However, this technique cannot assign a likelihood to
+this association, nor even a relative assessment of one
+source over another.
+Yet worse, if two or more candidates have low \pchance\ 
+\citep[e.g. FRB~181112;][]{Prochaska19b}, one has no means
+to favor one over the other.
+Last, the \pchance\ formalism does not naturally allow one
+to introduce additional observational measures
+as evidence (e.g.\ DM).
+Together, these considerations motivate our development
+of a full probabilistic treatment.
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Nuisances and Nuances}
+
+There are several aspects of the \pchance\ analysis that require
+further definition.
+For completeness, we describe these here 
+although \pchance\ does not formally enter into the
+new formalism.
+First, one requires measurements of the galaxy centroids
+and angular size.
+We advocate a non-parametric approach owing to the complexity
+of galaxy morphology.
+In the following, we adopt the centroiding algorithm 
+encoded in the \photutils\ software package,
+and use the \texttt {semimajor\_axis\_sigma} 
+parameter to estimate the angular size. 
+In the following, we will refer it as \aimage\ 
+as it matches the definition of that parameter
+in the more widely used {\sc sextractor} package.
+
+
+Another issue is Galactic extinction.
+FRBs are detected across the sky including on sightlines that
+show large Galactic extinction ($\mebv > 0.1$\,mag).
+In contrast, the number count analyses have intentionally
+been derived from high-latitude fields with low
+Galactic extinction.  Therefore, the apparent magnitudes
+of the galaxy candidates should be corrected for 
+Galactic extinction prior to the probability estimation.
+
+We provide the following set of recommendations to optimize the detection and characterization of both faint and bright sources. Namely, we recommend observations in the $r$-band, which provide a trade-off between the mapping of stellar content and extinction. We further recommend an image depth of $m_r = 25.5$ ($5\sigma$), corresponding to the limiting magnitude for spectroscopy, and sufficient for probing $0.01 \ L^*$ galaxies at $z\sim 0.5$. Finally, given the subarcsecond accuracy of many FRB localizations, we recommend better than $1''$ seeing, and a $>1'$ field of view for background estimation. 
+
+Similarly, source detection should employ a non-parametric approach to accommodate galaxies of varying morphologies. For consistency with this work, we recommend use of the {\texttt{a\_image}} parameter to estimate the angular size of sources, and note that all galaxies should be corrected for Galactic extinction prior to applying the Bayesian formalism. 
+
+
+
+
+%see below by CJ
+The formalism of eq.(\ref{eqn:chance}) and (\ref{eqn:avgN}) ignores galaxy clustering. Since matter in the Universe is not uniformly distributed, the probability of observing either no galaxies, or a large number of them, in proximity to a random direction is enhanced compared to the probability of observing one or a few. \citet{Tunnicliffe14} show that including clustering decreases the probability of a nearby random galaxy by 25--50\% in the case of a random direction. Our primary concern however is not whether or not all the observed galaxies are merely chance coincidences, but rather which of the observed galaxies is the true host.
+%\stcomment{Since we are interested in the distance for most of these FRBs and the clustered galaxies are probably physically related and at basically the same distance, one might also ask how likely is it that the FRB is related to any one of a bunch of galaxies.}. 
+Clustering is discussed further in this context in section~\ref{sec:candidate_priors}. For now, we remark that given that FRBs truly are associated with galaxies, clustering acts to increase, not decrease, the probability of a chance association, since the FRB observation has preferentially selected a direction of the Universe in which there is a cluster of matter.
+
+% adding quick ellipticity note
+Furthermore, in this work we ignore for the sake of simplicity the ellipticity of the prospective host galaxies. 
+Our method will be readily adaptable however to such ellipticity, or indeed arbitrarily complex functions, since the approach described below does not rely on any particular functional forms.
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Probabilistic Approach} \label{sec:bayesian}
+
+Association of transients
+to galaxies is not like the usual cross-identification for which probabilistic methods have been in place for over a decade \citep{budavari_szalay_2008}. 
+Matching stars and galaxies typically involves asking whether a set of detections (across separate exposures, instruments, telescopes) are of the same celestial object. 
+If they are, their true (latent) directions would have to be the same; see more in the review by \citet{budavari_loredo_2015}. 
+
+In strong contrast with that, FRBs are presumed
+to simply originate from within (or at least near to)
+galaxies, hence their true direction should not be required to coincide with the center of a galaxy. While this is admittedly a small difference for the faintest galaxies, resolved extragalactic source are expected to yield different results.
+%
+Here we consider a general scenario where the shape of galaxies can be incorporated along with a geometric model about from where FRBs would originate within 
+or around galaxies. 
+
+
+\subsection{General Formalism} 
+
+Since FRBs are sparse on the sky, we can study them separately, which also simplifies the following description of our approach. 
+Let us consider a catalog of galaxies across the entire sky and a single FRB that either belongs to one of the many catalog objects (its host galaxy) or it does not, i.e.\ its host is not detected or not included in the catalog. 
+If $U$ is the event that the FRB's host is unseen, and $O_i$ is the event that the FRB is from galaxy~$i$, their prior probabilities must add up to one,
+%
+\begin{equation}
+\mPU +  \sum\limits_i \mPOi = 1 \;\;\; ,
+\label{eqn:norm}
+\end{equation}
+%
+as there are no other possibilities.
+%
+The single scalar quantity $P(U)$ encodes all the complications that arise from the difference in the radial selection functions of the catalog and the FRB instruments. For now, we assume its value to be known, but note that it could be inferred in a hierarchical fashion when considering multiple FRBs.
+%
+Also, one could assume a uniform prior for all observable $O_i$ as the simplest possible scenario that essentially ignores any additional information about the galaxies, e.g., magnitude, color, redshift. We leave such considerations to a future work.
+
+Given a vector $x$ representing all measured properties of the detected FRB, we ask what the posterior probabilities $\mPUx$ and $\mPOix$ are for all $i$. 
+Using Bayes' rule, the unseen posterior is
+\begin{equation}
+\mPUx = \frac{\mPU\,p(x|U)}{p(x)} \;\;\; ,
+\label{eqn:U}
+\end{equation}
+where $p(x|U)$ is the probability density of the FRB properties given the host is unseen. From hereon, we consider $x$ to represent only the measured FRB direction.
+Without constraints, $x$ could be anywhere on the sky, hence it is natural to assume a uniform (isotropic) distribution with a value of $1\big/4\pi$.
+%
+Similarly, the posterior probability for object $i$ is
+\begin{equation}
+\mPOix = \frac{\mPOi \, \mpxOi}{p(x)}  \;\;\; ,
+\label{eqn:bayes}
+\end{equation}
+where $\mpxOi$ is the probability density function (PDF) of $x$ given that the FRB comes from galaxy $i$. 
+With data $x$, this is the marginal likelihood of $O_i$, which includes the galaxy geometry and the uncertainty of the FRB direction. 
+This key component of the approach is discussed in depth in the next paragraph.
+%
+The normalizing constant must be
+\begin{equation}
+    p(x) = \mPU\,p(x|U) + \smm_i \mPOi\,\mpxOi \;\; 
+\label{eqn:denom}
+\end{equation}
+to guarantee that these posteriors also add up to one,
+\begin{equation}
+     \mPUx + \smm_i \mPOix  = 1 \;\; .
+\label{eqn:posterior_norm}
+\end{equation}
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Marginal Likelihoods}
+\label{sec:marg_like}
+
+Let the 3-D unit vector $\omega$ represent the 
+{\it true} and unknown direction of the FRB on the sky.
+Given that it comes from a particular galaxy, the direction $\omega$ has to point somewhere near the host.
+The function \poffset\ captures the physical and geometric model for the FRBs specific to galaxy $i$, e.g., taking into account its type, distance, orientation, etc. 
+
+The observed FRB direction $x$ is a measurement of $\omega$ with known uncertainty, represented by the localization error function, $L(x-\omega)$. 
+%A spherical analog to a bi-variate normal distribution, the \citet{Fisher1953} distribution can be used to model the likelihood function
+%\begin{equation}
+%  L_x(\omega) = p(x|\omega) = f(x; \omega, \kappa)
+%\end{equation}
+%where the $\kappa$ concentration parameter is essentially $1/\sigma^2$ for small uncertainties, i.e., in the flat-sky approximation.
+%[At what angle does this matter?]
+Given \poffset,  $\mpxOi$ is calculated by integrating over the $\omega$ model directions to obtain the marginalized likelihood of the association hypothesis $O_i$, 
+\begin{equation}
+\mpxOi = \int\!\!d\omega\, \mpoffset \, L(x-\omega) \ ,
+\label{eqn:pxO}
+\end{equation}
+which now accounts for all possibilities in various FRB origins as well as the astrometric uncertainty in the measurement.
+If a galaxy is unresolved, $p(\omega|O_i)$ may become the Dirac-$\delta$, and $\mpxOi$ is just the astrometric uncertainty, as it would be the case for matching point sources.
+%
+Calculating the above quantity for all $i$ 
+completes the framework, which now provides posterior probabilities via
+eq.~\ref{eqn:bayes}.
+
+
+\subsection{Limited Field of View}
+\label{sec:limited_field_of_view}
+
+Previously we assumed a galaxy catalog over the entire sky, but catalogs typically have more limited footprints.
+It is interesting to think about a scenario when the field of view $\Omega$ is smaller but still large enough not to miss any possible counterparts to the FRB in question.
+Intuitively, galaxies very far away from the FRB should not have any effect on the association analysis.
+
+Smaller sky coverage would mean fewer observed galaxies \Nc, which in turn affect the \POi\ priors as there are fewer galaxies to choose from. Going with the previous uniform assumption, eq.(\ref{eqn:norm}) implies
+\begin{equation}
+    \mPOi = \frac{1-P(U)}{\mNc} \;\; ,
+\label{eqn:equalPO}
+\end{equation}
+which captures the dependence.
+
+Looking now back at Bayes' rule in eq.(\ref{eqn:U}), 
+the sky coverage seems to affect the $\mPOix$ posteriors, too.
+Fortunately, this is not the case. 
+The denominator $p(x)$ changes in accord due to the scaling in $p(x|U)$, which is uniform over the field of view,
+\begin{equation}
+    p(x|U) = \frac{\boldmath{1}_{\Omega}(x)}{\Omega}
+\end{equation}
+where the $\boldmath{1}_{\Omega}(x)$ is the indicator function that takes the value 1 if $x$ is within the field of view and 0 otherwise, and the denominator $\Omega$ normalizes the PDF.
+The framework not only matches common-sense expectations, but provides for more efficient computation where only candidates within close proximity of FRBs are considered.
+
+Given the plethora of deep, wide-field imaging
+surveys, it is possible to consider very large $\Omega$
+for each FRB in the analysis.  In practice, however, 
+sensible and conservative assumptions for \poffset\ 
+will greatly limit the list of viable candidates $O_i$.
+To ease the analysis, we adopt for $\Omega$ the union
+of the area encompassing all galaxies within 10 half-light
+radii and the \frblocal\ FRB localization.
+As emphasized in the previous section, it is only necessary to consider a large enough area to be certain to include all possible hosts.
+
+
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Priors and Assumptions}
+\label{sec:priors}
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Undetected Prior \PU}
+\label{sec:PU}
+
+It is difficult to {\it a priori}
+assign a prior \PU\ to the probability
+that the FRB host is undetected.  Undoubtedly, 
+\PU\ is related to the depth of the imaging and the
+(unknown) source distance, i.e. redshift\footnote{
+Future work may use the observed DM to inform 
+the host distance and \PU.}.
+In the following, we consider 
+%two options for \PU:
+%  (1) 
+an arbitrarily assigned value,
+%; and 
+%  (2) one informed by the \pchance\ values of the 
+%  candidates (Section~\ref{sec:chance}).
+and we advocate a low value,
+based on the paucity of our data and the set of
+confidently assigned associations reported
+to date \citep[e.g.][]{Heintz2020}.
+In the analyses that follow, we typically assume
+$\mPU = \uguess$ (Occam's razor!) 
+and discuss the impacts of increasing it.
+
+%The other, ``chance'' prior for \PU\ is to assert 
+%that it is equal to the probability
+%that all of the observed candidates are chance
+%coincidences,  namely, 
+%\begin{equation}
+%\mPU = \prod\limits_i \mipchance \;\;\; .\label{eqn:chance_product}
+%\end{equation}
+%For the majority of FRBs observed to date, this yields
+%$\mPU < 0.01$ reflecting the high incidence of bright
+%sources near well-localized FRBs. 
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Candidate priors \PO}
+\label{sec:candidate_priors}
+
+For the set of host candidates $O_i$,
+absent any assumptions on the distance or the typical
+separations of FRBs from their host galaxies,
+any galaxy on the sky could be a viable candidate.
+%In the following, we restrict to
+%galaxies within $\mnhalf = \nnhalf \, \mhalflight$ 
+%of the FRB localization. 
+%The results presented here
+%are largely insensitive to this choice for $\mnhalf = 5-20$. 
+%We also emphasize that the offset priors
+%($\S$~\ref{sec:poffset}) generally further restrict the maximum
+%separation.
+Given the plethora of potential models for FRB progenitors
+and the limited existing constraints, we are motivated
+to consider (for now) simple approaches to the prior for the
+galaxy candidates.
+The most agnostic approach is to assign an ``identical''
+prior to every galaxy in consideration, 
+i.e.\ eq.~\ref{eqn:equalPO}.
+
+Inspired by the chance probability calculations
+approach described in $\S$~\ref{sec:chance}, 
+we introduce an
+additional prior based on \pchance. 
+Specifically,  we consider a prior that inversely weights by \numden.
+
+\begin{equation}
+%\mPOi = 1/\mipchance \;\; .
+\mPOi \propto \frac{1}{\minumden} \;\; .
+\label{eqn:prior}
+\end{equation}
+For this ``inverse'' prior, 
+brighter candidates have higher prior probability
+according to their number density on the sky.
+The normalization of these priors is set by 
+eq.~\ref{eqn:norm}.
+In section~\ref{sec:sim} we also briefly consider
+two other priors with 
+$\mPOi \sim 1/\minumden \phi$ (inverse1)
+and
+$\mPOi \sim 1/\minumden \phi^2$ (inverse2).
+We adopt the prior in Equation~\ref{eqn:prior}
+in part because of its simpler form and also 
+because of the results of simulated experiments
+(Section~\ref{sec:sim}).
+%This approach is equivalent to asserting
+%that if a given candidate is the true host, it is guaranteed to be present in the image --- however, all other candidates must be chance coincidences, i.e.\ 
+%
+%\begin{eqnarray}
+%   P(O_i) \propto \prod\limits_{j \ne i} P_j^c = (1/P_i^c) \prod\limits_{j} P_j^c \;\; . \label{eqn:inverse_expansion}
+%\end{eqnarray}
+
+%$P(O_j) \propto \prod\limits_{i \ne j} \mipchance = (1/P_i^c) \prod\limits_{j} \mipchance$.
+
+%The product factor in the right-hand side of eq.(\ref{eqn:inverse_expansion}) is a constant for all candidates in the image, and equal to eq.(\ref{eqn:chance_product}). It is therefore cancelled out in the normalisation of eq.(\ref{eqn:posterior_norm}). The term can be thought of as the chance coincidence of obtaining an image as densely populated by galaxies in a random pointing. Independently multiplying the terms in the product however does ignore clustering between galaxies, since the chance of observing a second galaxy in proximity to a first is greater than their independent probabilities. It can be shown that in a simple clustering model, $P(O_j) \propto 1/P_j^c$; however, when clustering is present, \PU\ does not share the same common denominator, and there is no exact cancellation of the common product term in eq.(\ref{eqn:posterior_norm}). Since we expect \PU\ to be small, we ignore clustering effects in this analysis.
+
+%[CWJ: here is a contrived example!] As a contrived example, consider hypothesizing that a cD galaxy is the true host, compared to a L0 spiral cluster member in the same image. If the cD galaxy is the true host, then the chance probability of seeing a nearby L0 spiral is rather high --- cD galaxies are only ever found near the centres of clusters. However, if the L0 spiral is the true host, then having a cD galaxy next door is exceptionally unlikely!
+
+
+
+\begin{figure*}[!ht]
+\centering
+    \includegraphics[width=5.9cm]{Figs/fig_priors_180924.png}
+    \includegraphics[width=5.9cm]{Figs/fig_priors_190523.png}
+    \caption{
+    Illustration of the two approaches to candidate priors
+    \PO\ assumed in this manuscript:
+    identical and inverse.  The former assumes an identical
+    prior for every galaxy with $\theta_i < 10 \mhalflight$
+    or within the \frblocal\ localization error of the FRB.
+    The latter adopts the inverse of the
+    estimated chance probability \pchance\ 
+    of these galaxies which is equivalent to asserting
+    the prior is proportional to the integrated probability
+    that the other sources are all chance coincidences.
+    }
+	\label{fig:galaxy_priors}
+\end{figure*}
+
+
+Figure~\ref{fig:galaxy_priors} illustrates 
+\POi\ for the two models for two example cases --
+(a) FRB~180924 and (b) FRB~190523 --  where
+we assume $\mPU = \uguess$.
+For this illustration, we have restricted the analysis to galaxies
+within $10''$ of the FRB, which captures all of the viable
+candidates.  As expected, the inverse priors for
+FRB~180924 significantly favor the brighter galaxy closest
+to the FRB.  Perhaps less intuitively, the 
+inverse priors favor the most distant 
+(yet brightest) source near
+FRB~190523. This motivates the inclusion of the next ingredient --- the offset function \poffset.
+
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=0.47\textwidth]{Figs/fig_theta_priors.png}
+    \caption{
+    Three offset functions \poffset\ considered for the underlying angular distribution of FRBs relative 
+    to their host galaxies, normalized by the galaxy's half-light radius \halflight.
+    Each is normalized to have identical integrated area to a maximum assumed offset of $\mthmax = 6 \, \mhalflight$. 
+    %{\bf CWJ: the normalisation for the uniform prior is well below that of the other two, it should at the highest at x=6. Set so [int 2 pi omega p(omega)] =1? Also, should we just define omega=theta/phi\_half? Seems a bit strange we have x plotted against f(z)}
+    }
+	\label{fig:theta_prior}
+\end{figure}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Offset function \poffset}
+\label{sec:poffset}
+
+%Although not formally a prior [or is it??!], [CWJ: of course it is!]
+The \poffset\ function
+for the probability of the true angular offset from the 
+galaxy is unknown yet required for the analysis. 
+In our formalism, we develop priors for \poffset\ based
+solely on the angular offset $\theta$ between the galaxy
+centroid and $\omega$, and also
+normalized by the observed galaxy's angular size
+\halflight.  This simultaneously accounts
+for galaxies of different intrinsic size and differing
+observed size owing to their distance.
+
+As the predominance of models associate FRBs
+to stellar sources or compact objects
+\citep[AGN at the very centers of galaxies are currently disfavored;][]{Bhandari20a}, one might expect
+the FRB events to track the stellar light. 
+While we wish to remain largely agnostic to the
+underlying distribution of offsets, we are
+physically motivated to presume \poffset\ 
+decreases with increasing $\theta$.
+We assert this despite the fact that geometrical
+considerations do favor large $\omega$, e.g.\ 
+a model where FRBs occur with identical probability
+anywhere in a circular galaxy will have
+$\mpoffset \propto \omega$ until one reaches the
+``edge'' of the galaxy.
+Therefore, a {\it uniform} prior 
+$\mpoffset =  1 / \pi \theta_{\rm max}^{2}$
+is formally one that assumes FRBs occur 
+proportional to the galaxy radius.
+The other two models considered are a {\it core} model: 
+%{\bf CHECK THESE NORMALISATIONS AND THE NATURE OF THE 3D INTEGRAL OVER OMEGA}
+
+\begin{equation}
+    \mpoffset = 
+    %\frac{1}{\phi \ln (\theta_{\rm max}/\phi + 1)} 
+    \frac{1}{2 \pi \phi^2 [\mthmax/\phi - \log(\mthmax/\phi + 1)]}
+    \frac{1}{(\theta/\mhalflight) + 1} \;\;\; ,
+\label{eqn:poff_core}
+\end{equation}
+which implies an approximately $1/r^2$ weighting,
+and an {\it exponential} model
+
+\begin{equation}
+    \mpoffset = 
+    %\frac{\theta/\mhalflight}{\phi - (\theta_{\rm max} + \phi) e^{-\theta_{\rm max}/\phi}}  
+    \frac{1}{2 \pi \phi^2 [1 - (1 + \mthmax/\phi) \exp(-\mthmax/\phi)]}
+    \exp[-\theta/\mhalflight] \;\;\; ,
+\label{eqn:poff_exp}
+\end{equation}
+which assumes an underlying exponential distribution.
+All of these functions are normalized to 
+unity when integrating to $\theta_{\rm max}$, ignoring
+the curvature of the sky.%the fully sky.
+
+For all of the \poffset\ priors, we assert a maximum
+offset $\mthmax = 6 \mhalflight$; this is especially
+important for the uniform prior.  
+This value is arbitrary and was chosen to 
+be large enough to accommodate prevailing models of
+FRBs without being too conservative.
+Applying an arbitrary 
+cutoff to the exponential distribution is not strictly
+necessary, but we keep it for simplicity and consistency, 
+and demonstrate in Section~\ref{sec:add_priors} that the 
+results for an exponential distribution are insensitive 
+to this choice.
+%For FRBs localized to within $\sim 1''$, this constraint
+%will strictly limit the number of galaxies under consideration.
+
+Figure~\ref{fig:theta_prior} shows the offset functions,
+normalized to have the same total probability.
+Clearly the {\it exponential} model favors FRBs located in the inner
+regions of galaxies.
+%, while the {\it exponential} model is 
+%maximal at $\theta = \mhalflight$. 
+For comparison to the offset distributions of known transients, we note that long GRBs appear highly concentrated in the inner regions of their hosts relative to Type Ib/c and IIn supernovae, which occur preferentially near their host half-light radii \citep{Lunnan15,Blanchard16}. Conversely, short GRBs exhibit significant offsets from their host centers, indicative of progenitors born in compact object mergers \citep{Fong13}.  
+
+
+In practice,  we treat the galaxies as ``round'',
+i.e.\ ignoring for now any ellipticity.
+Future works will advance this aspect.
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Simulations}
+\label{sec:sim}
+To explore the formalism introduced here, we have generated
+Monte Carlo simulations designed to faithfully reproduce
+the FRB experiment.  We describe this first and then detail
+the results.
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=8.5cm]{Figs/fig_sb_COSMOS.png}
+    \caption{
+    Distribution of angular sizes (\aimage\ parameter)
+    versus apparent magnitude $m_r$ for all of the galaxies
+    in the COSMOS catalog \citep{Scoville2007cosmoshst}.
+    }
+	\label{fig:cosmos}
+\end{figure}
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Sandboxes}
+\label{sec:sb}
+
+Our Monte Carlo approach leverages the public catalog of 
+the {\it HST}/COSMOS field \citep{Scoville2007cosmos, Scoville2007cosmoshst}
+which provides over 1~million sources at high spatial
+resolution and faint fluxes (median 
+AB magnitude $m_r \approx 25.9$).
+These galaxies are distributed over an $\approx 1$\,sq.\,deg
+of sky which captures a great variety of distributions
+but not the most extreme events 
+(e.g.\ $z<0.5$ galaxy clusters, nearby galaxies). 
+Figure~\ref{fig:cosmos} shows the angular size
+(\aimage) and apparent magnitudes for the catalog,
+restricted to the sources labeled as galaxies.
+
+We generate a series Monte Carlo realizations of FRBs
+(referred to as a sandboxes, or SBs), using the following
+recipe:
+
+\begin{enumerate}
+    \item Define the true distribution of FRBs from their
+    host galaxies \poffset and magnitude $m_r$.
+    \item Define a sample of potential host galaxies based
+    on $m_r$.% (and $\mipchance$ for SB-7).
+    \item Define the distribution of localization errors for FRBs (\sigmafrb).
+    \item Draw $N_{\rm FRB}$ galaxies from the parent
+    sample of potential host galaxies without duplicates.
+    \item Set the true FRB positions according to \poffset.
+    \item Offset the FRBs to an observed coordinate according
+    to \sigmafrb.
+    \item Consider catalogue galaxies within $30''$ to represent an image.
+\end{enumerate}
+
+For sandbox 5 (SB-5), 10\% of the FRBs were randomly placed in the COSMOS field, i.e without a host galaxy. We plan to use this sandbox 
+to evaluate the performance of the framework when the host galaxies are unseen. 
+Also, as COSMOS is a deep survey, we generate a magnitude-limited 
+catalog of galaxies for each sandbox (last column of Table~\ref{tab:sb}) on which we run the Bayesian framework. In the following sub-section, we 
+discuss results for five sandboxes
+(focusing primarily on SB-1)
+with the parameters described
+in Table~\ref{tab:sb}.
+
+
+\begin{deluxetable}{cccccccc}
+\tablewidth{0pc}
+\tablecaption{SandBoxes\label{tab:sb}}
+\tabletypesize{\footnotesize}
+\tablehead{\colhead{Label}  
+& \colhead{\poffset} & \colhead{$N_{\rm FRB}$} 
+& \colhead{Sample}
+& \colhead{\sigmafrb}
+& \colhead{Catalog Filter}
+\\
+& & & & ($''$) 
+} 
+\startdata 
+SB-1 & $\mathcal{U}(0, 2\mhalflight)$  & 100,000 
+   & - %$\mathcal{U}(m_r)$ 
+   & 1 & - \\
+SB-2 & $\mathcal{U}(0, 2\mhalflight)$ & 46,699 & $m_r=[20, 23]$ 
+  & $\mathcal{U}(0.1, 1)$ & $m_r \le 23$\\
+SB-3 & {\it core} & 46,699 & $m_r=[20, 23]$ 
+  & $\mathcal{U}(0.1, 1)$ & $m_r \le 23$\\
+SB-4 & {\it exponential}  & 46,699 
+  & $m_r=[20, 23]$ & $\mathcal{U}(0.1, 1)$ & $m_r \le 23$\\
+SB-5\tablenotemark{a} & $\mathcal{U}(0, 2\mhalflight)$  & 50,000 
+  & $m_r=[20, 25]$ & $\mathcal{U}(0.1, 1)$ & $m_r \le 25$ \\
+%SB-6 &  $\mathcal{U}(0, 2\mhalflight)$ & 100,000 
+%  & $m_r=[25, 28]$ & $\mathcal{U}(0.01, 1)$ & $m_r \le 25$\\
+%SB-7\tablenotemark{a} &  $\mathcal{U}(0, 2\mhalflight)$ & 1,929 
+% & $\mipchance$ & 1 & - \\
+\hline 
+\enddata 
+\tablenotetext{a}{See text for details regarding the FRB selection for this sandbox.}
+% \tablecomments{$\mipchance$}
+\end{deluxetable} 
+
+
+\input{tab_sandbox}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Analysis and Results}
+\label{sec:sb_ar}
+
+We now analyze the sandboxes listed in Table~\ref{tab:sb}
+with a variety of priors and assumed \poffset\ functions
+(that generally do not match the true \poffset).
+Table~\ref{tab:sandbox} lists the various priors assumed
+for each analysis performed.
+
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=8.5cm]{Figs/fig_sb_posteriors.png}
+    \caption{
+    Analysis of SB-1:
+    (a) PDF for the posterior probabilities for all of the candidates
+    with $\mPOix > 0.01$.  The PDF is nicely bi-modal with 
+    96\%\ having $\mPOix < 10\%$ or  $\mPOix > 90\%$. 
+    (b) PDF of the maximum posterior for the 100,000 simulated FRBs.
+    We find $\approx \simsecure \%$ of the sources has 
+    $\mPOix > \POvsec$, which we define as secure.
+    }
+	\label{fig:sb_post}
+\end{figure}
+
+
+
+Figure~\ref{fig:sb_post}a shows the posteriors for the
+candidates using the
+fiducial sandbox (SB-1) and
+listed in row~1 of Table~\ref{tab:sandbox} 
+(also referred to as the \adopted\ prior set;
+Table~\ref{tab:priors}).
+Since most of the
+candidates defined in step 7 are very far
+from the offset FRB position, we restrict results
+to the $\approx 8\%$ of 
+candidates with $\mPOix > 0.01$. 
+This distribution is multi-modal, with the overwhelming
+majority of recovered $\mPOix \approx 0$ corresponding
+to unassociated galaxies and another
+peak at $\mPOix \approx 1$ corresponding to secure
+associations.
+Figure~\ref{fig:sb_post}b shows the posterior
+value for the most probable candidate for each of
+the 100,000 FRBs.
+For this model and analysis, $\approx \simsecure \%$ of
+the FRBs have a high probability,
+$\mPOix > \POvsec$ which we adopt as a ``secure''
+association. Adopting such an arbitrary value
+to define `secure' is useful for including/excluding
+candidates for subsequent analyses that rely on
+knowing the correct FRB host, e.g.\ that by
+\citet{Macquart20}. However, we emphasise that
+it is in-general better to consider all
+host associations as uncertain, with different
+levels of certainty according to the obtained
+posteriors.
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=8.5cm]{Figs/fig_sb_PP_exploring.png}
+    \caption{
+    The points are equal number (10,000) bins of FRBs
+    according to the maximum posterior probability 
+    of their host candidates for SB-1.  
+    For each set of 10,000
+    we determined the fraction of correct assignments
+    if one adopts the candidate with max~\POix\ as the
+    host.  The one-to-one line indicates a perfectly
+    calibrated algorithm.  
+    The colors indicate different choices for the
+    prior \PO: 
+    (blue) $\mPO \propto 1/\Sigma(m)$, inverse;
+    (orange) $\mPO \propto 1/\Sigma(m)\mhalflight$, inverse1;
+    (green) $\mPO \propto 1/\Sigma(m)\mhalflight^2$, inverse2.
+    Our adopted prior (inverse) is relatively well normalized
+    in that \POix\ yields an accurate estimate of the
+    fraction of FRBs correctly assigned to their host galaxy.
+    }
+	\label{fig:sb_priors}
+\end{figure}
+
+
+Figure~\ref{fig:sb_priors} evaluates, in
+10~bins of equal number of FRBs,
+the maximum \POix\ assigned to a candidate
+for each FRB and the percentage of correct
+associations assuming this is the host.
+The different colors indicate 
+different choices for \PO.
+Our adopted ``inverse'' prior appears well calibrated
+in that \POix\ yields an accurate estimate of the
+fraction of FRBs correctly assigned to their host galaxy.
+
+Figure~\ref{fig:sb_punchline} shows another set of
+results but for more different choices of priors 
+(Table~\ref{tab:sandbox}).
+The remarkably close correspondence between the
+two quantities indicates the posterior is well-calibrated,
+at least for this pairing of sandbox and prior set.
+We also show results for prior sets where we 
+assume $\mPU = 0.05$ and for the conservative prior set
+(Table~\ref{tab:priors}).
+Each of these assigns systematically lower values 
+to the true host galaxy yielding a higher 
+percentage of correct cases at lower maximum \POix.
+
+To characterise the behaviour of our method under different
+simulated truths (i.e., sandboxes) and different priors, Table~\ref{tab:sandbox} lists
+the fraction $f$ of all FRBs which are correctly identified, i.e.\ the true (T) host is securely identified
+($\mPOix > 0.95$); and the fraction of secure identifications which are correct. In all cases, at least 96\% of all secure
+associations find the true host, indicating that our
+method is trustworthy.
+The fraction of FRBs expected to have such a secure association however varies significantly, primarily as a function of the sandbox (variation of $\pm 0.3$ in $f(T+{\rm secure})$), with the analysis method on a given sandbox having a secondary effect (variation of $\pm 0.05$). Analysis of SB-1 demonstrates that the choice between different inverse priors has little effect, but produces a higher fraction of secure associations than a uniform prior. Interestingly, $f(T+{\rm secure})$ is much higher for the SB-4 analysis than for SB-2 and SB-3, despite all three using an assumed $p(\omega|O_i)$ of equal shape to the true $p(\omega|O_i)$, and being otherwise identical. However, while the SB-4 analysis assumes $p(\omega|O_i)$ to be uniform out to $\theta=6 \phi$, the true distribution is fully contained within $2 \phi$, unlike SB-2 and SB-3. We thus conclude that the dominant determinant of the fraction of securely (and hence, correctly) identified FRB hosts, in the case that the true host is observed, is the fraction of FRBs lying in close proximity to their hosts, irrespective of other considerations. We find it especially reassuring that results are not highly sensitive to the analysis method, i.e.\ that our formalism yields greater sensitivity to the physical truth than to our choice of reasonable priors.
+
+\begin{figure}[!ht]
+\centering
+    %\includegraphics[width=8.5cm]{Figs/fig_sb_posteriors_unseen.png}
+    \caption{PDF of the maximum posterior for FRBs with unseen hosts from SB-7,
+    using a) the `conservative', and b) the `adopted' prior sets of Table~\ref{tab:priors}.
+    }
+	\label{fig:sb_post_unseen}
+\end{figure}
+
+What about unseen hosts? In Figure~\ref{fig:sb_post_unseen}, we plot the distribution of $\mPOix$ for those FRBs in SB-7 with unseen hosts. We see that there is an XXX\% (YYY\%) chance for an unseen host to have a secure association when using the conservative (adopted) prior sets. Since both sets assume $P(U)=0$, $P(U|x)=0$ always. {\bf add statement regarding p>50\% or some such}. We therefore conclude that {\bf ??? Need to see results!}.
+
+
+Buoyed by these results, we now proceed to apply PATH
+to real FRB observations.
+
+
+%The effects of different \poffset functions are
+%given by comparing the results of SB-2 and SB-3 to
+%that of SB-1. {\bf statement on significance}
+
+%SB-4 probes a deeper limiting magnitude in both
+%the true host distribution and the simulated observations,
+%effectively increasing the number of false candidates
+%while holding the true number constant.
+%{\bf statement on significance}
+
+%SB-5 considers an extreme case, where all true hosts
+%are drawn from galaxies below the magnitude limit.
+%We see that only XXX\% of all FRBs are assigned
+%a secure association, i.e.\ our method is
+%unlikely to find secure hosts where there are none.
+%
+%Finally, SB-6 considers a case where the true host
+%has at least one candidate with approximately equal
+%prior \PO in close proximity to it. In that case,
+%\poffset is the primary discriminant between
+%candidates. We find {\bf XXX} secure associations, with
+%XXX of these being correct as expected.
+%
+%In general, the difference in outcomes is dominated
+%not by {\bf truth/prior}, but by {\bf prior/truth}.
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=8.0cm]{Figs/fig_sb_PP.png}
+    \caption{
+    Same as Figure~\ref{fig:sb_priors}
+    but for different prior assumptions as described
+    in the legend.
+    }
+	\label{fig:sb_punchline}
+\end{figure}
+
+
+
+
+\input{tab_priors}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Real FRB Analysis and Results}
+\label{sec:results}
+
+Informed by the results of the previous section, we 
+proceed to apply the formalism to all of the published,
+well-localized FRBs.  We discuss 
+results for \nsets~sets of priors --- conservative and 
+\adopted\  --- as summarized in Table~\ref{tab:priors}.  
+We refer to the first as conservative because 
+all galaxies within \thmax\ are given equal prior. 
+
+\input{tab_frbs}
+
+% %%%%%%%%%%%%%%%%%%%%%
+\subsection{FRB Host Candidates}
+
+Central to the analysis is the identification and analysis
+of galaxy candidates in imaging data.  The first
+step --- source identification ---
+is the most challenging and the most subjective.
+For every image, sources near the detection limit are
+subject to the precise methodology: 
+background subtraction, thresholding, pixel grouping, and deblending.
+After experimenting with the routines encoded in the
+{\sc photutils} package, we settled on the following key parameters: \texttt{npixels} $=9$, \texttt{deblend}$=$True, \texttt{xy\_kernel} $=(3,3)$,
+\texttt{Gaussian2Dkernel}, \texttt{nsig} $=3.$ (kernel),  \texttt{nsig} $=1.5$ (threshold),
+\texttt{background} $=(50,50)$, \texttt{filter\_size} $=(3,3)$, median background.
+
+To test these choices, we independently analyzed the
+data with the SExtractor package using a standard set
+of input parameters. Namely, we set {\texttt {DETECT\_MINAREA}} $= 9$ and {\texttt {DETECT\_THRES}} $= 1.5$ for consistency with the {\sc photutils} parameters. Images are filtered with the default convolution kernel (\texttt{default.conv}). To recover blended sources (see e.g., FRB 180924 below), we set {\texttt {DEBLEND\_MINCONT}} $= 0.0001$.
+
+With this set of parameters, we recover the centroid positions within $\approx 2\%$, while the aperture sizes show scatter up to $\approx 15\%$. We note that slight differences between the {\sc photutils} and SExtractor methodologies may be driving these discrepancies; namely, while SExtractor uses a multi-thresholding deblending technique, {\sc photutils} utilizes a combination of multi-thresholding and watershed segmentation. Furthermore, the \texttt{default.conv} convolution kernel is equivalent to a $3\times3$ Gaussian kernel with FWHM $ = 2$, in slight contrast to the Gaussian kernel used above. Nevertheless, we find comparable results using the two methods.
+
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=8.5cm]{Figs/fig_segm.png}
+    \caption{
+    Segmentation images for the sources in $30''$
+    cutouts around FRB~180924 (left) and FRB~190523 (right).
+    The multitude of sources (several erroneous) at the 
+    top of the FRB180924 image is due to artefacts from a very
+    bright star.
+    }
+	\label{fig:segm}
+\end{figure}
+
+Figure~\ref{fig:segm} shows the segmentation maps of
+FRB~180924 and FRB~190523.
+Note the three, blended sources near the localization of
+FRB~180924 which are known to be unique galaxies
+at distinct redshifts \citep{Bannister19}.  An image
+with shallower depth (e.g.\ DES-DR1) or a different choice
+of {\sc photutils} parameters would lead to the non-detection
+of the fainter sources. 
+This highlights the subjectivity of
+source identification that can affect the final results.
+
+The source identification packages offer an assessment of
+the source shape (e.g.\ ellipticity and size) which can be used to 
+used to select and then ignore Galactic stars.   
+For the analysis that follows, we have simply
+clipped bright stars according to their apparent
+magnitudes when necessary.
+
+
+Provided with the segmentation map, one may perform aperture
+photometry and estimate \halflight\ from the derived
+elliptical apertures.  All of the measurements for the 
+galaxy candidates are provided
+in Table~\ref{tab:results}.
+%In the following, we adopt the \aimage\ parameter
+%to define \halflight.
+
+\begin{figure*}[!ht]
+\centering
+    \includegraphics[width=\textwidth]{Figs/fig_pOx_frbs.png}
+    \caption{
+    Posterior probabilities \POix\ for the most likely host (solid bars) and all other
+    candidates (open bars) with $\mPOix > \mPOsec = \POvsec$,
+    as a function of prior set
+    (green = conservative; black=adopted).
+    %Where the sum of $\mPOix < 1$, the remainder of the 
+    %probability is assigned to an unseen galaxy, i.e.\ \PUx.
+    With $\mPOsec = \POvsec$ as the probability for a 
+    secure association, there are currently \nsecure\ FRBs 
+    satisfying this criterion using the adopted prior set.  
+    The non-secure hosts occur for a variety of reasons as
+    described in the text.
+    }
+	\label{fig:POix}
+\end{figure*}
+
+
+\begin{figure*}[!ht]
+\centering
+    \includegraphics[width=\textwidth]{Figs/fig_prior_vs_posterior.png}
+    \caption{
+    The solid histogram shows the distribution of separations for the secure
+    host galaxies, in units of their angular size (\halflight).
+    The gray histogram is for all of the candidate galaxies but weighted
+    by their posterior probabilities \POix.
+    These results were derived by assuming the 
+    \adopted\ prior set (Table~\ref{tab:priors}) and by varying the 
+    offset function \poffset, as labeled in each panel. 
+    Overplotted on the histogram is the offset function both before
+    (semi-transparent) and after convolving with the FRB localization 
+    error (solid).  The data rule out 
+    the uniform offset function that extends to
+    $\mthmax = 6 \phi$  at $\approx 99\%$c.l.
+    (using a one-sided Kolmogorov-Smirnov test). 
+    %The other models also yield low $P_{\rm KS}$ probabilities
+    %and are suggestive of a lower \thmax\ than adopted in the analysis.
+    } 
+	\label{fig:poff_posterior}
+\end{figure*}
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{FRB Assignments}
+
+We then applied the PATH framework. 
+The primary results are displayed in Figure~\ref{fig:POix}
+which summarizes the \POix\ values for the candidates
+in each field for each set of priors.
+We find very similar results for the \nsets~prior sets
+with one obvious exception: FRB~180924.
+In this case, there are two galaxies with separation
+$\theta < \mthmax$ 
+from this precisely localized FRB.
+These are treated similarly by the conservative approach.
+%[What if I use a different \poffset??]
+We demonstrate below, however, that a uniform \poffset\ 
+function with $\mthmax = 6 \phi$
+is disfavored by the data.
+Imposing the exponential offset model yields 
+a higher \POix\ for the primary candidate.
+Furthermore, if we allow for the great difference
+in apparent magnitude by invoking the 
+inverse \PO\ prior, the posterior
+\POix\ raises to near unity for the host
+reported by \cite{Bannister19}.
+
+Based on the results from analysis of mock fields
+($\S$~\ref{sec:sim}), we adopt a probability 
+threshold $\mPOsec = \POvsec$ above which we 
+consider a host association to be highly secure.
+The results in Figure~\ref{fig:POix}
+indicate that \nsecure\ of the FRBs are
+associated to a single galaxy with $\mPOix > \POvsec$ 
+for the \adopted\ prior set 
+(and eight for the conservative set with FRB~180924 the 
+difference).
+
+The non-secure hosts
+deserve individual consideration,
+in part to understand the dependence of the formalism
+to observed variations on the sky.
+FRB~181112 shows two bright galaxies near the FRB with the
+brighter assumed to lie in the foreground
+\citep{Prochaska19b}.  
+The PATH analysis for 
+the purported host gives $\mPOix \approx 0.7-0.9$
+depending on the choice of priors (Table~\ref{tab:priors}).
+We emphasize that the majority of FRB sightlines that
+intersect a massive foreground halo (estimated to 
+be a few percent for FRBs at $z>0.5$), will tend to 
+have a maximum $\mPOix < \mPOsec$.  
+Given the terrific scientific value of probing such
+halos with FRBs \citep{Prochaska19b}, one may need
+to introduce additional criteria/priors to confidently
+pursue this science.
+
+The next, non-secure FRB association is FRB~190523
+whose larger localization error incorporates several
+candidates. 
+The analysis, however, does favor the purported host
+reported by \cite{Ravi19}.
+Third is FRB~190614 which lies near ($\lesssim 2''$) two 
+faint galaxies with unknown redshifts \citep{Law20}.
+As the FRB with the highest DM and therefore the highest
+presumed redshift of the sample, this result emphasizes
+the likely challenges of associating high-$z$ FRBs
+to galaxies.  In particular, given the host itself is
+likely faint, the incidence of additional, chance
+associations with comparable \POix\ will be higher.
+Last is FRB~191001 which sits next to two bright galaxies
+known to have a common redshift \citep{Bhandari20b}.
+Therefore, 
+the redshift of the FRB is secure but the
+host offset and its internal properties (e.g.\ stellar
+mass) are currently based on the assumption that the
+closer galaxy is the host 
+and, indeed, it exhibits a $3\times$ higher \POix\ value
+for the \adopted\ prior set.
+
+{\bf PLACEHOLDER Add a statement here about p(unseen) from the new figure from the analysis of sandbox 7. Results are a to-do it.}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\subsection{Properties of the Secure Hosts}
+%\label{sec:secure}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Towards Additional Priors}
+\label{sec:add_priors}
+
+Having established a set of \nsecure\ secure, 
+$\mPOix > \mPOsec = \POvsec$, 
+host associations we may 
+%examine (and re-examine)
+%several host property distributions of scientific interest.
+%Further, we may 
+test the assumed \poffset\ functions 
+imposed in the analysis.
+Figure~\ref{fig:poff_posterior} shows the offset distribution
+for the secure hosts for the three \poffset\ priors
+of the analysis ($\S$~\ref{sec:poffset}).
+Note that modifying the choice of \poffset\ could include/exclude
+FRBs as being secure.  The figure also shows the 
+values of $\theta/\mhalflight$ derived for all candidates
+from the full set of 
+FRBs, where we have weighted the $\theta/\mhalflight$ value
+of each candidate by $\mPOix$.  
+Overall, the posteriors lend reasonable credibility to the 
+set of \poffset\ functions.  On the other hand, a comparison
+of the secure distribution with the priors yields 
+a one-sided Kolmogorov-Smirnov probability 
+$P_{\rm KS} \lesssim 0.1$ and we rule out the uniform prior
+to $\mthmax = 6 \phi$ at $> 99\%$.  
+The data appear to favor a \poffset\ function that favors
+a central concentration for FRB locations.
+
+\begin{figure}[!ht]
+\centering
+    \includegraphics[width=0.48\textwidth]{Figs/fig_PL.png}
+    \caption{
+    ({\it top}) Scatter plot of apparent magnitudes versus redshift
+    for the \nsecure\ host galaxies.  These show an expected
+    decrease in flux with increasing distance.
+    The dashed line marks the approximate apparent
+    magnitude for an $L*$ galaxy.
+    ({\it bottom}) Estimated galaxy luminosity relative to the
+    characteristic luminosity $L*$ at the host redshift.
+    The secure hosts have a median $L/L* \approx 1/4$ and
+    an RMS scatter of 0.5\,dex.
+    }
+	\label{fig:PL}
+\end{figure}
+
+%Consider next a few derived galaxy properties, e.g.\ luminosity.
+%Figure~\ref{fig:PL}a shows the apparent magnitudes
+%against redshift for the securely associated FRBs
+%\citep[data taken from][]{Heintz2020}.
+%There is an apparent correlation reflecting the expected
+%decrease in flux with distance.
+%From these observations, we estimate the rest-frame
+%$r$-band luminosity $L_r$ and histogram these in the
+%lower panel relative to the characteristic luminosity
+%\lstar\ at each redshift
+%\citep[see][for details]{Heintz2020}.
+%Similar to conclusions drawn in the literature on FRB hosts
+%\citep{Bhandari20a,Heintz2020}, we find the hosts are 
+%luminous but predominantly sub-\lstar. 
+
+%\begin{figure}[h]
+%\centering
+%    \includegraphics[width=0.45\textwidth]{Figs/fig_Psizesep.png}
+%    \caption{
+%    Characteristic sizes (derived from \halflight)
+%    versus the observed physical separation from the FRB
+%    for the secure set of host galaxies.
+%    With the exception of FRB~190611, all of the FRBs
+%    occur within $\approx 5$\,kpc.
+%    }
+%	\label{fig:sizesep}
+%\end{figure}
+
+%\begin{figure}[h]
+%\centering
+%    \includegraphics[width=0.45\textwidth]{Figs/fig_Pcolor.png}
+%    \caption{
+%    Rest-frame color versus stellar mass ($M*$) for the secure host
+%    galaxies of the sample.  The majority show the blue color 
+%    characteristic of star-forming galaxies and stellar masses
+%    consistent with sub-$L*$ luminosities (Figure~\ref{fig:PL}).
+%    }
+%	\label{fig:Pcolor}
+%\end{figure}
+
+
+%Figure~\ref{fig:sizesep} shows the physical sizes of the secure
+%host galaxies (using $z$ and the angular size)
+%versus the measured physical separation of the FRB.
+%Where available, we have adopted the measurements
+%from space-based observations to mitigate the effects
+%of atmospheric seeing.
+%With one exception (FRB~190611), all of the separations
+%occur well within the characteristic size of the galaxy.
+%Figure~\ref{fig:Pcolor} shows the rest-frame $u-r$
+%color and the stellar mass measurements for each secure
+%host.  These indicate a FRBs are hosted by 
+%a population of relatively blue and modest mass systems.
+
+Encoded in every FRB is its dispersion measure (DM),
+the path integral of free electrons along the sightline
+weighted by the cosmological scale factor.  The first
+$\approx 10$ FRBs localized have established a 
+firm correlation between DM and redshift, 
+now termed the Macquart Relation \citep{Macquart20}.
+This relation derives from the ionized plasma
+that permeates the cosmic web.
+Because redshift (i.e.\ distance)
+affects observed properties, one
+should consider incorporating the DM
+into the association analysis. 
+A full and proper treatment, however, requires including
+the intrinsic luminosities and spectral slopes of FRBs 
+convolved with instrumental sensitivity and even the
+triggering software (James et al., in prep.).
+Further, we emphasize that adopting the Macquart Relation
+as a prior would likely require estimating the redshift
+for every galaxy candidate;  this will be intractable
+for many FRBs.
+
+\begin{figure*}[!ht]
+\centering
+    \includegraphics[width=\textwidth]{Figs/fig_mag_vs_DM.png}
+    \caption{
+    Using the adopted prior set (Table~\ref{tab:priors}), 
+    we show the apparent magnitudes of each candidate
+    with $\mPOix > 0.01$ scaling the point-size by \POix.  These are plotted
+    against \dmcosmic, an estimate of the dispersion measure of the FRB
+    due to the cosmic web (see text for details).
+    The black curve shows the estimated $m_r$ for an
+    $L = L*/4$ galaxy by converting \dmcosmic\ to redshift
+    (using the Macquart relation).  
+    %Its non-uniformity is due
+    %to splicing together a series of galaxy surveys.
+    The fact that the $m_r$ values track this curve
+    implies an underlying Macquart relation.
+    }
+	\label{fig:mag_DM}
+\end{figure*}
+
+In lieu of a direct application of the Macquart relation,
+we propose to leverage the luminosity distribution
+(Figure~\ref{fig:PL}) together with DM.
+Figure~\ref{fig:mag_DM} presents the apparent magnitudes of 
+each galaxy candidate against an estimate of the cosmic 
+dispersion measure \dmcosmic\ with the 
+point-size proportional to \POix.
+For \dmcosmic, we adopt a simple estimation: 
+
+\begin{equation}
+    \mdmcosmic = \mdmfrb - \mdmmwism - 100 
+\end{equation}
+with  \dmmwism\ the estimated ISM dispersion measure \citep{ne2001}
+and the factor of 100 DM units accounts for the Galactic
+halo and the host galaxy \citep[see][]{xyz19,Macquart20}.
+The locus of data exhibits a clear correlation reflecting the
+decrease in observed galaxy flux with increasing distance.
+
+
+Converting the \dmcosmic\ estimates to 
+redshift\footnote{https://github.com/FRBs/FRB/blob/main/docs/nb/DM\_cosmic.ipynb},
+we may convert a given $L_r$ luminosity to $m_r$;
+this is illustrated as the black curve in Figure~\ref{fig:mag_DM}
+where we assumed a fiducial $L = L*/4$
+based on Figure~\ref{fig:PL}.
+The good correspondence between the data and this curve
+reveals the Macquart relation without having used 
+any direct redshift measurements.
+
+In principle, one could construct a prior 
+$P(m_r|{\rm DM})$ to include in the analysis.
+This will, however, be subject to scatter in 
+\dmcosmic\ \citep{Macquart20}, \dmhost, 
+and the intrinsic luminosities of the host galaxy
+population (Figure~\ref{fig:PL}).
+It will also be subject, however, to the S/N
+considerations that affect any prior related to DM
+\citep{James20}.
+
+
+\input{tab_frb_results}
+
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Future Directions and Analyses}
+\label{sec:future}
+
+This paper and the accompanying code base\footnote{https://github.com/FRBs/astropath}
+provide a new methodology to make probabilistic associations of transients
+to hosts (PATH).  While we were motivated by FRB science, the general
+framework is agnostic to transient type.  Therefore, we anticipate
+it will be applied to GRBs, GW events, Type~Ia SNe, and many other
+transients.  We stress further that because it is fully probabilistic,
+the outputs may be coupled to other likelihood frameworks developed
+to constrain, e.g.\ progenitor models or cosmology.
+
+Applied to 13 well-localised FRBs, our results identify nine secure
+host galaxies, with posterior probabilities $>0.95$ of being the true host.
+We have shown using a suite of `sandbox' simulations that this identification is reliable under a wide range of true FRB host galaxy distributions. This allows a reliable data set to be used when analysing host galaxy properties, or using FRBs for cosmology. Furthermore, by assigning a quantitative probability to individual hosts, we allow even non-secure hosts associations to be used for statistical purposes, with appropriate weighting.
+
+Using these data-sets, we tentatively identify relations between FRB DMs, and host galaxy redshifts, magnitudes, and luminosities. Our results disfavour FRBs as having large offsets from their host galaxies, and {\bf CHECK when new SB-5 results are in} suggest that in no more than XXX cases is the true host galaxy unseen within the image. Thus we can conclusively answer the oft-asked question ``could the true host galaxy be missed?'' with a ``no''.
+
+Regarding FRBs, future work will include:
+ (i) leveraging the next set of $\sim 10$ FRBs to further refine the
+ priors and offset function; 
+ and 
+ (ii) expanding the formalism to include additional observables
+ (see the Appendix).
+The latter may require obtaining additional data or performing
+additional analyses (e.g.\ photo-$z$ estimates) than the 
+simple flux and angular sizes considered here.
+One may also introduce and test priors motivated by
+progenitor models.
+Last, the analysis can inform observing strategies to optimize
+the probability of a secure association as a function of anticipated
+FRB redshift, localization error, and imaging quality.
+
+%\begin{itemize}
+%    \item m/DM prior
+%    \item Refine \poffset
+%    \item Low-z example
+%    \item GRBs
+%    \item GWs
+%    \item Type Ia SNe
+%\end{itemize}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Acknowledgements}
+We thank C. Kilpatrick and J. Bloom for helpful
+discussions.
+The Fast and Fortunate for FRB
+Follow-up team acknowledges support from 
+NSF grants AST-1911140 and AST-1910471. 
+A.T.D. is the recipient of an ARC Future Fellowship (FT150100415). K.A. acknowledge support from NSF grant AAG-1714897.
+TB gratefully acknowledges support from NSF via grants AST-1909709 and AST-1814778.
+C.W.J. acknowledges support by the Australian Government through the Australian Research Council's Discovery Projects funding scheme (project DP210102103).
+We thank S. Ryder and L. Marnoch for sharing the reduced
+VLT/FORS2 image around FRB~190608 in advance of publication.
+This work is partly based on observations collected at the European
+Southern Observatory 
+under ESO programmes 0102.A-0450(A), 0103.A-0101(A), 0103.A-0101(B) and 105.204W.001.
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+ %%%%%%% ----- %%%%%%%%%%
+%\bibliography{ref}
+%\bibliographystyle{aasjournal}
+
+%\appendix
+
+\begin{thebibliography}{}
+\expandafter\ifx\csname natexlab\endcsname\relax\def\natexlab#1{#1}\fi
+\providecommand{\url}[1]{\href{#1}{#1}}
+\providecommand{\dodoi}[1]{doi:~\href{http://doi.org/#1}{\nolinkurl{#1}}}
+\providecommand{\doeprint}[1]{\href{http://ascl.net/#1}{\nolinkurl{http://ascl.net/#1}}}
+\providecommand{\doarXiv}[1]{\href{https://arxiv.org/abs/#1}{\nolinkurl{https://arxiv.org/abs/#1}}}
+
+\bibitem[{{Bannister} {et~al.}(2019){Bannister}, {Deller}, {Phillips},
+  {Macquart}, {Prochaska}, {Tejos}, {Ryder}, {Sadler}, {Shannon}, {Simha},
+  {Day}, {McQuinn}, {North-Hickey}, {Bhandari}, {Arcus}, {Bennert}, {Burchett},
+  {Bouwhuis}, {Dodson}, {Ekers}, {Farah}, {Flynn}, {James}, {Kerr}, {Lenc},
+  {Mahony}, {O'Meara}, {Os{\l}owski}, {Qiu}, {Treu}, {U}, {Bateman}, {Bock},
+  {Bolton}, {Brown}, {Bunton}, {Chippendale}, {Cooray}, {Cornwell}, {Gupta},
+  {Hayman}, {Kesteven}, {Koribalski}, {MacLeod}, {McClure-Griffiths},
+  {Neuhold}, {Norris}, {Pilawa}, {Qiao}, {Reynolds}, {Roxby}, {Shimwell},
+  {Voronkov}, \& {Wilson}}]{Bannister19}
+{Bannister}, K.~W., {Deller}, A.~T., {Phillips}, C., {et~al.} 2019, Science,
+  365, 565, \dodoi{10.1126/science.aaw5903}
+
+\bibitem[{{Bhandari} {et~al.}(2020{\natexlab{a}}){Bhandari}, {Sadler},
+  {Prochaska}, {Simha}, {Ryder}, {Marnoch}, {Bannister}, {Macquart}, {Flynn},
+  {Shannon}, {Tejos}, {Corro-Guerra}, {Day}, {Deller}, {Ekers}, {Lopez},
+  {Mahony}, {Nu{\~n}ez}, \& {Phillips}}]{Bhandari20a}
+{Bhandari}, S., {Sadler}, E.~M., {Prochaska}, J.~X., {et~al.}
+  2020{\natexlab{a}}, \apjl, 895, L37, \dodoi{10.3847/2041-8213/ab672e}
+
+\bibitem[{{Bhandari} {et~al.}(2020{\natexlab{b}}){Bhandari}, {Bannister},
+  {Lenc}, {Cho}, {Ekers}, {Day}, {Deller}, {Flynn}, {James}, {Macquart},
+  {Mahony}, {Marnoch}, {Moss}, {Phillips}, {Prochaska}, {Qiu}, {Ryder},
+  {Shannon}, {Tejos}, \& {Wong}}]{Bhandari20b}
+{Bhandari}, S., {Bannister}, K.~W., {Lenc}, E., {et~al.} 2020{\natexlab{b}},
+  \apjl, 901, L20, \dodoi{10.3847/2041-8213/abb462}
+
+\bibitem[{{Blanchard} {et~al.}(2016){Blanchard}, {Berger}, \&
+  {Fong}}]{Blanchard16}
+{Blanchard}, P.~K., {Berger}, E., \& {Fong}, W.-f. 2016, \apj, 817, 144,
+  \dodoi{10.3847/0004-637X/817/2/144}
+
+\bibitem[{{Blondin} \& {Tonry}(2007)}]{blondin2007}
+{Blondin}, S., \& {Tonry}, J.~L. 2007, \apj, 666, 1024, \dodoi{10.1086/520494}
+
+\bibitem[{{Bloom} {et~al.}(2002){Bloom}, {Kulkarni}, \& {Djorgovski}}]{Bloom02}
+{Bloom}, J.~S., {Kulkarni}, S.~R., \& {Djorgovski}, S.~G. 2002, \aj, 123, 1111,
+  \dodoi{10.1086/338893}
+
+\bibitem[{Budavári \& Loredo(2015)}]{budavari_loredo_2015}
+Budavári, T., \& Loredo, T.~J. 2015, Annual Review of Statistics and Its
+  Application, 2, 113–139, \dodoi{10.1146/annurev-statistics-010814-020231}
+
+\bibitem[{Budavári \& Szalay(2008)}]{budavari_szalay_2008}
+Budavári, T., \& Szalay, A.~S. 2008, The Astrophysical Journal, 679,
+  301–309, \dodoi{10.1086/587156}
+
+\bibitem[{{Cordes} \& {Chatterjee}(2019)}]{Cordes19}
+{Cordes}, J.~M., \& {Chatterjee}, S. 2019, \araa, 57, 417,
+  \dodoi{10.1146/annurev-astro-091918-104501}
+
+\bibitem[{{Cordes} \& {Lazio}(2002)}]{ne2001}
+{Cordes}, J.~M., \& {Lazio}, T.~J.~W. 2002, arXiv e-prints, astro.
+\newblock \doarXiv{astro-ph/0207156}
+
+\bibitem[{{Day} {et~al.}(2020){Day}, {Deller}, {Shannon}, {Qiu}, {Bannister},
+  {Bhandari}, {Ekers}, {Flynn}, {James}, {Macquart}, {Mahony}, {Phillips}, \&
+  {Xavier Prochaska}}]{Day20}
+{Day}, C.~K., {Deller}, A.~T., {Shannon}, R.~M., {et~al.} 2020, \mnras, 497,
+  3335, \dodoi{10.1093/mnras/staa2138}
+
+\bibitem[{{Driver} {et~al.}(2016){Driver}, {Wright}, {Andrews}, {Davies},
+  {Kafle}, {Lange}, {Moffett}, {Mannering}, {Robotham}, {Vinsen}, {Alpaslan},
+  {Andrae}, {Baldry}, {Bauer}, {Bamford}, {Bland-Hawthorn}, {Bourne}, {Brough},
+  {Brown}, {Cluver}, {Croom}, {Colless}, {Conselice}, {da Cunha}, {De Propris},
+  {Drinkwater}, {Dunne}, {Eales}, {Edge}, {Frenk}, {Graham}, {Grootes},
+  {Holwerda}, {Hopkins}, {Ibar}, {van Kampen}, {Kelvin}, {Jarrett}, {Jones},
+  {Lara-Lopez}, {Liske}, {Lopez-Sanchez}, {Loveday}, {Maddox}, {Madore},
+  {Mahajan}, {Meyer}, {Norberg}, {Penny}, {Phillipps}, {Popescu}, {Tuffs},
+  {Peacock}, {Pimbblet}, {Prescott}, {Rowlands}, {Sansom}, {Seibert}, {Smith},
+  {Sutherland}, {Taylor}, {Valiante}, {Vazquez-Mata}, {Wang}, {Wilkins}, \&
+  {Williams}}]{driver16}
+{Driver}, S.~P., {Wright}, A.~H., {Andrews}, S.~K., {et~al.} 2016, \mnras, 455,
+  3911, \dodoi{10.1093/mnras/stv2505}
+
+\bibitem[{{Eftekhari} \& {Berger}(2017)}]{EftekhariBerger2017}
+{Eftekhari}, T., \& {Berger}, E. 2017, \apj, 849, 162,
+  \dodoi{10.3847/1538-4357/aa90b9}
+
+\bibitem[{Fishman \& Meegan(1995)}]{Fishman95}
+Fishman, G.~J., \& Meegan, C.~A. 1995, Annual Review of Astronomy and
+  Astrophysics, 33, 415, \dodoi{10.1146/annurev.aa.33.090195.002215}
+
+\bibitem[{{Fong} \& {Berger}(2013)}]{Fong13}
+{Fong}, W., \& {Berger}, E. 2013, \apj, 776, 18,
+  \dodoi{10.1088/0004-637X/776/1/18}
+
+\bibitem[{{Fong} {et~al.}(2010){Fong}, {Berger}, \& {Fox}}]{Fong10}
+{Fong}, W., {Berger}, E., \& {Fox}, D.~B. 2010, \apj, 708, 9,
+  \dodoi{10.1088/0004-637X/708/1/9}
+
+\bibitem[{{Fynbo} {et~al.}(2009){Fynbo}, {Jakobsson}, {Prochaska}, {Malesani},
+  {Ledoux}, {de Ugarte Postigo}, {Nardini}, {Vreeswijk}, {Wiersema}, {Hjorth},
+  {Sollerman}, {Chen}, {Th{\"o}ne}, {Bj{\"o}rnsson}, {Bloom}, {Castro-Tirado},
+  {Christensen}, {De Cia}, {Fruchter}, {Gorosabel}, {Graham}, {Jaunsen},
+  {Jensen}, {Kann}, {Kouveliotou}, {Levan}, {Maund}, {Masetti},
+  {Milvang-Jensen}, {Palazzi}, {Perley}, {Pian}, {Rol}, {Schady}, {Starling},
+  {Tanvir}, {Watson}, {Xu}, {Augusteijn}, {Grundahl}, {Telting}, \&
+  {Quirion}}]{Fynbo09}
+{Fynbo}, J.~P.~U., {Jakobsson}, P., {Prochaska}, J.~X., {et~al.} 2009, \apjs,
+  185, 526, \dodoi{10.1088/0067-0049/185/2/526}
+
+\bibitem[{Gal-Yam(2019)}]{GalYam19}
+Gal-Yam, A. 2019, Annual Review of Astronomy and Astrophysics, 57, 305,
+  \dodoi{10.1146/annurev-astro-081817-051819}
+
+\bibitem[{{Heintz} {et~al.}(2020){Heintz}, {Prochaska}, {Simha}, {Platts},
+  {Fong}, {Tejos}, {Ryder}, {Aggerwal}, {Bhandari}, {Day}, {Deller},
+  {Kilpatrick}, {Law}, {Macquart}, {Mannings}, {Marnoch}, {Sadler}, \&
+  {Shannon}}]{Heintz2020}
+{Heintz}, K.~E., {Prochaska}, J.~X., {Simha}, S., {et~al.} 2020, \apj, 903,
+  152, \dodoi{10.3847/1538-4357/abb6fb}
+
+\bibitem[{{James} {et~al.}(2020){James}, {Os{\l}owski}, {Flynn}, {Kumar},
+  {Bannister}, {Bhandari}, {Farah}, {Kerr}, {Lorimer}, {Macquart}, {Ng},
+  {Phillips}, {Price}, {Qiu}, {Shannon}, \& {Spiewak}}]{James20}
+{James}, C.~W., {Os{\l}owski}, S., {Flynn}, C., {et~al.} 2020, \mnras, 495,
+  2416, \dodoi{10.1093/mnras/staa1361}
+
+\bibitem[{{Law} {et~al.}(2020){Law}, {Butler}, {Prochaska}, {Zackay},
+  {Burke-Spolaor}, {Mannings}, {Tejos}, {Josephy}, {Andersen}, {Chawla},
+  {Heintz}, {Aggarwal}, {Bower}, {Demorest}, {Kilpatrick}, {Lazio}, {Linford},
+  {Mckinven}, {Tendulkar}, \& {Simha}}]{Law20}
+{Law}, C.~J., {Butler}, B.~J., {Prochaska}, J.~X., {et~al.} 2020, \apj, 899,
+  161, \dodoi{10.3847/1538-4357/aba4ac}
+
+\bibitem[{{Lorimer} {et~al.}(2007){Lorimer}, {Bailes}, {McLaughlin},
+  {Narkevic}, \& {Crawford}}]{Lorimer07}
+{Lorimer}, D.~R., {Bailes}, M., {McLaughlin}, M.~A., {Narkevic}, D.~J., \&
+  {Crawford}, F. 2007, Science, 318, 777, \dodoi{10.1126/science.1147532}
+
+\bibitem[{{Lunnan} {et~al.}(2015){Lunnan}, {Chornock}, {Berger}, {Rest},
+  {Fong}, {Scolnic}, {Jones}, {Soderberg}, {Challis}, {Drout}, {Foley},
+  {Huber}, {Kirshner}, {Leibler}, {Marion}, {McCrum}, {Milisavljevic},
+  {Narayan}, {Sanders}, {Smartt}, {Smith}, {Tonry}, {Burgett}, {Chambers},
+  {Flewelling}, {Kudritzki}, {Wainscoat}, \& {Waters}}]{Lunnan15}
+{Lunnan}, R., {Chornock}, R., {Berger}, E., {et~al.} 2015, \apj, 804, 90,
+  \dodoi{10.1088/0004-637X/804/2/90}
+
+\bibitem[{{Macquart} {et~al.}(2020){Macquart}, {Prochaska}, {McQuinn},
+  {Bannister}, {Bhandari}, {Day}, {Deller}, {Ekers}, {James}, {Marnoch},
+  {Os{\l}owski}, {Phillips}, {Ryder}, {Scott}, {Shannon}, \&
+  {Tejos}}]{Macquart20}
+{Macquart}, J.~P., {Prochaska}, J.~X., {McQuinn}, M., {et~al.} 2020, \nat, 581,
+  391, \dodoi{10.1038/s41586-020-2300-2}
+
+\bibitem[{{Marcote} {et~al.}(2020){Marcote}, {Nimmo}, {Hessels}, {Tendulkar},
+  {Bassa}, {Paragi}, {Keimpema}, {Bhardwaj}, {Karuppusamy}, {Kaspi}, {Law},
+  {Michilli}, {Aggarwal}, {Andersen}, {Archibald}, {Bandura}, {Bower}, {Boyle},
+  {Brar}, {Burke-Spolaor}, {Butler}, {Cassanelli}, {Chawla}, {Demorest},
+  {Dobbs}, {Fonseca}, {Giri}, {Good}, {Gourdji}, {Josephy}, {Kirichenko},
+  {Kirsten}, {Landecker}, {Lang}, {Lazio}, {Li}, {Lin}, {Linford}, {Masui},
+  {Mena-Parra}, {Naidu}, {Ng}, {Patel}, {Pen}, {Pleunis}, {Rafiei-Ravandi},
+  {Rahman}, {Renard}, {Scholz}, {Siegel}, {Smith}, {Stairs}, {Vanderlinde}, \&
+  {Zwaniga}}]{Marcote20}
+{Marcote}, B., {Nimmo}, K., {Hessels}, J.~W.~T., {et~al.} 2020, \nat, 577, 190,
+  \dodoi{10.1038/s41586-019-1866-z}
+
+\bibitem[{{McQuinn}(2014)}]{McQuinn14}
+{McQuinn}, M. 2014, \apjl, 780, L33, \dodoi{10.1088/2041-8205/780/2/L33}
+
+\bibitem[{{Planck Collaboration} {et~al.}(2016){Planck Collaboration}, {Ade},
+  {Aghanim}, {Arnaud}, {Ashdown}, {Aumont}, {Baccigalupi}, {Banday},
+  {Barreiro}, {Bartlett}, {Bartolo}, {Battaner}, {Battye}, {Benabed},
+  {Beno{\^\i}t}, {Benoit-L{\'e}vy}, {Bernard}, {Bersanelli}, {Bielewicz},
+  {Bock}, {Bonaldi}, {Bonavera}, {Bond}, {Borrill}, {Bouchet}, {Boulanger},
+  {Bucher}, {Burigana}, {Butler}, {Calabrese}, {Cardoso}, {Catalano},
+  {Challinor}, {Chamballu}, {Chary}, {Chiang}, {Chluba}, {Christensen},
+  {Church}, {Clements}, {Colombi}, {Colombo}, {Combet}, {Coulais}, {Crill},
+  {Curto}, {Cuttaia}, {Danese}, {Davies}, {Davis}, {de Bernardis}, {de Rosa},
+  {de Zotti}, {Delabrouille}, {D{\'e}sert}, {Di Valentino}, {Dickinson},
+  {Diego}, {Dolag}, {Dole}, {Donzelli}, {Dor{\'e}}, {Douspis}, {Ducout},
+  {Dunkley}, {Dupac}, {Efstathiou}, {Elsner}, {En{\ss}lin}, {Eriksen},
+  {Farhang}, {Fergusson}, {Finelli}, {Forni}, {Frailis}, {Fraisse},
+  {Franceschi}, {Frejsel}, {Galeotta}, {Galli}, {Ganga}, {Gauthier}, {Gerbino},
+  {Ghosh}, {Giard}, {Giraud-H{\'e}raud}, {Giusarma}, {Gjerl{\o}w},
+  {Gonz{\'a}lez-Nuevo}, {G{\'o}rski}, {Gratton}, {Gregorio}, {Gruppuso},
+  {Gudmundsson}, {Hamann}, {Hansen}, {Hanson}, {Harrison}, {Helou},
+  {Henrot-Versill{\'e}}, {Hern{\'a}ndez-Monteagudo}, {Herranz}, {Hildebrandt},
+  {Hivon}, {Hobson}, {Holmes}, {Hornstrup}, {Hovest}, {Huang}, {Huffenberger},
+  {Hurier}, {Jaffe}, {Jaffe}, {Jones}, {Juvela}, {Keih{\"a}nen}, {Keskitalo},
+  {Kisner}, {Kneissl}, {Knoche}, {Knox}, {Kunz}, {Kurki-Suonio}, {Lagache},
+  {L{\"a}hteenm{\"a}ki}, {Lamarre}, {Lasenby}, {Lattanzi}, {Lawrence}, {Leahy},
+  {Leonardi}, {Lesgourgues}, {Levrier}, {Lewis}, {Liguori}, {Lilje},
+  {Linden-V{\o}rnle}, {L{\'o}pez-Caniego}, {Lubin}, {Mac{\'\i}as-P{\'e}rez},
+  {Maggio}, {Maino}, {Mandolesi}, {Mangilli}, {Marchini}, {Maris}, {Martin},
+  {Martinelli}, {Mart{\'\i}nez-Gonz{\'a}lez}, {Masi}, {Matarrese}, {McGehee},
+  {Meinhold}, {Melchiorri}, {Melin}, {Mendes}, {Mennella}, {Migliaccio},
+  {Millea}, {Mitra}, {Miville-Desch{\^e}nes}, {Moneti}, {Montier}, {Morgante},
+  {Mortlock}, {Moss}, {Munshi}, {Murphy}, {Naselsky}, {Nati}, {Natoli},
+  {Netterfield}, {N{\o}rgaard-Nielsen}, {Noviello}, {Novikov}, {Novikov},
+  {Oxborrow}, {Paci}, {Pagano}, {Pajot}, {Paladini}, {Paoletti}, {Partridge},
+  {Pasian}, {Patanchon}, {Pearson}, {Perdereau}, {Perotto}, {Perrotta},
+  {Pettorino}, {Piacentini}, {Piat}, {Pierpaoli}, {Pietrobon}, {Plaszczynski},
+  {Pointecouteau}, {Polenta}, {Popa}, {Pratt}, {Pr{\'e}zeau}, {Prunet},
+  {Puget}, {Rachen}, {Reach}, {Rebolo}, {Reinecke}, {Remazeilles}, {Renault},
+  {Renzi}, {Ristorcelli}, {Rocha}, {Rosset}, {Rossetti}, {Roudier},
+  {Rouill{\'e} d'Orfeuil}, {Rowan-Robinson}, {Rubi{\~n}o-Mart{\'\i}n},
+  {Rusholme}, {Said}, {Salvatelli}, {Salvati}, {Sandri}, {Santos},
+  {Savelainen}, {Savini}, {Scott}, {Seiffert}, {Serra}, {Shellard}, {Spencer},
+  {Spinelli}, {Stolyarov}, {Stompor}, {Sudiwala}, {Sunyaev}, {Sutton},
+  {Suur-Uski}, {Sygnet}, {Tauber}, {Terenzi}, {Toffolatti}, {Tomasi},
+  {Tristram}, {Trombetti}, {Tucci}, {Tuovinen}, {T{\"u}rler}, {Umana},
+  {Valenziano}, {Valiviita}, {Van Tent}, {Vielva}, {Villa}, {Wade}, {Wandelt},
+  {Wehus}, {White}, {White}, {Wilkinson}, {Yvon}, {Zacchei}, \&
+  {Zonca}}]{Planck15}
+{Planck Collaboration}, {Ade}, P.~A.~R., {Aghanim}, N., {et~al.} 2016, \aap,
+  594, A13, \dodoi{10.1051/0004-6361/201525830}
+
+\bibitem[{{Prochaska} \& {Zheng}(2019)}]{xyz19}
+{Prochaska}, J.~X., \& {Zheng}, Y. 2019, \mnras, 485, 648,
+  \dodoi{10.1093/mnras/stz261}
+
+\bibitem[{{Prochaska} {et~al.}(2019){Prochaska}, {Macquart}, {McQuinn},
+  {Simha}, {Shannon}, {Day}, {Marnoch}, {Ryder}, {Deller}, {Bannister},
+  {Bhandari}, {Bordoloi}, {Bunton}, {Cho}, {Flynn}, {Mahony}, {Phillips},
+  {Qiu}, \& {Tejos}}]{Prochaska19b}
+{Prochaska}, J.~X., {Macquart}, J.-P., {McQuinn}, M., {et~al.} 2019, Science,
+  366, 231, \dodoi{10.1126/science.aay0073}
+
+\bibitem[{{Ravi} {et~al.}(2019){Ravi}, {Catha}, {D'Addario}, {Djorgovski},
+  {Hallinan}, {Hobbs}, {Kocz}, {Kulkarni}, {Shi}, {Vedantham}, {Weinreb}, \&
+  {Woody}}]{Ravi19}
+{Ravi}, V., {Catha}, M., {D'Addario}, L., {et~al.} 2019, \nat, 572, 352,
+  \dodoi{10.1038/s41586-019-1389-7}
+
+\bibitem[{{Scoville} {et~al.}(2007{\natexlab{a}}){Scoville}, {Abraham},
+  {Aussel}, {Barnes}, {Benson}, {Blain}, {Calzetti}, {Comastri}, {Capak},
+  {Carilli}, {Carlstrom}, {Carollo}, {Colbert}, {Daddi}, {Ellis}, {Elvis},
+  {Ewald}, {Fall}, {Franceschini}, {Giavalisco}, {Green}, {Griffiths}, {Guzzo},
+  {Hasinger}, {Impey}, {Kneib}, {Koda}, {Koekemoer}, {Lefevre}, {Lilly}, {Liu},
+  {McCracken}, {Massey}, {Mellier}, {Miyazaki}, {Mobasher}, {Mould}, {Norman},
+  {Refregier}, {Renzini}, {Rhodes}, {Rich}, {Sanders}, {Schiminovich},
+  {Schinnerer}, {Scodeggio}, {Sheth}, {Shopbell}, {Taniguchi}, {Tyson}, {Urry},
+  {Van Waerbeke}, {Vettolani}, {White}, \& {Yan}}]{Scoville2007cosmoshst}
+{Scoville}, N., {Abraham}, R.~G., {Aussel}, H., {et~al.} 2007{\natexlab{a}},
+  \apjs, 172, 38, \dodoi{10.1086/516580}
+
+\bibitem[{{Scoville} {et~al.}(2007{\natexlab{b}}){Scoville}, {Aussel}, {Brusa},
+  {Capak}, {Carollo}, {Elvis}, {Giavalisco}, {Guzzo}, {Hasinger}, {Impey},
+  {Kneib}, {LeFevre}, {Lilly}, {Mobasher}, {Renzini}, {Rich}, {Sanders},
+  {Schinnerer}, {Schminovich}, {Shopbell}, {Taniguchi}, \&
+  {Tyson}}]{Scoville2007cosmos}
+{Scoville}, N., {Aussel}, H., {Brusa}, M., {et~al.} 2007{\natexlab{b}}, \apjs,
+  172, 1, \dodoi{10.1086/516585}
+
+\bibitem[{{Tendulkar} {et~al.}(2017){Tendulkar}, {Bassa}, {Cordes}, {Bower},
+  {Law}, {Chatterjee}, {Adams}, {Bogdanov}, {Burke-Spolaor}, {Butler},
+  {Demorest}, {Hessels}, {Kaspi}, {Lazio}, {Maddox}, {Marcote}, {McLaughlin},
+  {Paragi}, {Ransom}, {Scholz}, {Seymour}, {Spitler}, {van Langevelde}, \&
+  {Wharton}}]{Tendulkar17}
+{Tendulkar}, S.~P., {Bassa}, C.~G., {Cordes}, J.~M., {et~al.} 2017, \apjl, 834,
+  L7, \dodoi{10.3847/2041-8213/834/2/L7}
+
+\bibitem[{{Tunnicliffe} {et~al.}(2014){Tunnicliffe}, {Levan}, {Tanvir},
+  {Rowlinson}, {Perley}, {Bloom}, {Cenko}, {O'Brien}, {Cobb}, {Wiersema},
+  {Malesani}, {de Ugarte Postigo}, {Hjorth}, {Fynbo}, \&
+  {Jakobsson}}]{Tunnicliffe14}
+{Tunnicliffe}, R.~L., {Levan}, A.~J., {Tanvir}, N.~R., {et~al.} 2014, \mnras,
+  437, 1495, \dodoi{10.1093/mnras/stt1975}
+
+\end{thebibliography}
+
+
+
+\end{document}
+
+% End of file `sample63.tex'.
