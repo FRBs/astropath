@@ -10,6 +10,7 @@ __pycache__/
 *.png
 *.pdf
 papers/FRB_I/Analysis/SandBox/
+papers/FRB_I/Resub/Figs/
 
 
 # Distribution / packaging
