@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# Various files
+*.png
+*.pdf
+papers/FRB_I/Analysis/SandBox/
+
+
 # Distribution / packaging
 .Python
 build/
