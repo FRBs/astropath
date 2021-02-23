@@ -10,4 +10,4 @@
 
 ## Publications
 
-### [PATH](https://drive.google.com/file/d/12iPFlFisDFKdR6-LC5_XhjdXI7-K2vol/view?usp=sharing)
+### [PATH](https://ui.adsabs.harvard.edu/abs/2021arXiv210210627A/abstract)
