@@ -1,0 +1,52 @@
+
+Title:
+
+Probabilistic Association of Transients to their Hosts (PATH)
+
+Authors:
+
+
+Kshitij Aggarwal, Tam\'as Budav\'ari, Adam T. Deller, Tarraneh Eftekhari, Clancy W. James, J. Xavier Prochaska, Shriharsh P. Tendulkar (The FRB Associations Team)
+
+Abstract:
+
+We introduce a new method to estimate the probability
+that an extragalactic transient source 
+is associated with a candidate host galaxy.  This approach relies
+solely on simple observables: 
+sky coordinates and their uncertainties, 
+galaxy fluxes and angular sizes.
+The formalism invokes Bayes' rule to calculate the
+posterior probability P(O_i|x) from the galaxy prior
+P(O), observables x, and an assumed 
+model for the true distribution
+of transients in/around their host galaxies.
+Using simulated transients placed in the well-studied 
+COSMOS field, we consider several agnostic and 
+physically motivated priors and offset distributions
+to explore the method sensitivity.
+We then apply the methodology to the set of 
+13~fast radio bursts (FRBs) localized with an uncertainty of several
+arcseconds.  Our methodology finds 
+nine of these are securely associated to a
+single host galaxy, P(O_i|x)>0.95.
+We examine the observed and intrinsic properties of
+these secure FRB hosts, 
+recovering similar  distributions as previous works.
+Furthermore, we find a strong correlation between 
+the apparent magnitude of the securely identified 
+host galaxies and the estimated cosmic dispersion 
+measures of the corresponding FRBs, which results
+from the Macquart relation.
+Future work with FRBs will leverage this relation and
+other measures from the secure hosts as priors for
+future associations.
+The methodology is generic to transient type,
+localization error, and image quality.
+We encourage its application to other transients
+where host galaxy associations are critical to the
+science, e.g. gravitational wave events, 
+gamma-ray bursts, and supernovae.
+We have encoded the technique in Python 
+on GitHub:
+https://github.com/FRBs/astropath.
