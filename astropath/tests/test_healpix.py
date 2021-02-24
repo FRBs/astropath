@@ -30,12 +30,12 @@ def test_ellipse():
     b_FRB = Angle(0.3, units.arcsec)
 
     # Run me
-    hp_tbl = healpix.ellipse_to_healpix(frb_cen, pa_FRB, a_FRB, b_FRB)
+    hp_tbl = healpix.elliptical_localization_to_healpix(frb_cen, pa_FRB, a_FRB, b_FRB)
 
     for key in ['UNIQ', 'PROBDENSITY']:
         assert key in hp_tbl.keys()
 
-    assert len(hp_tbl) == 1783
+    assert len(hp_tbl) == 4967
 
     # Test writing
     with tempfile.NamedTemporaryFile(suffix='.fits') as f:

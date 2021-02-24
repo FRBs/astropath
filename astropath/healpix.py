@@ -9,16 +9,33 @@ import astropy_healpix
 
 from ligo.skymap.io.fits import write_sky_map 
 
-def ellipse_to_healpix(coord, PA, a, b, nside=None,
+def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
                        resol=None, radius=None, 
                        fitsfile=None):
+    """Convert an input localization ellipse around an input coordinate
+    to a healpix Table
+
+    Args:
+        coord (SkyCoord): Sky coordinate
+        PA (Angle): PA of the error ellipse
+        a (Angle): semi-major axis of the ellipse
+        b (Angle): semi-minor axis of the ellipse
+        nside (int, optional): Sets resolution of the Healpix table. Defaults to None.
+        resol (Angle, optional): If nside is None, used to define nside. Defaults to None.
+        radius (float, optional): Radius of the Healpix footprint in radians. 
+            Defaults to 5*a if not input.
+        fitsfile (str, optional): Write the table to this file. Defaults to None.
+
+    Returns:
+        Table: astropy Table of the Healpix localization
+    """
     
     # Setup
     if nside is None and resol is None:
         resol = a / 10.
         nside = astropy_healpix.pixel_resolution_to_nside(resol)
     if radius is None:
-        radius=3*a.to('rad').value
+        radius=5*a.to('rad').value
     level = int(np.log2(nside))
 
 
@@ -56,5 +73,6 @@ def ellipse_to_healpix(coord, PA, a, b, nside=None,
         write_sky_map(fitsfile, hp_tbl)
                   #vcs_version='foo 1.0', vcs_revision='bar',
                   #build_date='2018-01-01T00:00:00')
+
     # Return 
     return hp_tbl
