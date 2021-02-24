@@ -14,6 +14,10 @@ from astropy import units
 
 from astropath import healpix
 
+from ligo.skymap.io.fits import write_sky_map 
+
+import tempfile
+
 import pytest
 
 remote_data = pytest.mark.skipif(os.getenv('PATH_DATA') is None,
@@ -32,3 +36,9 @@ def test_ellipse():
         assert key in hp_tbl.keys()
 
     assert len(hp_tbl) == 1783
+
+    # Test writing
+    with tempfile.NamedTemporaryFile(suffix='.fits') as f:
+        write_sky_map(f.name, hp_tbl,
+                  vcs_version='foo 1.0', vcs_revision='bar',
+                  build_date='2018-01-01T00:00:00')

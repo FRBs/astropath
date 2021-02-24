@@ -7,8 +7,11 @@ from astropy import units
 from astropy.table import Table 
 import astropy_healpix
 
+from ligo.skymap.io.fits import write_sky_map 
+
 def ellipse_to_healpix(coord, PA, a, b, nside=None,
-                       resol=None, radius=None):
+                       resol=None, radius=None, 
+                       fitsfile=None):
     
     # Setup
     if nside is None and resol is None:
@@ -48,5 +51,10 @@ def ellipse_to_healpix(coord, PA, a, b, nside=None,
     hp_tbl['UNIQ'] = uniq
     hp_tbl['PROBDENSITY'] = p_xy
 
+    # Write?
+    if fitsfile is not None:
+        write_sky_map(fitsfile, hp_tbl)
+                  #vcs_version='foo 1.0', vcs_revision='bar',
+                  #build_date='2018-01-01T00:00:00')
     # Return 
     return hp_tbl

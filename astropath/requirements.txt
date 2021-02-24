@@ -10,4 +10,5 @@ pandas>=0.25
 photutils>=1.0.1
 healpy>=1.14
 astropy-healpix>=0.5
+ligo.skymap>=0.5
 
