@@ -28,7 +28,8 @@ def raw_prior_Oi(method, mag, half_light=None, Pchance=None):
             pchance_inverse :: Assign inverse to P_chance
             identical :: All the same
         mag (float or np.ndarray):
-            Magnitudes of the sources;  assumed r-band
+            Magnitudes of the sources;  assumed r-band and corrected
+            for Galactic extinction
         half_light (float or np.ndarray, optional):
             Angular size of the galaxy in arcsec
             Only required for several methods
