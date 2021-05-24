@@ -10,4 +10,4 @@
 
 ## Publications
 
-### [PATH](https://ui.adsabs.harvard.edu/abs/2021arXiv210210627A/abstract)
+### The main manuscript -- [PATH](https://ui.adsabs.harvard.edu/abs/2021arXiv210210627A/abstract)
