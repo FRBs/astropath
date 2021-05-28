@@ -12,6 +12,7 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 
 from astropath import bayesian
+from astropath import localization
 
 import pytest
 
@@ -63,6 +64,15 @@ def test_pw_Oi():
     theta_prior = dict(max=6, method='exp')
     pw_Oi_e = np.sum(bayesian.pw_Oi(theta, phi, theta_prior)) * grid_spacing_arcsec**2
     assert np.isclose(pw_Oi_e, 1., atol=1e-4)
+
+def test_error_ellipse():
+    # Set up localization
+    frb_coord = SkyCoord('21h44m25.255s -40d54m00.10s', frame='icrs')
+    eellipse = dict(a=0.1, b=0.1, theta=0.)
+    localiz = dict(type='eellipse', frb_coord=frb_coord, frb_eellipse=eellipse)
+    assert localization.vette_localization(localiz)
+
+    #
 
 
 def test_PU():

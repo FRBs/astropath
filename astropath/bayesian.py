@@ -1,13 +1,18 @@
 """Methods related to Bayesian association analysis"""
 
+from typing import IO
 import numpy as np
 
 import healpy as hp
+import astropy_healpix
 
 from astropy import units
 from astropy.coordinates import SkyCoord
+from astropy.table import Table
 
 from astropath import chance
+from astropath import utils
+from astropath import localization 
 
 from IPython import embed
 
@@ -111,7 +116,7 @@ def pw_Oi(theta, phi, theta_prior):
     return p
 
 
-def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
+def px_Oi_fixed(box_hwidth, localiz, cand_coords,
           theta_prior, step_size=0.1, return_grids=False):
     """
     Calculate p(x|O_i), the primary piece of the analysis
@@ -121,6 +126,97 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
         2. Discretize it to the step-size (e.g. 0.1")
         3. Convolve the FRB localization with the galaxy offset function
 
+    Args:
+        box_hwidth (float):
+            Half-width of the analysis box, in arcsec
+        localiz (dict):
+            Defines the FRB localization
+            Used to calculate L(x-w)
+        cand_coords (SkyCoord):
+            Coordinates of the candidate host centroids of O_i
+        theta_prior (dict):
+            Parameters for theta prior
+        step_size (float, optional):
+            Step size for grid, in arcsec
+        return_grids (bool, optional):
+            if True, return the calcualtion grid
+
+    Returns:
+        np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
+
+    """
+    # Checks
+    if 'frb_coord' not in localiz.keys():
+        # 
+        raise IOError("To use this method, you need to specfic a center for the fixed grid via frb_coord in localiz")
+
+    # Set Equinox (for spherical offsets)
+    localiz['frb_coord'].equinox = cand_coords[0].equinox
+
+    # Build the grid around the FRB 
+    ngrid = int(np.round(2*box_hwidth / step_size))
+    x = np.linspace(-box_hwidth, box_hwidth, ngrid)
+    xcoord, ycoord = np.meshgrid(x,x)
+
+    # Grid spacing
+    grid_spacing_arcsec = x[1]-x[0]
+
+    # #####################
+    # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
+    # Approximate as flat sky
+    #  Warning:  RA increase in x for these grids!!
+    ra = localiz['frb_coord'].ra.deg + xcoord/3600.
+    dec = localiz['frb_coord'].dec.deg + ycoord/3600.
+    L_wx = localization.calc_LWx(ra, dec, localiz) 
+
+    p_xOis, grids = [], []
+    # TODO -- multiprocess this
+    for icand, cand_coord in enumerate(cand_coords):
+
+        '''
+        # Rotate the galaxy
+        r = frb_coord.separation(cand_coord).to('arcsec')
+        pa_gal = frb_coord.position_angle(cand_coord).to('deg')
+        new_pa_gal = pa_gal + dtheta * units.deg
+        # x, y gal
+        x_gal = -r.value * np.sin(new_pa_gal).value
+        y_gal = r.value * np.cos(new_pa_gal).value
+        theta = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)  # arc sec
+        '''
+        xcoord = 3600*(ra - cand_coord.ra.deg)
+        ycoord = 3600*(dec - cand_coord.dec.deg)
+        theta = np.sqrt(xcoord**2 + ycoord**2)  # arc sec
+
+
+        # p(w|O_i)
+        p_wOi = pw_Oi(theta,
+                      theta_prior['ang_size'][icand],  # phi
+                      theta_prior)
+
+        # Product
+        grid_p = L_wx * p_wOi
+
+        # Save grids if returning
+        if return_grids:
+            grids.append(grid_p.copy())
+
+        # Sum
+        p_xOis.append(np.sum(grid_p)*grid_spacing_arcsec**2)
+
+    # Return
+    if return_grids:
+        return np.array(p_xOis), grids
+    else:
+        return np.array(p_xOis)
+
+def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
+          theta_prior, step_size=0.1, return_grids=False):
+    """
+    Calculate p(x|O_i), the primary piece of the analysis
+    Main concept:
+        1. Set an area to analyze
+        2. Discretize it to the step-size (e.g. 0.1")
+        3. Convolve the FRB localization with the galaxy offset function
     Args:
         box_hwidth (float):
             Half-width of the analysis box, in arcsec
@@ -138,10 +234,8 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
             Step size for grid, in arcsec
         return_grids (bool, optional):
             if True, return the calcualtion grid
-
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
-
     """
     # Error ellipse
     pa_ee = eellipse['theta'] # PA of FRB error ellipse on the sky; deg
@@ -197,14 +291,19 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
     else:
         return np.array(p_xOis)
 
-def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
-                  coord_sys='C',
+def px_Oi_healpix(healpix, nside, cand_coords, theta_prior, 
+                  step_size=0.1, 
+                  coord_sys='C', ordering='NESTED',
                   debug = False):
     """
 
     Args:
-        transient (np.ndarray):
+        healpix (np.ndarray or astropy.table.Table):
             Healpix probability values for the localization
+            Input either as a simple numpy array for a full NESTED array
+            or an astropy Table for NUNIQ format with
+            columns UNIQ and PROBDENSITY.
+            The format is specified by the ordering key
         nside (int):
             Healpix NSIDE
         cand_coords (astropy.coordinates.SkyCoord):
@@ -218,6 +317,9 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
         coord_sys (str, optional):
             Coordinate system of the healpix
             'C' = Celestial [only supported option]
+        ordering (str, optional):
+            'NESTED' -- Full array of healpix 
+            'NUNIQ' -- Sub-set (used for high spatial resolution)
         debug (bool, optional):
             If true, hit an embed in the main loop
 
@@ -231,6 +333,13 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
         lon, lat = cand_coords.ra.deg, cand_coords.dec.deg
     else:
         raise IOError("Only coord_sys='C' is currently supported")
+
+    if ordering == 'NESTED':
+        assert isinstance(healpix, np.ndarray)
+    elif ordering == 'NUNIQ':
+        assert isinstance(healpix, Table)
+    else:
+        raise IOError("Bad ORDERING input {}".format(ordering))
 
     # Loop on galaxies
     p_xOis = []
@@ -248,8 +357,17 @@ def px_Oi_healpix(transient, nside, cand_coords, theta_prior, step_size=0.1,
         # Generate coords for FRB (flat sky)
         loncoord = lon[icand] + xcoord/3600.
         latcoord = lat[icand] + ycoord/3600.
+        #hp_index = hp.ang2pix(nside, loncoord, latcoord, lonlat=True)
         hp_index = hp.ang2pix(nside, loncoord, latcoord, lonlat=True)
-        L_wx = transient[hp_index]
+
+        # Healpix
+        if ordering == 'NESTED':
+            L_wx = healpix[hp_index]
+        else:
+            level, ipix = astropy_healpix.uniq_to_level_ipix(healpix['UNIQ'])
+            # Match
+            match = utils.match_ids(hp_index.flatten(), ipix)
+            L_wx = healpix['PROBDENSITY'][match].reshape(hp_index.shape)
 
         # Finish
         grid_p = L_wx * p_wOi
