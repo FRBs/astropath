@@ -27,59 +27,60 @@ localization_dmodel = {
                 help='Coordinate system of the healpix.'),
     }
 
-def calc_LWx(ra, dec, localization):
-    if localization['type'] == 'eellipse':
+def calc_LWx(ra, dec, localiz):
+    if localiz['type'] == 'eellipse':
         # Setup
-        eellipse = localization['frb_eellipse']  # convenience
+        eellipse = localiz['frb_eellipse']  # convenience
         pa_ee = eellipse['theta'] # PA of FRB error ellipse on the sky; deg
         dtheta = 90. - pa_ee  # Rotation to place the semi-major axis "a" of the ellipse along the x-axis we define
         #
         coord = SkyCoord(ra=ra, dec=dec, unit='deg')
+        coord.equinox = localiz['frb_coord'].equinox
         # Rotate to the FRB frame
-        r = localization['frb_coord'].separation(coord).to('arcsec')
-        pa_gal = localization['frb_coord'].position_angle(coord).to('deg')
-        new_pa_gal = pa_gal + dtheta * units.deg
+        r = localiz['frb_coord'].separation(coord).to('arcsec')
+        pa_box = localiz['frb_coord'].position_angle(coord).to('deg')
+        new_pa_box = pa_box + dtheta * units.deg
         # x, y of the box in FRB frame with x along major axis
-        x_box = -r.value * np.sin(new_pa_gal).value
-        y_box = r.value * np.cos(new_pa_gal).value
+        x_box = -r.value * np.sin(new_pa_box).value
+        y_box = r.value * np.cos(new_pa_box).value
 
         # (orient semi-major axis "a" on our x axis)
         L_wx = np.exp(-x_box ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(
             -y_box ** 2 / (2 * eellipse['b'] ** 2)) / (2*np.pi*eellipse['a']*eellipse['b'])
         #from pypeit.display import display
         #display.show_image(L_wx)
-        #import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
 
     # Return
     return L_wx
         
 
-def vette_localization(localization):
+def vette_localization(localiz):
        
     chk = True
     # Loop on the keys
     disallowed_keys = []
     badtype_keys = []
-    for key in localization.keys():
+    for key in localiz.keys():
         # In data model?
         if not key in localization_dmodel.keys():
             disallowed_keys.append(key)
             chk = False
         # Check datat type
-        if not isinstance(localization[key], 
+        if not isinstance(localiz[key], 
                           localization_dmodel[key]['dtype']):
             badtype_keys.append(key)
             chk = False        
 
     # More
-    if localization['type'] == 'eellipse':
+    if localiz['type'] == 'eellipse':
         required_keys = ['frb_eellipse', 'frb_coord']
-    elif localization['type'] == 'healpix':
+    elif localiz['type'] == 'healpix':
         required_keys = ['healpix_data', 'healpix_ordering', 'healpix_coord']
     else:
         raise IOError("need required keys")
     for key in required_keys:
-        if key not in localization.keys():
+        if key not in localiz.keys():
             chk = False
     
     # Return

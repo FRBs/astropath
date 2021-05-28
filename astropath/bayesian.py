@@ -139,7 +139,7 @@ def px_Oi_fixed(box_hwidth, localiz, cand_coords,
         step_size (float, optional):
             Step size for grid, in arcsec
         return_grids (bool, optional):
-            if True, return the calcualtion grid
+            if True, return the calculation grid
 
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
@@ -160,6 +160,7 @@ def px_Oi_fixed(box_hwidth, localiz, cand_coords,
 
     # Grid spacing
     grid_spacing_arcsec = x[1]-x[0]
+    print('Grid spacing = {}'.format(grid_spacing_arcsec))
 
     # #####################
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
@@ -167,6 +168,7 @@ def px_Oi_fixed(box_hwidth, localiz, cand_coords,
     #  Warning:  RA increase in x for these grids!!
     ra = localiz['frb_coord'].ra.deg + xcoord/3600.
     dec = localiz['frb_coord'].dec.deg + ycoord/3600.
+    import pdb; pdb.set_trace()
     L_wx = localization.calc_LWx(ra, dec, localiz) 
 
     p_xOis, grids = [], []
@@ -183,9 +185,9 @@ def px_Oi_fixed(box_hwidth, localiz, cand_coords,
         y_gal = r.value * np.cos(new_pa_gal).value
         theta = np.sqrt((xcoord-x_gal)**2 + (ycoord-y_gal)**2)  # arc sec
         '''
-        xcoord = 3600*(ra - cand_coord.ra.deg)
-        ycoord = 3600*(dec - cand_coord.dec.deg)
-        theta = np.sqrt(xcoord**2 + ycoord**2)  # arc sec
+        #xcoord = 3600*(ra - cand_coord.ra.deg)
+        #ycoord = 3600*(dec - cand_coord.dec.deg)
+        theta = 3600*np.sqrt((ra-cand_coord.ra.deg)**2 + (dec-cand_coord.dec.deg)**2)  # arc sec
 
 
         # p(w|O_i)
@@ -202,6 +204,7 @@ def px_Oi_fixed(box_hwidth, localiz, cand_coords,
 
         # Sum
         p_xOis.append(np.sum(grid_p)*grid_spacing_arcsec**2)
+        #import pdb; pdb.set_trace()
 
     # Return
     if return_grids:
@@ -256,6 +259,7 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
     L_wx = np.exp(-xcoord ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(
         -ycoord ** 2 / (2 * eellipse['b'] ** 2)) / (2*np.pi*eellipse['a']*eellipse['b'])
+    import pdb; pdb.set_trace()
 
     p_xOis, grids = [], []
     # TODO -- multiprocess this
@@ -284,6 +288,7 @@ def px_Oi(box_hwidth, frb_coord, eellipse, cand_coords,
 
         # Sum
         p_xOis.append(np.sum(grid_p)*grid_spacing_arcsec**2)
+        #import pdb; pdb.set_trace()
 
     # Return
     if return_grids:
