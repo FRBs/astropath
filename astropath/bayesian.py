@@ -1,5 +1,5 @@
 """Methods related to Bayesian association analysis"""
-
+import warnings
 from typing import IO
 import numpy as np
 
@@ -229,6 +229,7 @@ def px_Oi_orig(box_hwidth, center_coord, eellipse, cand_coords,
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
     """
+    warnings.warn(DeprecationWarning)
     # Error ellipse
     pa_ee = eellipse['theta'] # PA of transient error ellipse on the sky; deg
     dtheta = 90. - pa_ee  # Rotation to place the semi-major axis "a" of the ellipse along the x-axis we define
@@ -292,6 +293,7 @@ def px_Oi_local(localiz, cand_coords, theta_prior,
         localiz (dict):
             Defines the localization
             Used to calculate L(x-w)
+            See localization.py for the Data model
         cand_coords (astropy.coordinates.SkyCoord):
             SkyCoord object for the candidate galaxies
         theta_prior (dict):
@@ -300,12 +302,6 @@ def px_Oi_local(localiz, cand_coords, theta_prior,
             here referred to as phi.
         step_size (float, optional):
             Step size of the galaxy grid scaled by phi
-        coord_sys (str, optional):
-            Coordinate system of the healpix
-            'C' = Celestial [only supported option]
-        ordering (str, optional):
-            'NESTED' -- Full array of healpix 
-            'NUNIQ' -- Sub-set (used for high spatial resolution)
         debug (bool, optional):
             If true, hit an embed in the main loop
 

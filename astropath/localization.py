@@ -42,7 +42,24 @@ localization_dmodel = {
                 help='WCS of the localization.'),
     }
 
-def calc_LWx(ra, dec, localiz):
+def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
+    """Calculate the grid of L(w-x) values for
+    the localization given an input ra, dec arrays
+
+    Args:
+        ra (np.ndarray): RA grid
+        dec (np.ndarray): Dec grid
+        localiz (dict): localization    
+            Must follow the DataModel above
+
+    Raises:
+        IOError: [description]
+
+    Returns:
+        np.ndarray: L_wx grid
+    """
+            
+    
     if localiz['type'] == 'eellipse':
         # Setup
         eellipse = localiz['eellipse']  # convenience
@@ -91,7 +108,19 @@ def calc_LWx(ra, dec, localiz):
     return L_wx
         
 
-def vette_localization(localiz):
+def vette_localization(localiz:dict):
+    """Vet the localization object
+    i.e. confirm it corresponds to the DataModel
+
+    Args:
+        localiz (dict): localization
+
+    Raises:
+        IOError: [description]
+
+    Returns:
+        bool: True if ok
+    """
        
     chk = True
     # Loop on the keys
