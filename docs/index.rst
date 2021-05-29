@@ -26,7 +26,13 @@ Priors
 .. toctree::
    :maxdepth: 2
 
-   offset_function
+Transient
+---------
+
+.. toctree::
+   :maxdepth: 2
+
+   localization
 
 Notebooks
 ---------

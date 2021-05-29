@@ -66,14 +66,52 @@ def test_pw_Oi():
     assert np.isclose(pw_Oi_e, 1., atol=1e-4)
 
 def test_error_ellipse():
+    # This follows the FRB example Notebook
+
     # Set up localization
     frb_coord = SkyCoord('21h44m25.255s -40d54m00.10s', frame='icrs')
     eellipse = dict(a=0.1, b=0.1, theta=0.)
-    localiz = dict(type='eellipse', frb_coord=frb_coord, frb_eellipse=eellipse)
+    localiz = dict(type='eellipse', center_coord=frb_coord, eellipse=eellipse)
     assert localization.vette_localization(localiz)
 
-    #
+    # Candidates
+    cand_file = os.path.join(resource_filename('astropath', 'data'), 'frb_example', 'frb180924_candidates.csv')
+    candidates = pandas.read_csv(cand_file, index_col=0)
+    c_coords = SkyCoord(ra=candidates.ra, dec=candidates.dec, unit='deg')
 
+    # Priors
+    offset_prior = dict(method='exp', 
+                    max=6.,
+                   ang_size=candidates.half_light.values)
+    priors = dict(offset=offset_prior, 
+              O='inverse', 
+              U=0., 
+              name='Adopted')
+    # Raw priors
+    raw_prior_Oi = bayesian.raw_prior_Oi(
+        priors['O'], candidates.VLT_FORS2_g.values, 
+        half_light=candidates.half_light.values)
+    candidates['P_O_raw'] = raw_prior_Oi
+    # Normalize
+    candidates['P_O'] = bayesian.renorm_priors(
+        candidates.P_O_raw.values, priors['U'])
+
+    # P(x|O)
+    p_xOi = bayesian.px_Oi_fixedgrid(30.,  # box radius for grid, in arcsec
+                       localiz,
+                       c_coords,
+                       priors['offset'], step_size=0.02)
+    candidates['p_xO'] = p_xOi
+    
+    # p(x)
+    p_x = np.sum(candidates.P_O * candidates.p_xO)
+
+    # Posteriors
+    P_Oix = candidates.P_O * p_xOi / p_x
+    candidates['P_Ox'] = P_Oix
+
+    # Test
+    assert np.isclose(candidates['P_Ox'].max(), 0.98951951218604)
 
 def test_PU():
     # FRB
@@ -107,7 +145,7 @@ def test_PU():
     assert np.isclose(np.sum(candidates.P_O), 0.9)
 
     # p(x|O)
-    p_xOi = bayesian.px_Oi(box_radius,  # box radius for grid, in arcsec
+    p_xOi = bayesian.px_Oi_orig(box_radius,  # box radius for grid, in arcsec
                            frb_coord,
                            eellipse,
                            c_coords,
@@ -123,9 +161,6 @@ def test_PU():
     # P(U|x)
     P_Ux = priors['U'] * p_xU / p_x
     assert np.isclose(P_Ux, 0.0027760637799086035)
-
-
-    pass
 
 
 def test_healpix():
@@ -159,9 +194,17 @@ def test_healpix():
     cut_galaxies['P_O_raw'] = raw_prior_Oi
     cut_galaxies['P_O'] = bayesian.renorm_priors(cut_galaxies.P_O_raw.values, priors['U'])
 
+    # Generate localization
+    localiz = dict(type='healpix',
+                   healpix_data=gw170817,
+                   healpix_nside=header['NSIDE'],
+                   healpix_ordering='NESTED',
+                   healpix_coord='C')
+    assert localization.vette_localization(localiz)
+
     # Calculate p(x|O)
-    p_xOi = bayesian.px_Oi_healpix(gw170817, header['NSIDE'],
-                                   cut_gal_coord, offset_prior)  # , debug=True)
+    p_xOi = bayesian.px_Oi_local(
+        localiz, cut_gal_coord, offset_prior)  # , debug=True)
     np.isclose(np.max(p_xOi), 0.05150504596867476)
 
 
