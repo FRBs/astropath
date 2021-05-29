@@ -160,7 +160,6 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
 
     # Grid spacing
     grid_spacing_arcsec = x[1]-x[0]
-    print('Grid spacing = {}'.format(grid_spacing_arcsec))
 
     # #####################
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
