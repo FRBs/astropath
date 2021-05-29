@@ -66,3 +66,25 @@ GW170817::
 
 WCS
 ===
+
+The localization PDF may be provided as a FITS image
+using a proper world coordinate system (WCS).
+
+Here is an example::
+    
+    lfile = os.path.join(resource_filename('astropath', 'tests'), 'files',
+        'mask_frb201123_localization.fits.gz')
+    hdul = fits.open(lfile)
+    pdf = hdul[0].data
+    header = hdul[0].header
+    wcs = WCS(header)
+    # Normalize
+    data /= np.sum(data)
+    # Define                     
+    localiz = dict(type='wcs',
+                   wcs_data=pdf, 
+                   wcs_WCS=wcs)
+    assert localization.vette_localization(localiz)
+
+In this example, we have enforced normalization in this
+image frame.  This is not necessary.

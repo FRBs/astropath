@@ -8,6 +8,7 @@ import astropy_healpix
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
 from astropy import units
+from astropy.wcs import WCS
 
 from astropath import utils
 
@@ -16,7 +17,7 @@ from IPython import embed
 # Localization Data Model
 localization_dmodel = {
     'type': dict(dtype=(str),
-                options=['eellipse', 'WCS', 'healpix'],
+                options=['eellipse', 'wcs', 'healpix'],
                 help='Localization type.'),
     'center_coord': dict(dtype=(SkyCoord),
                 help='"Central" coordinate'),
@@ -35,6 +36,10 @@ localization_dmodel = {
     'healpix_coord': dict(dtype=(str),
                 options=['C'], # Celestial
                 help='Coordinate system of the healpix.'),
+    'wcs_data': dict(dtype=(np.ndarray),
+                help='PDF of localization.'),
+    'wcs_WCS': dict(dtype=(WCS),
+                help='WCS of the localization.'),
     }
 
 def calc_LWx(ra, dec, localiz):
@@ -69,7 +74,18 @@ def calc_LWx(ra, dec, localiz):
                 localiz['healpix_data']['UNIQ'])
             # Match
             match = utils.match_ids(hp_index.flatten(), ipix)
-            L_wx = localiz['healpix_dat']['PROBDENSITY'][match].reshape(hp_index.shape)
+            L_wx = localiz['healpix_data']['PROBDENSITY'][match].reshape(hp_index.shape)
+    elif localiz['type'] == 'wcs':
+        # Coords to col, row
+        col_pix, row_pix = localiz['wcs_WCS'].all_world2pix(
+            ra, dec, 1)
+        # Recast
+        col_pix = np.round(col_pix).astype(int)
+        row_pix = np.round(row_pix).astype(int)
+        # PDF
+        L_wx = localiz['wcs_data'][row_pix, col_pix]
+    else:
+        raise IOError("Bad localization type!! {}".format(localiz['type']))
 
     # Return
     return L_wx
@@ -98,6 +114,8 @@ def vette_localization(localiz):
     elif localiz['type'] == 'healpix':
         required_keys = ['healpix_data', 'healpix_ordering', 
                          'healpix_coord', 'healpix_nside']
+    elif localiz['type'] == 'wcs':
+        required_keys = ['wcs_data', 'wcs_WCS']
     else:
         raise IOError("need required keys")
     for key in required_keys:

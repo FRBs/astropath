@@ -10,6 +10,7 @@ import healpy as hp
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
+from astropy.wcs import WCS
 
 from astropath import bayesian
 from astropath import localization
@@ -206,6 +207,3 @@ def test_healpix():
     p_xOi = bayesian.px_Oi_local(
         localiz, cut_gal_coord, offset_prior)  # , debug=True)
     np.isclose(np.max(p_xOi), 0.05150504596867476)
-
-
-
