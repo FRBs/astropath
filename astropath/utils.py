@@ -1,4 +1,9 @@
+""" Utility functions for astropath """
+
 import numpy as np
+import pandas
+from pandas.core.frame import DataFrame
+
 
 def match_ids(IDs, match_IDs, require_in_match=True):
     """ Match input IDs to another array of IDs (usually in a table)
@@ -30,3 +35,39 @@ def match_ids(IDs, match_IDs, require_in_match=True):
     indices = xsorted[ypos]
     rows[in_match] = indices
     return rows
+
+
+def vet_data_model(obj, dmodel:dict, verbose=True):
+    """ Vet the input object against its data model
+
+    Args:
+        obj (dict or pandas.DataFrame):  Instance of the data model
+        dmodel (dict): Data model
+        verbose (bool): Print when something doesn't check
+
+    Returns:
+        tuple: chk (bool), disallowed_keys (list), badtype_keys (list)
+    """
+
+    chk = True
+    # Loop on the keys
+    disallowed_keys = []
+    badtype_keys = []
+    for key in obj.keys():
+        # In data model?
+        if not key in dmodel.keys():
+            disallowed_keys.append(key)
+            chk = False
+            if verbose:
+                print("Disallowed key: {}".format(key))
+
+        # Check data type
+        iobj = obj[key].values if isinstance(obj, pandas.DataFrame) else obj[key]
+        if not isinstance(iobj,
+                          dmodel[key]['dtype']):
+            badtype_keys.append(key)
+            chk = False        
+            if verbose:
+                print("Bad key type: {}".format(key))
+    # Return
+    return chk, disallowed_keys, badtype_keys

@@ -112,7 +112,7 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
     return L_wx
         
 
-def vette_localization(localiz:dict):
+def vet_localization(localiz:dict):
     """Vet the localization object
     i.e. confirm it corresponds to the DataModel
 
@@ -125,21 +125,8 @@ def vette_localization(localiz:dict):
     Returns:
         bool: True if ok
     """
-       
-    chk = True
-    # Loop on the keys
-    disallowed_keys = []
-    badtype_keys = []
-    for key in localiz.keys():
-        # In data model?
-        if not key in localization_dmodel.keys():
-            disallowed_keys.append(key)
-            chk = False
-        # Check data type
-        if not isinstance(localiz[key], 
-                          localization_dmodel[key]['dtype']):
-            badtype_keys.append(key)
-            chk = False        
+
+    chk, disallowed_keys, badtype_keys = utils.vet_data_model(localiz, localization_dmodel)
 
     # Required keys
     if localiz['type'] == 'eellipse':
