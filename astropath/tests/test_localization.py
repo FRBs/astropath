@@ -54,3 +54,33 @@ def test_wcs():
     dec = cent_dec + ycoord/3600.
 
     L_wx = localization.calc_LWx(ra, dec, localiz)
+
+def test_healpix_nuniq():
+    hpix_file = os.path.join(resource_filename('astropath', 'tests'), 'files',
+        'FRB201123_hpix_uniform.fits.gz')
+    hpix = Table.read(hpix_file)
+    header = fits.open(hpix_file)[1].header
+
+    nside = 2**header['MOCORDER']
+    localiz = dict(type='healpix',
+                   healpix_data=hpix, 
+                   healpix_nside=nside,
+                   healpix_ordering='NUNIQ',
+                   healpix_coord='C')
+    
+    assert localization.vette_localization(localiz)
+
+    # L_wx
+    cent_ra = 263.6671241047224
+    cent_dec = -50.76756723228885
+    
+    # Calculate L_wx
+    box_hwidth = 60.
+    step_size = 1.
+    ngrid = int(np.round(2*box_hwidth / step_size))
+    x = np.linspace(-box_hwidth, box_hwidth, ngrid)
+    xcoord, ycoord = np.meshgrid(x,x)
+    ra = cent_ra + xcoord/3600. / np.cos(cent_dec*units.deg).value
+    dec = cent_dec + ycoord/3600.
+
+    L_wx = localization.calc_LWx(ra, dec, localiz)

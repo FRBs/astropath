@@ -85,13 +85,17 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
         # Healpix
         if localiz['healpix_ordering'] == 'NESTED':
             L_wx = localiz['healpix_data'][hp_index]
-        else:
+        elif localiz['healpix_ordering'] == 'NUNIQ':
             # Grab the pixels
             level, ipix = astropy_healpix.uniq_to_level_ipix(
                 localiz['healpix_data']['UNIQ'])
             # Match
-            match = utils.match_ids(hp_index.flatten(), ipix)
-            L_wx = localiz['healpix_data']['PROBDENSITY'][match].reshape(hp_index.shape)
+            match_id = utils.match_ids(hp_index.flatten(), ipix, require_in_match=False).reshape(ra.shape)
+            gd_match = match_id > 0
+            L_wx = np.zeros_like(ra)
+            L_wx[gd_match] = localiz['healpix_data']['PROBDENSITY'][match_id[gd_match]]
+        else:
+            raise IOError("Bad healpix ordering! {}".format(localiz['healpix_ordering']))
     elif localiz['type'] == 'wcs':
         # Coords to col, row
         col_pix, row_pix = localiz['wcs_WCS'].all_world2pix(

@@ -10,8 +10,12 @@ __pycache__/
 *.png
 *.pdf
 papers/FRB_I/Analysis/SandBox/
-papers/FRB_I/Resub/Figs/
+papers/FRB_I/Resub/
+papers/FRB_I/astroph/
+tmp.fits
 
+# IDEs
+.idea/
 
 # Distribution / packaging
 .Python
