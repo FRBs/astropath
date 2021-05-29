@@ -146,8 +146,8 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     else:
         return np.array(p_xOis)
 
-def px_Oi_local(localiz, cand_coords, theta_prior, 
-                  step_size=0.1, debug = False):
+def px_Oi_local(localiz, cand_coords, cand_ang_size,
+                theta_prior, step_size=0.1, debug = False):
     """
 
     Args:
@@ -157,6 +157,8 @@ def px_Oi_local(localiz, cand_coords, theta_prior,
             See localization.py for the Data model
         cand_coords (astropy.coordinates.SkyCoord):
             SkyCoord object for the candidate galaxies
+        cand_ang_size (np.ndarray):
+            Angular sizes of the candidates
         theta_prior (dict):
             Contains information related to the offset function
             This includes the angular size "ang_size" in units of arcsec
@@ -174,7 +176,7 @@ def px_Oi_local(localiz, cand_coords, theta_prior,
     p_xOis = []
     for icand, cand_coord in enumerate(cand_coords):
         # Prep
-        phi_cand = theta_prior['ang_size'][icand]   # arcsec
+        phi_cand = cand_ang_size[icand]   # arcsec
         step_size_phi = phi_cand * step_size        # arcsec
         box_hwidth = phi_cand * theta_prior['max']  # arcsec
 
