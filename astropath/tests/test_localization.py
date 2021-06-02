@@ -36,7 +36,7 @@ def test_wcs():
     localiz = dict(type='wcs',
                    wcs_data=data, 
                    wcs_WCS=wcs)
-    assert localization.vette_localization(localiz)
+    assert localization.vet_localization(localiz)
     
     # Approx center
     in_region = np.where(data > 0.)
@@ -68,7 +68,7 @@ def test_healpix_nuniq():
                    healpix_ordering='NUNIQ',
                    healpix_coord='C')
     
-    assert localization.vette_localization(localiz)
+    assert localization.vet_localization(localiz)
 
     # L_wx
     cent_ra = 263.6671241047224

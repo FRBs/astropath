@@ -36,15 +36,15 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     Args:
         method (str):
             inverse :: Assign inverse to Sigma_m
-            inverse1 :: Assign inverse to Sigma_m * half_light
-            inverse2 :: Assign inverse to Sigma_m * half_light**2
+            inverse_ang :: Assign inverse to Sigma_m * half_light
+            inverse_ang2 :: Assign inverse to Sigma_m * half_light**2
             identical :: All the same
-        mag (float or np.ndarray):
-            Magnitudes of the sources;  assumes r-band and corrected
-            for Galactic extinction
-        ang_size (float or np.ndarray, optional):
+        ang_size (float or np.ndarray):
             Angular size of the galaxy in arcsec
             Only required for several methods
+        mag (float or np.ndarray, optional):
+            Magnitudes of the sources;  assumes r-band and corrected
+            for Galactic extinction
 
     Returns:
         float or np.ndarray:
@@ -87,7 +87,17 @@ def renorm_priors(raw_Oi, U):
     return (1.-U) * raw_Oi/raw_sum
 
 def vet_cand_prior(cand_prior:dict, candidates:pandas.DataFrame):
-    chk, disallowed_keys, badtype_keys = utils.vet_data_model(cand_prior, cand_dmodel)
+    """Vet the candidate prior dict
+
+    Args:
+        cand_prior (dict): 
+        candidates (pandas.DataFrame): table of candidates
+
+    Returns:
+        bool: True if things check out ok
+    """
+    chk, disallowed_keys, badtype_keys = utils.vet_data_model(
+        cand_prior, cand_dmodel)
 
     # Extras
     if cand_prior['P_O_method'] not in ['identical']:
@@ -98,5 +108,14 @@ def vet_cand_prior(cand_prior:dict, candidates:pandas.DataFrame):
     return chk
 
 def vet_theta_prior(theta_prior:dict):
-    chk, disallowed_keys, badtype_keys = utils.vet_data_model(theta_prior, theta_dmodel)
+    """Vet the theta_prior dict
+
+    Args:
+        theta_prior (dict): 
+
+    Returns:
+        bool: True if things check out ok
+    """
+    chk, disallowed_keys, badtype_keys = utils.vet_data_model(
+        theta_prior, theta_dmodel)
     return chk
