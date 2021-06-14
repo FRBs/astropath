@@ -110,7 +110,7 @@ class PATH(object):
         """Ingets the localization information
 
         Args:
-            ltype (str): [description]
+            ltype (str): Localization type [eelipse, wcs, healpix]
             kwargs: Other parameters definig the localization
                 Depends on the ltype.  See localization.py
         """

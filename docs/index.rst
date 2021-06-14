@@ -19,6 +19,7 @@ Getting Started
    :maxdepth: 2
 
    installing
+   frb_example
 
 Priors
 ------
@@ -34,6 +35,7 @@ Transient
 
    localization
 
+
 Notebooks
 ---------
 
@@ -41,3 +43,4 @@ Notebooks
    :maxdepth: 1
 
    nb/FRB_example
+   nb/GW_example
