@@ -12,3 +12,6 @@ healpy>=1.14
 astropy-healpix>=0.5
 ligo.skymap>=0.5
 
+# docs
+nbsphinx>=0.8.0   
+

@@ -2,6 +2,7 @@
 
 import pandas
 import numpy as np
+import logging
 
 from astropy.coordinates import SkyCoord
 
@@ -63,6 +64,7 @@ class PATH(object):
         assert candidates.vet_candidates(self.candidates), 'Bad candidate input'
         # 
         self.init_cand_coords()
+        logging.info("Candidates are ready!")
 
     def init_cand_coords(self):
         """Simple method to generate the coords object
@@ -102,6 +104,7 @@ class PATH(object):
         self.theta_prior = dict(PDF=PDF, max=max)
         # Vet
         assert priors.vet_theta_prior(self.theta_prior)
+        logging.info("Priors are ready!")
 
     def init_localization(self, ltype:str, **kwargs):
         """Ingets the localization information
@@ -115,6 +118,7 @@ class PATH(object):
         self.localiz.update(kwargs)
         # Vet
         assert localization.vet_localization(self.localiz), 'Bad candidate prior input'
+        logging.info("Localization is ready!")
 
     def calc_priors(self):
         """Calculate and normalize the P(O) values for the candidates
@@ -129,15 +133,18 @@ class PATH(object):
             raise IOError("Init candidates and cand_prior first!")
 
         # Raw priors
+        logging.info("Calculating priors")
         self.raw_prior_Oi = priors.raw_prior_Oi(
             self.cand_prior['P_O_method'], self.candidates['ang_size'], 
             mag=self.candidates['mag'] if 'mag' in self.candidates.keys() else None)
 
         # Normalize
+        logging.info("Normalizing priors")
         self.prior_Oi = priors.renorm_priors(self.raw_prior_Oi, 
                                              self.cand_prior['P_U'])
 
         # Add to candidate table
+        logging.info("Adding prior values to candidates table")
         self.candidates['P_O'] = self.prior_Oi
 
         # Return them too
@@ -171,6 +178,7 @@ class PATH(object):
             raise ValueError("You need to calculate the candidate priors first!!")
 
         # P(x|O)
+        logging.info("Calculating p(x|O)")
         if method == 'fixed':
             if box_hwidth is None:
                 raise IOError("Set box_hwidth to use method=fixed!")
@@ -190,6 +198,7 @@ class PATH(object):
         self.candidates['p_xO'] = self.p_xOi
 
         # P(U|x)
+        logging.info("Calculating p(x|U)")
         if self.cand_prior['P_U'] > 0.:
             if max_radius is None:
                 raise IOError("Set max_radius given that P(U) > 0!!")
@@ -198,14 +207,17 @@ class PATH(object):
             self.p_xU = 0.
         
         # p(x)
+        logging.info("Calculating p(x)")
         self.p_x = self.cand_prior['P_U'] * self.p_xU + \
             np.sum(self.prior_Oi * self.p_xOi)
 
         # P(O|x)
+        logging.info("Calculating P(O|x)")
         self.P_Oix = self.prior_Oi * self.p_xOi / self.p_x
         self.candidates['P_Ox'] = self.P_Oix
 
         # P(U|x)
+        logging.info("Calculating P(U|x)")
         self.P_Ux = self.cand_prior['P_U'] * self.p_xU / self.p_x
 
         # Return

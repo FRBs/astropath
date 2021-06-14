@@ -25,7 +25,7 @@ Here is an example::
     frb_coord = SkyCoord('21h44m25.255s -40d54m00.10s', frame='icrs')
     eellipse = dict(a=0.1, b=0.1, theta=0.)
     localiz = dict(type='eellipse', center_coord=frb_coord, eellipse=eellipse)
-    assert localization.vette_localization(localiz)
+    assert localization.vet_localization(localiz)
 
 The last line of code checks against the data model.
 
