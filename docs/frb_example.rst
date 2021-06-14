@@ -94,3 +94,4 @@ Another simple call with the "fixed" approach::
     P_Ox, P_Ux = Path.calc_posteriors('fixed', box_hwidth=30.)
 
 
+And we are all done!
