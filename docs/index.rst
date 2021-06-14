@@ -27,6 +27,8 @@ Priors
 .. toctree::
    :maxdepth: 2
 
+   offset_function
+
 Transient
 ---------
 
