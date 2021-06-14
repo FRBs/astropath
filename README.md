@@ -8,6 +8,9 @@
 
 ## Additional contributors include:
 
+## Docs
+
+### See [readthedocs](https://astropath.readthedocs.io/en/latest/index.html)
 ## Publications
 
 ### The main manuscript -- [PATH](https://ui.adsabs.harvard.edu/abs/2021arXiv210210627A/abstract)
