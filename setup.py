@@ -9,6 +9,11 @@ import glob, os
 #
 from setuptools import setup, find_packages
 #
+
+# Requirements
+with open("requirements.txt") as f:
+    required = f.read().splitlines()
+
 #
 # Begin setup
 #
@@ -26,7 +31,7 @@ setup_keywords['url'] = 'https://github.com/FRBs/astropath'
 #
 # END OF SETTINGS THAT NEED TO BE CHANGED.
 #
-setup_keywords['version'] = '0.1.dev0' #get_version(setup_keywords['name'])
+setup_keywords['version'] = '0.2.dev0' #get_version(setup_keywords['name'])
 #
 # Use README.rst as long_description.
 #
@@ -45,6 +50,7 @@ if os.path.isdir('bin'):
         if not os.path.basename(fname).endswith('.rst')]
 setup_keywords['provides'] = [setup_keywords['name']]
 setup_keywords['requires'] = ['Python (>3.7.0)']
+setup_keywords['install_requires'] = required,
 setup_keywords['zip_safe'] = False
 setup_keywords['packages'] = find_packages()
 #setup_keywords['package_dir'] = {'':'py'}
