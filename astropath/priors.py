@@ -119,3 +119,24 @@ def vet_theta_prior(theta_prior:dict):
     chk, disallowed_keys, badtype_keys = utils.vet_data_model(
         theta_prior, theta_dmodel)
     return chk
+
+def load_std_priors():
+    # Priors from original PATH paper
+    nhalf = 10.
+
+    # Theta priors
+    theta_max = 6.
+    theta_u = dict(method='uniform', max=theta_max)
+    theta_c = dict(method='core', max=theta_max)
+    theta_e = dict(method='exp', max=theta_max)
+
+    # Combined priors
+    conservative = dict(theta=theta_u, O='identical', U=0, name='Conservative', nhalf=nhalf)
+    adopted = dict(theta=theta_e, O='inverse', U=0., name='Adopted', nhalf=nhalf)
+
+    priors = {}
+    priors['conservative'] = conservative
+    priors['adopted'] = adopted
+
+    # Return
+    return priors
