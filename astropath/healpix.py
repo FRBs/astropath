@@ -31,13 +31,17 @@ def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
     """
     
     # Setup
-    if nside is None and resol is None:
-        resol = a / 10.
+    if nside is None: 
+        if resol is None:
+            resol = a / 10.
         nside = astropy_healpix.pixel_resolution_to_nside(resol)
     if radius is None:
         radius=5*a.to('rad').value
     level = int(np.log2(nside))
 
+    # Report resolution
+    print('Healpix resolution: ',
+          astropy_healpix.nside_to_pixel_resolution(nside).to('arcsec'))
 
     lon_FRB = coord.galactic.l.deg
     lat_FRB = coord.galactic.b.deg
