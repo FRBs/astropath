@@ -120,19 +120,29 @@ def vet_theta_prior(theta_prior:dict):
         theta_prior, theta_dmodel)
     return chk
 
-def load_std_priors():
-    # Priors from original PATH paper
-    nhalf = 10.
+def load_std_priors(nhalf:float=10., theta_max:float=6.):
+    """
+    Load the standard set of priors as defined
+    in the PATH paper
 
+    Args:
+        nhalf (float, optional): Number of half-light radii for analysis. Defaults to 10..
+        theta_max (float, optional): Maximum offset in half-light radii.
+            Defaults to 6..
+
+    Returns:
+        dict: contains the 2 prior options:  "conservative" and "adopted"
+    """
     # Theta priors
-    theta_max = 6.
     theta_u = dict(method='uniform', max=theta_max)
-    theta_c = dict(method='core', max=theta_max)
+    #theta_c = dict(method='core', max=theta_max)
     theta_e = dict(method='exp', max=theta_max)
 
-    # Combined priors
-    conservative = dict(theta=theta_u, O='identical', U=0, name='Conservative', nhalf=nhalf)
-    adopted = dict(theta=theta_e, O='inverse', U=0., name='Adopted', nhalf=nhalf)
+    # Define them
+    conservative = dict(theta=theta_u, O='identical', U=0., 
+                        name='Conservative', nhalf=nhalf)
+    adopted = dict(theta=theta_e, O='inverse', U=0., 
+                   name='Adopted', nhalf=nhalf)
 
     priors = {}
     priors['conservative'] = conservative
