@@ -158,8 +158,10 @@ class PATH(object):
         Args:
             method (str): Approach
             step_size (float, optional): [description]. Defaults to 0.1.
-            box_hwidth ([type], optional): [description]. Defaults to None.
-            max_radius ([type], optional): [description]. Defaults to None.
+            box_hwidth (float, optional): [description]. Defaults to None.
+            max_radius (float, optional): Maximum radius (arcsec)
+                allowed for galaxy. Only required for cases
+                where P(U)>0.
 
         Raises:
             IOError: [description]
@@ -168,7 +170,7 @@ class PATH(object):
             IOError: [description]
 
         Returns:
-            [type]: [description]
+            tuple: self.P_Oix, self.P_Ux
         """
         # Check for inputs
         if self.candidates is None or self.cand_prior is None or self.localiz is None \
