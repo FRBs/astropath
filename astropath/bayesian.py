@@ -47,6 +47,7 @@ def pw_Oi(theta, phi, theta_prior):
     elif theta_prior['PDF'] == 'exp':
         # Wolfram
         #norm = phi - np.exp(-scale_half*theta_prior['max']/phi) * (scale_half*theta_prior['max'] + phi)
+        phi = phi * theta_prior['scale']
         norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max']/phi)*np.exp(
             -theta_prior['max']/phi))
         if np.any(ok_w):

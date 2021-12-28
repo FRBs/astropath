@@ -11,6 +11,8 @@ theta_dmodel = {
     'PDF': dict(dtype=(str),
                 options=['exp', 'core', 'uniform'],
                 help='PDF shape for assumed transient offsets'),
+    'scale': dict(dtype=(float, np.floating, np.integer, int),
+                help='Multiplicative scaling applied to phi [Default = 1.]'),
     'max': dict(dtype=(float, np.floating, np.integer, int),
                 help='Maximum offset (probability equals zero beyond this!)'),
 }
@@ -134,9 +136,9 @@ def load_std_priors(nhalf:float=10., theta_max:float=6.):
         dict: contains the 2 prior options:  "conservative" and "adopted"
     """
     # Theta priors
-    theta_u = dict(method='uniform', max=theta_max)
+    theta_u = dict(method='uniform', max=theta_max, scale=1.)
     #theta_c = dict(method='core', max=theta_max)
-    theta_e = dict(method='exp', max=theta_max)
+    theta_e = dict(method='exp', max=theta_max, scale=1.)
 
     # Define them
     conservative = dict(theta=theta_u, O='identical', U=0., 

@@ -94,14 +94,15 @@ class PATH(object):
         # Vet
         assert priors.vet_cand_prior(self.cand_prior, self.candidates), 'Bad candidate prior input'
 
-    def init_theta_prior(self, PDF:str, max:float):
+    def init_theta_prior(self, PDF:str, max:float, scale:float):
         """Ingest the theta (offset) prior
 
         Args:
             PDF (str): Method
             max (float): Maximum offset allowed
+            scale (float): Scaling of phi [only for exp method, so far]
         """
-        self.theta_prior = dict(PDF=PDF, max=max)
+        self.theta_prior = dict(PDF=PDF, max=max, scale=scale)
         # Vet
         assert priors.vet_theta_prior(self.theta_prior)
         logging.info("Priors are ready!")
