@@ -36,7 +36,7 @@ def test_frb():
     Path.init_cand_prior('inverse', P_U=0.)
 
     # Offset prior
-    Path.init_theta_prior('exp', 6.)
+    Path.init_theta_prior('exp', 6., 1.)
 
     # Set up localization
     frb_coord = SkyCoord('21h44m25.255s -40d54m00.10s', frame='icrs')
@@ -82,7 +82,7 @@ def test_gw():
     Path.init_cand_prior('inverse', P_U=0.)
 
     # Offset prior
-    Path.init_theta_prior('exp', 6.)
+    Path.init_theta_prior('exp', 6., 1.)
 
     # Priors
     p_O = Path.calc_priors()

@@ -100,7 +100,7 @@ class PATH(object):
         Args:
             PDF (str): Method
             max (float): Maximum offset allowed
-            scale (float): Scaling of phi [only for exp method, so far]
+            scale (float or None): Scaling of phi [only for exp method, so far]
                 e.g. scale = 2.0 for exp(-2*theta/phi)
         """
         self.theta_prior = dict(PDF=PDF, max=max, scale=scale)
