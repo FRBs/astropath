@@ -11,6 +11,8 @@ theta_dmodel = {
     'PDF': dict(dtype=(str),
                 options=['exp', 'core', 'uniform'],
                 help='PDF shape for assumed transient offsets'),
+    'scale': dict(dtype=(float, np.floating, np.integer, int),
+                help='Multiplicative scaling applied to phi [Default = 1.]'),
     'max': dict(dtype=(float, np.floating, np.integer, int),
                 help='Maximum offset (probability equals zero beyond this!)'),
 }
@@ -119,3 +121,34 @@ def vet_theta_prior(theta_prior:dict):
     chk, disallowed_keys, badtype_keys = utils.vet_data_model(
         theta_prior, theta_dmodel)
     return chk
+
+def load_std_priors(nhalf:float=10., theta_max:float=6.):
+    """
+    Load the standard set of priors as defined
+    in the PATH paper
+
+    Args:
+        nhalf (float, optional): Number of half-light radii for analysis. Defaults to 10.0.
+        theta_max (float, optional): Maximum offset in half-light radii.
+            Defaults to 6.0.
+
+    Returns:
+        dict: contains the 2 prior options:  "conservative" and "adopted"
+    """
+    # Theta priors
+    theta_u = dict(method='uniform', max=theta_max, scale=1.)
+    #theta_c = dict(method='core', max=theta_max)
+    theta_e = dict(method='exp', max=theta_max, scale=1.)
+
+    # Define them
+    conservative = dict(theta=theta_u, O='identical', U=0., 
+                        name='Conservative', nhalf=nhalf)
+    adopted = dict(theta=theta_e, O='inverse', U=0., 
+                   name='Adopted', nhalf=nhalf)
+
+    priors = {}
+    priors['conservative'] = conservative
+    priors['adopted'] = adopted
+
+    # Return
+    return priors

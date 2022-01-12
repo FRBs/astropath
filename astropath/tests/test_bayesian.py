@@ -36,19 +36,19 @@ def test_pw_Oi():
     theta = np.sqrt(xcoord**2 + ycoord**2)
 
     # Uniform
-    theta_prior = dict(max=6, PDF='uniform')
+    theta_prior = dict(max=6, PDF='uniform', scale=1.)
     assert priors.vet_theta_prior(theta_prior)
     pw_Oi_u = np.sum(bayesian.pw_Oi(theta, phi, theta_prior)) * grid_spacing_arcsec**2
     assert np.isclose(pw_Oi_u, 1., atol=1e-4)
 
     # Core
-    theta_prior = dict(max=6, PDF='core')
+    theta_prior = dict(max=6, PDF='core', scale=1.)
     assert priors.vet_theta_prior(theta_prior)
     pw_Oi_c = np.sum(bayesian.pw_Oi(theta, phi, theta_prior)) * grid_spacing_arcsec**2
     assert np.isclose(pw_Oi_c, 1., atol=1e-4)
 
     # Exponential
-    theta_prior = dict(max=6, PDF='exp')
+    theta_prior = dict(max=6, PDF='exp', scale=1.)
     assert priors.vet_theta_prior(theta_prior)
     pw_Oi_e = np.sum(bayesian.pw_Oi(theta, phi, theta_prior)) * grid_spacing_arcsec**2
     assert np.isclose(pw_Oi_e, 1., atol=1e-4)
@@ -68,7 +68,7 @@ def test_error_ellipse():
     c_coords = SkyCoord(ra=candidates.ra, dec=candidates.dec, unit='deg')
 
     # Priors
-    theta_prior = dict(PDF='exp', max=6.)
+    theta_prior = dict(PDF='exp', max=6., scale=1.)
     cand_prior = dict(P_O_method='inverse', 
               P_U=0., 
               name='Adopted')
@@ -116,7 +116,7 @@ def test_PU():
     candidates['sep'] = frb_coord.separation(c_coords).to('arcsec').value
 
     # Priors
-    theta_prior = dict(PDF='uniform', max=6.)
+    theta_prior = dict(PDF='uniform', max=6., scale=1.)
     cand_prior = dict(P_O_method='identical',
                   P_U=0.10,  # P(U)
                   name='Conservative')

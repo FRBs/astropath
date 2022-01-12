@@ -94,14 +94,16 @@ class PATH(object):
         # Vet
         assert priors.vet_cand_prior(self.cand_prior, self.candidates), 'Bad candidate prior input'
 
-    def init_theta_prior(self, PDF:str, max:float):
+    def init_theta_prior(self, PDF:str, max:float, scale:float):
         """Ingest the theta (offset) prior
 
         Args:
             PDF (str): Method
             max (float): Maximum offset allowed
+            scale (float or None): Scaling of phi [only for exp method, so far]
+                e.g. scale = 2.0 for exp(-2*theta/phi)
         """
-        self.theta_prior = dict(PDF=PDF, max=max)
+        self.theta_prior = dict(PDF=PDF, max=max, scale=scale)
         # Vet
         assert priors.vet_theta_prior(self.theta_prior)
         logging.info("Priors are ready!")
@@ -157,8 +159,10 @@ class PATH(object):
         Args:
             method (str): Approach
             step_size (float, optional): [description]. Defaults to 0.1.
-            box_hwidth ([type], optional): [description]. Defaults to None.
-            max_radius ([type], optional): [description]. Defaults to None.
+            box_hwidth (float, optional): [description]. Defaults to None.
+            max_radius (float, optional): Maximum radius (arcsec)
+                allowed for galaxy. Only required for cases
+                where P(U)>0.
 
         Raises:
             IOError: [description]
@@ -167,7 +171,7 @@ class PATH(object):
             IOError: [description]
 
         Returns:
-            [type]: [description]
+            tuple: self.P_Oix, self.P_Ux
         """
         # Check for inputs
         if self.candidates is None or self.cand_prior is None or self.localiz is None \
