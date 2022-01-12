@@ -128,9 +128,9 @@ def load_std_priors(nhalf:float=10., theta_max:float=6.):
     in the PATH paper
 
     Args:
-        nhalf (float, optional): Number of half-light radii for analysis. Defaults to 10..
+        nhalf (float, optional): Number of half-light radii for analysis. Defaults to 10.0.
         theta_max (float, optional): Maximum offset in half-light radii.
-            Defaults to 6..
+            Defaults to 6.0.
 
     Returns:
         dict: contains the 2 prior options:  "conservative" and "adopted"
