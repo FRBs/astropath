@@ -5,9 +5,13 @@ import healpy
 from astropy.coordinates import SkyCoord
 from astropy import units
 from astropy.table import Table 
+from astropy.io import fits
+
 import astropy_healpix
 
 from ligo.skymap.io.fits import write_sky_map 
+
+from astropath import localization
 
 def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
                        resol=None, radius=None, 
@@ -80,3 +84,32 @@ def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
 
     # Return 
     return hp_tbl
+
+
+def localization_from_hpfile(hpix_file:str) -> dict:
+    """ Generate a localization dict from
+    a healpix file
+
+    Args:
+        hpix_file (str): 
+
+    Returns:
+        dict: localization dict
+    """
+
+    # Read
+    hpix = Table.read(hpix_file)
+    header = fits.open(hpix_file)[1].header
+
+    nside = 2**header['MOCORDER']
+    localiz = dict(type='healpix',
+                   healpix_data=hpix, 
+                   healpix_nside=nside,
+                   healpix_ordering='NUNIQ',
+                   healpix_coord='C')
+
+    # Vet                
+    assert localization.vet_localization(localiz)
+    
+    return localiz
+    
