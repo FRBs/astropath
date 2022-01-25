@@ -203,7 +203,6 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
         p_xOis.append(np.sum(grid_p)*step_size_phi**2)
         # Debug
         if debug:
-            import pdb; pdb.set_trace()
             embed(header='207 of bayesian.py')
     # Return
     return np.array(p_xOis)
