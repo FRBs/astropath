@@ -35,7 +35,7 @@ def test_ellipse():
     for key in ['UNIQ', 'PROBDENSITY']:
         assert key in hp_tbl.keys()
 
-    assert len(hp_tbl) == 4967
+    assert len(hp_tbl) == 4959
 
     # Test writing
     with tempfile.NamedTemporaryFile(suffix='.fits') as f:
