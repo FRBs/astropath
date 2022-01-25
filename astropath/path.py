@@ -153,7 +153,7 @@ class PATH(object):
         return self.prior_Oi
 
     def calc_posteriors(self, method:str, step_size=0.1, box_hwidth=None,
-                        max_radius=None):
+                        max_radius=None, debug:bool=False):
         """Calculate the posteriors
 
         Args:
@@ -163,6 +163,7 @@ class PATH(object):
             max_radius (float, optional): Maximum radius (arcsec)
                 allowed for galaxy. Only required for cases
                 where P(U)>0.
+            debug (bool, optional):  Debug
 
         Raises:
             IOError: [description]
@@ -198,7 +199,8 @@ class PATH(object):
                         self.cand_coords,
                         self.candidates['ang_size'].values, 
                         self.theta_prior, 
-                        step_size=step_size)
+                        step_size=step_size,
+                        debug=debug)
         self.candidates['p_xO'] = self.p_xOi
 
         # P(U|x)

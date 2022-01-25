@@ -80,8 +80,8 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
         L_wx = np.exp(-x_box ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(
             -y_box ** 2 / (2 * eellipse['b'] ** 2)) / (2*np.pi*eellipse['a']*eellipse['b'])
     elif localiz['type'] == 'healpix':
-        hp_index = hp.ang2pix(localiz['healpix_nside'], 
-                              ra, dec, lonlat=True)
+        hp_index = hp.ang2pix(localiz['healpix_nside'], ra, dec, 
+                              lonlat=True)
         # Healpix
         if localiz['healpix_ordering'] == 'NESTED':
             L_wx = localiz['healpix_data'][hp_index]
@@ -94,6 +94,7 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
             gd_match = match_id > 0
             L_wx = np.zeros_like(ra)
             L_wx[gd_match] = localiz['healpix_data']['PROBDENSITY'][match_id[gd_match]]
+            import pdb; pdb.set_trace()
         else:
             raise IOError("Bad healpix ordering! {}".format(localiz['healpix_ordering']))
     elif localiz['type'] == 'wcs':
