@@ -47,8 +47,8 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
     the localization given an input ra, dec arrays
 
     Args:
-        ra (np.ndarray): RA grid
-        dec (np.ndarray): Dec grid
+        ra (np.ndarray): RA grid (ICRS)
+        dec (np.ndarray): Dec grid (ICRS)
         localiz (dict): localization    
             Must follow the DataModel above
 
@@ -94,7 +94,6 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
             gd_match = match_id > 0
             L_wx = np.zeros_like(ra)
             L_wx[gd_match] = localiz['healpix_data']['PROBDENSITY'][match_id[gd_match]]
-            import pdb; pdb.set_trace()
         else:
             raise IOError("Bad healpix ordering! {}".format(localiz['healpix_ordering']))
     elif localiz['type'] == 'wcs':

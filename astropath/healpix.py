@@ -19,6 +19,8 @@ def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
     """Convert an input localization ellipse around an input coordinate
     to a healpix Table
 
+    The input coordinates should be ICRS 
+
     Args:
         coord (SkyCoord): Sky coordinate
         PA (Angle): PA of the error ellipse
@@ -47,8 +49,10 @@ def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
     print('Healpix resolution: ',
           astropy_healpix.nside_to_pixel_resolution(nside).to('arcsec'))
 
-    lon_FRB = coord.galactic.l.deg
-    lat_FRB = coord.galactic.b.deg
+    lon_FRB = coord.ra.deg
+    lat_FRB = coord.dec.deg
+    #lon_FRB = coord.galactic.l.deg
+    #lat_FRB = coord.galactic.b.deg
     vec = healpy.ang2vec(lon_FRB, lat_FRB, lonlat=True)
 
     # Grab the pixels
@@ -59,7 +63,8 @@ def elliptical_localization_to_healpix(coord, PA, a, b, nside=None,
 
     # Coords
     lon_pix, lat_pix = astropy_healpix.healpix_to_lonlat(ipix, nside)
-    heal_coord = SkyCoord(lon_pix, lat_pix, frame='galactic')
+    heal_coord = SkyCoord(ra=lon_pix, dec=lat_pix, frame='icrs')
+    #heal_coord = SkyCoord(lon_pix, lat_pix, frame='galactic')
 
     # PDF
     sep = coord.separation(heal_coord)
