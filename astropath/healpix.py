@@ -98,6 +98,11 @@ def localization_from_hpfile(hpix_file:str) -> dict:
 
     Returns:
         dict: localization dict
+            - type (str)
+            - healpix_data (np.ndarray) : probability density values
+            - healpix_nside (int) : NSIDE
+            - healpix_ordering (str) : healpix ordering
+            - healpix_coord (str) : ??
     """
 
     # Read

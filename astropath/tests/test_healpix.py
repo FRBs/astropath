@@ -35,6 +35,8 @@ def test_ellipse():
     for key in ['UNIQ', 'PROBDENSITY']:
         assert key in hp_tbl.keys()
 
+    # The size here is set by the size of the ellipse and
+    #  resolution desired
     assert len(hp_tbl) == 4959
 
     # Test writing
