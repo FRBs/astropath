@@ -31,7 +31,7 @@ setup_keywords['url'] = 'https://github.com/FRBs/astropath'
 #
 # END OF SETTINGS THAT NEED TO BE CHANGED.
 #
-setup_keywords['version'] = '0.2.dev0' #get_version(setup_keywords['name'])
+setup_keywords['version'] = '0.3.dev0' #get_version(setup_keywords['name'])
 #
 # Use README.rst as long_description.
 #
