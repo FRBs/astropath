@@ -1,16 +1,16 @@
 # Required packages for astropath
 
 # Users
-numpy>=1.18.0
-scipy>=1.4
-astropy>=4.2
+numpy>=1.22.0
+scipy>=1.8
+astropy>=5.1
 IPython>=7.2.0
 pytest>=6.0.0
-pandas>=0.25
-photutils>=1.0.1
-healpy>=1.14
-astropy-healpix>=0.5
-ligo.skymap>=0.5
+pandas>=1.4
+photutils>=1.5
+healpy>=1.15
+astropy-healpix>=0.7
+ligo.skymap>=1.0
 
 # docs
 nbsphinx>=0.8.0   
