@@ -152,3 +152,4 @@ def test_PU():
     # P(U|x)
     P_Ux = cand_prior['P_U'] * p_xU / p_x
     assert np.isclose(P_Ux, 0.0027760637799086035)
+

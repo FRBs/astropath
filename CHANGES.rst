@@ -4,3 +4,4 @@
 - FRB example notebook
 - Normalization updates with unit tests
 - Proper P(U|x) treatment + Notebook  
+- Corrected normalization terms for theta priors!!
