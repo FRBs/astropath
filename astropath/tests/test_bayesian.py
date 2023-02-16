@@ -101,7 +101,8 @@ def test_error_ellipse():
     candidates['P_Ox'] = P_Oix
 
     # Test
-    assert np.isclose(candidates['P_Ox'].max(), 0.98951951218604)
+    assert np.isclose(candidates['P_Ox'].max(), 
+                      0.9889513366560733)
 
 def test_PU():
     # FRB
@@ -152,3 +153,4 @@ def test_PU():
     # P(U|x)
     P_Ux = cand_prior['P_U'] * p_xU / p_x
     assert np.isclose(P_Ux, 0.0027760637799086035)
+

@@ -50,7 +50,8 @@ def test_frb():
     P_Ox, P_Ux = Path.calc_posteriors('fixed', box_hwidth=30.)
 
     # Test
-    assert np.isclose(Path.candidates['P_Ox'].max(), 0.98951951218604)
+    assert np.isclose(Path.candidates['P_Ox'].max(), 
+                      0.9889513366416152)
 
 
 def test_gw():
@@ -90,5 +91,5 @@ def test_gw():
     P_Ox, P_Ux = Path.calc_posteriors('local', box_hwidth=30.)
 
     # Calculate p(x|O)
-    assert np.isclose(np.max(Path.p_xOi), 0.05151238959823025)
-    assert np.isclose(P_Ox.max(), 0.9999950450381409)
+    assert np.isclose(np.max(Path.p_xOi), 0.0002810125426532622)
+    assert np.isclose(P_Ox.max(), 0.9999929552509278)

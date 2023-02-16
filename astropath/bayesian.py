@@ -36,8 +36,11 @@ def pw_Oi(theta, phi, theta_prior):
     ok_w = theta < theta_prior['max']*phi
     if theta_prior['PDF'] == 'core':
         # Wolfram
-        norm = 2 * np.pi * phi**2 * (theta_prior['max']/phi - np.log(theta_prior['max']/phi+1))
-        #norm = phi * np.log(theta_prior['max']/phi+1)
+        # Updated by JXP on 14-Feb-2023
+        term0 = -1 * phi**2 * np.log(phi)
+        term_max = phi * (theta_prior['max']*phi - phi*np.log(phi+theta_prior['max']*phi))
+        norm = 2*np.pi*(term_max - term0)
+        #
         if np.any(ok_w):
             p[ok_w] = phi / (theta[ok_w] + phi) / norm
     elif theta_prior['PDF'] == 'uniform':
@@ -46,10 +49,10 @@ def pw_Oi(theta, phi, theta_prior):
             p[ok_w] = 1. / norm
     elif theta_prior['PDF'] == 'exp':
         # Wolfram
-        #norm = phi - np.exp(-scale_half*theta_prior['max']/phi) * (scale_half*theta_prior['max'] + phi)
         phi = phi * theta_prior['scale']
-        norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max']/phi)*np.exp(
-            -theta_prior['max']/phi))
+        # Updated by JXP on 14-Feb-2023
+        norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max'])*np.exp(
+            -theta_prior['max']))
         if np.any(ok_w):
             p[ok_w] = np.exp(-theta[ok_w]/phi) / norm
     else:
