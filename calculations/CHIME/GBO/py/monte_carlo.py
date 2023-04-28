@@ -18,7 +18,7 @@ from IPython import embed
 def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
                   m_r_min:float=15.,
                   m_r_max:float=26.,
-                  nsample=100000,
+                  nsample=10000,
                   debug:bool=False,
                   plots:bool=False):
 
@@ -84,30 +84,40 @@ def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
                            dec=cosmos_cut.mag_best.values,
                            unit='deg')
 
-    cosmos_flag = np.ones_like(cosmos_cut, dtype=bool)
+    cosmos_flag = np.ones(len(cosmos_cut), dtype=bool)
     cosmos_idx = cosmos_cut.index.values.copy()
-    frb_idx = -1*np.ones_like(cosmos_cut, dtype=int)
+    frb_idx = -1*np.ones(len(fake_coords), dtype=int)
 
     while(np.any(frb_idx < 0)):
 
+        print(f"Remaining: {np.sum(frb_idx < 0)}")
         # Sub me
         sub_fake_coords = fake_coords[frb_idx < 0]
+        sub_frb_idx = np.where(frb_idx < 0)[0]
         sub_fake_cosmos = fake_cosmos[cosmos_flag]
         sub_cosmos_idx = cosmos_idx[cosmos_flag]
 
+        print(f"Min: {sub_fake_coords.dec.min()}")
+        print(f"Max: {sub_fake_coords.dec.max()}")
+
+        # Match
         idx, d2d, _ = match_coordinates_sky(
-            sub_fake_coords, sub_fake_cosmos)
+            sub_fake_coords, sub_fake_cosmos,
+            nthneighbor=1)
 
         imx = np.argmax(d2d)
-        print(f'Max: {sub_fake_coords[imx]}')
+        #print(f'Max: {sub_fake_coords[imx]}')
         print(f'sep = {d2d[imx]}')
 
         # Specify them
         uni, uni_idx = np.unique(idx, return_index=True)
-        embed(header='59 of mc')
 
-        cosmos_flag[sub_cosmos_idx[uni]] = False
+        if debug:
+            embed(header='monte_carlo.py: 116')
+        cosmos_flag[sub_cosmos_idx[uni_idx]] = False
+        frb_idx[sub_frb_idx[uni_idx]] = sub_cosmos_idx[idx[uni_idx]]
 
+    embed(header='monte_carlo.py: 113')
 
 
 # Command line execution
