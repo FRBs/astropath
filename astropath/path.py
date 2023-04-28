@@ -157,7 +157,9 @@ class PATH(object):
         """Calculate the posteriors
 
         Args:
-            method (str): Approach
+            method (str): Approach; 
+                fixed -- One grid is generated for all candidates
+                local -- One grid is generated for each candidate
             step_size (float, optional): [description]. Defaults to 0.1.
             box_hwidth (float, optional): [description]. Defaults to None.
             max_radius (float, optional): Maximum radius (arcsec)
@@ -225,6 +227,7 @@ class PATH(object):
         # P(U|x)
         logging.info("Calculating P(U|x)")
         self.P_Ux = self.cand_prior['P_U'] * self.p_xU / self.p_x
+        self.candidates['P_Ux'] = self.P_Ux
 
         # Return
         return self.P_Oix, self.P_Ux

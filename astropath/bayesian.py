@@ -153,6 +153,11 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
 def px_Oi_local(localiz, cand_coords, cand_ang_size,
                 theta_prior, step_size=0.1, debug = False):
     """
+    Perform the calculation on local grids, one
+    per candidate.  This is likely slower than 
+    the "fixed" method, but best for large localization
+    areas which cover a large area of the sky.
+    
 
     Args:
         localiz (dict):
@@ -178,6 +183,7 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
     """
     # Loop on galaxies
     p_xOis = []
+    # TODO -- parallelize this
     for icand, cand_coord in enumerate(cand_coords):
         # Prep
         phi_cand = cand_ang_size[icand]   # arcsec
