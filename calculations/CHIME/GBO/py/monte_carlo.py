@@ -85,6 +85,7 @@ def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
                            unit='deg')
 
     cosmos_flag = np.ones(len(cosmos_cut), dtype=bool)
+    cosmos_flag_idx = np.arange(len(cosmos_cut))
     cosmos_idx = cosmos_cut.index.values.copy()
     frb_idx = -1*np.ones(len(fake_coords), dtype=int)
 
@@ -94,8 +95,20 @@ def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
         # Sub me
         sub_fake_coords = fake_coords[frb_idx < 0]
         sub_frb_idx = np.where(frb_idx < 0)[0]
+
         sub_fake_cosmos = fake_cosmos[cosmos_flag]
-        sub_cosmos_idx = cosmos_idx[cosmos_flag]
+        sub_cosmos_idx = cosmos_idx[cosmos_flag] # Index in the full cosmos table
+        sub_cosmos_flag_idx = cosmos_flag_idx[cosmos_flag] # Index for the flagging
+
+        # Ran out of bright ones?
+        if np.max(sub_fake_coords.dec.deg) < np.min(sub_fake_cosmos.dec.deg):
+            srt_cosmos = np.argsort(sub_fake_cosmos.dec.deg)
+            srt_frb = np.argsort(sub_fake_coords.dec.deg)
+            # Set
+            frb_idx[sub_frb_idx[srt_frb]] = sub_cosmos_idx[srt_cosmos[:len(srt_frb)]]
+            assert np.all(frb_idx >= 0)
+            break
+
 
         print(f"Min: {sub_fake_coords.dec.min()}")
         print(f"Max: {sub_fake_coords.dec.max()}")
@@ -105,21 +118,24 @@ def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
             sub_fake_coords, sub_fake_cosmos,
             nthneighbor=1)
 
+        # Worst case
         imx = np.argmax(d2d)
         #print(f'Max: {sub_fake_coords[imx]}')
         print(f'sep = {d2d[imx]}')
 
-        # Specify them
+        # Take a cosmo galaxy only once
         uni, uni_idx = np.unique(idx, return_index=True)
 
-        if debug:
-            embed(header='monte_carlo.py: 116')
-        cosmos_flag[sub_cosmos_idx[uni_idx]] = False
-        frb_idx[sub_frb_idx[uni_idx]] = sub_cosmos_idx[idx[uni_idx]]
+        frb_idx[sub_frb_idx[uni_idx]] = sub_cosmos_idx[uni]
+        cosmos_flag[sub_cosmos_flag_idx[uni]] = False
 
-    embed(header='monte_carlo.py: 113')
+        #if debug:
+        #    imn = np.argmin(fake_coords.dec)
+        #    embed(header='monte_carlo.py: 116')
+
+    embed(header='monte_carlo.py: 136')
 
 
 # Command line execution
 if __name__ == '__main__':
-    generate_frbs(debug=True, plots=False)
+    generate_frbs(debug=True, plots=False, nsample=10000)
