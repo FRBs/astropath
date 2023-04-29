@@ -15,9 +15,12 @@ from astropy.coordinates import SkyCoord, match_coordinates_sky
 
 from IPython import embed
 
-def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
+def generate_frbs(outfile:str,
+    chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
                   m_r_min:float=15.,
                   m_r_max:float=26.,
+                  radec_sigma:tuple=(3.,15.), # arcsec, ra,dec
+                  scale:float=2., # half-light
                   nsample=10000,
                   debug:bool=False,
                   plots:bool=False):
@@ -43,7 +46,7 @@ def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
     rand = np.random.uniform(size=nsample)
     rand_mr = f_cdf(rand)
 
-    if plots:
+    if plots and False:
         plt.clf()
         ax = plt.gca()
 
@@ -133,9 +136,56 @@ def generate_frbs(chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
         #    imn = np.argmin(fake_coords.dec)
         #    embed(header='monte_carlo.py: 116')
 
-    embed(header='monte_carlo.py: 136')
+    # Generating the FRB coordinates
+    cosmos_sample = cosmos_cut.loc[frb_idx]
+    galaxy_coords = SkyCoord(ra=cosmos_sample.ra.values,
+                             dec=cosmos_sample.dec.values,
+                             unit='deg')
 
+    # Offset the FRB in the galaxy
+    theta_max = cosmos_sample.half_light.values / scale
+    randn = np.random.normal(size=10*nsample)
+    gd = np.abs(randn) < (6.*scale)
+    randn = randn[gd][0:nsample]
+    galaxy_offset = randn * theta_max * units.arcsec
+    gal_pa = np.random.uniform(size=nsample, low=0., high=360.)
+
+    print("Offsetting FRB in galaxy...")
+    frb_coord = [coord.directional_offset_by(
+        gal_pa[kk]*units.deg, galaxy_offset[kk]) 
+                 for kk, coord in enumerate(galaxy_coords)]
+
+    # Offset by Localization
+    randn = np.random.normal(size=10*nsample)
+    gd = np.abs(randn) < 3. # limit to 3 sigma
+    randn = randn[gd]
+
+    raoff = randn[0:nsample] * radec_sigma[0]
+    decoff = randn[nsample:2*nsample] * radec_sigma[1]
+    pa = np.arctan2(decoff, raoff) * 180./np.pi - 90.
+    local_offset = np.sqrt(raoff**2 + decoff**2) * units.arcsec
+
+    if plots:
+        sns.histplot(x=pa)
+        plt.show()
+
+    print("Offsetting FRB by localization...")
+    frb_coord = [coord.directional_offset_by(
+        pa[kk]*units.deg, local_offset[kk]) 
+                 for kk, coord in enumerate(frb_coord)]
+
+    # Write to disk
+    df = pandas.DataFrame()
+    df['ra'] = [coord.ra.deg for coord in frb_coord]
+    df['dec'] = [coord.dec.deg for coord in frb_coord]
+    df['gal_ID'] = cosmos_sample.index.values
+    df['gal_off'] = galaxy_offset.value # arcsec
+    df['loc_off'] = local_offset.value # arcsec
+
+    df.to_csv(outfile, index=False)
+    print(f"Wrote: {outfile}")
 
 # Command line execution
 if __name__ == '__main__':
-    generate_frbs(debug=True, plots=False, nsample=10000)
+    generate_frbs('frb_monte_carlo.csv',
+        debug=True, plots=False, nsample=10000)
