@@ -24,6 +24,31 @@ def generate_frbs(outfile:str,
                   nsample=10000,
                   debug:bool=False,
                   plots:bool=False):
+    """ Genereate a set of FRBs associated to COSMOS galaxies
+    With random placement in the galaxy
+    and a random location error
+
+    A pandas table is generated and saved to disk
+
+    Args:
+        outfile (str): 
+            Filename for the output table (pandas)
+        chime_mr_tbl (str, optional): Defaults to 'CHIME_mr_5Jyms_150.parquet'.
+            Table of estimated CHIME/FRB m_r values for FRBs
+        m_r_min (float, optional): Defaults to 15..
+            Minimum m_r value for the CHIME/FRB distribution
+        m_r_max (float, optional): Defaults to 26..
+            Maximum m_r value for the CHIME/FRB distribution
+        radec_sigma (tuple, optional): Defaults to (3.,15.).
+            Uncertainty in the RA,DEC of the FRB in arcsec
+            CHIME/GBO will be precise in RA
+        scale (float, optional): Defaults to 2..
+            Scale factor for the galaxy half-light radius
+        debug (bool, optional): Defaults to False.
+            Debugging mode
+        plots (bool, optional): Defaults to False.
+            Generate plots
+    """
 
     # Load up m_r distribution
     chime_mr = pandas.read_parquet(chime_mr_tbl)
