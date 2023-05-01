@@ -10,16 +10,21 @@ import seaborn as sns
 
 from astropy import units
 
-from astropath import cosmos
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 
+from astropath import cosmos
+from astropath import montecarlo
+
 from IPython import embed
+
+# Localization error assumed for GBO
+gbo_radec_sigma=(3.,15.) # arcsec, ra,dec
 
 def generate_frbs(outfile:str,
     chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
                   m_r_min:float=15.,
                   m_r_max:float=26.,
-                  radec_sigma:tuple=(3.,15.), # arcsec, ra,dec
+                  radec_sigma:tuple=None,
                   scale:float=2., # half-light
                   nsample=10000,
                   debug:bool=False,
@@ -49,6 +54,8 @@ def generate_frbs(outfile:str,
         plots (bool, optional): Defaults to False.
             Generate plots
     """
+    if radec_sigma is None:
+        radec_sigma = gbo_radec_sigma
 
     # Load up m_r distribution
     chime_mr = pandas.read_parquet(chime_mr_tbl)
@@ -210,7 +217,36 @@ def generate_frbs(outfile:str,
     df.to_csv(outfile, index=False)
     print(f"Wrote: {outfile}")
 
+def run_mc(outfile:str, debug:bool=False):
+    # Load up
+    frb_tbl = pandas.read_csv('frb_monte_carlo.csv')
+    cosmos_df = cosmos.load_galaxies()
+
+
+    if debug:
+        frb_tbl = frb_tbl.iloc[0:30]
+
+    # Define items
+    path_prior = dict(U=0.1, # P_U
+                      S=2.0) # scale factor
+    frb_ee = dict(a=gbo_radec_sigma[1], 
+                  b=gbo_radec_sigma[0],
+                  pa=0.)
+
+    # Run
+    multi = False if debug else True
+    montecarlo.run_em(frb_tbl, cosmos_df, path_prior,
+                      outfile, frb_ee, box_hwidth=60.,
+                      step_size=0.2, 
+                      mag_lim=23.2, # PS2
+                      debug=debug, multi=multi)
+
 # Command line execution
 if __name__ == '__main__':
-    generate_frbs('frb_monte_carlo.csv',
-        debug=True, plots=False, nsample=10000)
+
+    # Generate FRBs
+    #generate_frbs('frb_monte_carlo.csv',
+    #    debug=True, plots=False, nsample=10000)
+
+    # Monte Carlo
+    run_mc('first_try.csv', debug=True)

@@ -8,6 +8,8 @@ import pandas
 from astropy import units
 from astropy.coordinates import SkyCoord 
 
+from IPython import embed
+
 def cosmos_defs():
     cdefs = dict(plate_scale=0.05,
                  filter='ACS_i',
