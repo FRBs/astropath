@@ -231,10 +231,11 @@ def run_mc(outfile:str, debug:bool=False):
                       S=2.0) # scale factor
     frb_ee = dict(a=gbo_radec_sigma[1], 
                   b=gbo_radec_sigma[0],
-                  pa=0.)
+                  theta=0.)
 
     # Run
-    multi = False if debug else True
+    #multi = False if debug else True
+    multi = True
     montecarlo.run_em(frb_tbl, cosmos_df, path_prior,
                       outfile, frb_ee, box_hwidth=60.,
                       step_size=0.2, 

@@ -52,8 +52,11 @@ def path_calc(idx:int, frb_coord:SkyCoord, frb_ee:dict,
     Path.init_localization('eellipse', 
                            center_coord=frb_coord, 
                            eellipse=frb_ee.copy())
-    # Coords
-    Path.candidates = close_galaxies
+    # Candidates
+    Path.init_candidates(close_galaxies['ra'],
+                         close_galaxies['dec'],
+                         close_galaxies['ang_size'],
+                         mag=close_galaxies['mag'])
 
     # Candidate prior
     Path.init_cand_prior('inverse', P_U=prior['U'])
@@ -65,6 +68,7 @@ def path_calc(idx:int, frb_coord:SkyCoord, frb_ee:dict,
     p_O = Path.calc_priors()
 
     # Posterior
+    #embed(header='68 of montecarlo.py')
     P_Ox, P_Ux = Path.calc_posteriors(
         'fixed', box_hwidth=box_hwidth, 
         step_size=step_size, 
@@ -72,7 +76,7 @@ def path_calc(idx:int, frb_coord:SkyCoord, frb_ee:dict,
 
     # Save
     sv_tbl = Path.candidates.sort_values(
-        'P_Ox', ascending=False).drop(columns=['coords'])
+        'P_Ox', ascending=False)#.drop(columns=['coords'])
 
     # Return
     return sv_tbl, idx, Path
@@ -112,7 +116,8 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
 
     # Extra bits
     mc_galaxies['ang_size'] = mc_galaxies.a_image * mc_defs['plate_scale']
-    mc_galaxies[mc_defs['filter']] = mc_galaxies.mag_best
+    #mc_galaxies[mc_defs['filter']] = mc_galaxies.mag_best
+    mc_galaxies['mag'] = mc_galaxies.mag_best
 
     # Cut on mag?
     if mag_lim is not None:
@@ -142,7 +147,7 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
         in_idx2 = np.where(idx2 == kk)[0]
         gd_gal = idx1[in_idx2]
         close_galaxies = mc_galaxies.iloc[gd_gal][
-            ['ang_size', mc_defs['filter'], 'ra', 'dec']]
+            ['ang_size', 'mag', 'ra', 'dec']]
         # Extras
         close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
         close_galaxies['coords'] = galaxy_coords[gd_gal]
@@ -169,13 +174,14 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
         all_tbls = all_tbls[gd_tbl]
         for kk in range(all_tbls.size):
             all_tbls[kk]['iFRB'] = gd_idx[kk]
+        #embed(header='montecarlo: 177')
 
     else:
         idx_FRB = 0
-        embed(header='178 of montecarlo.py')
         results = path_calc(idx_FRB, frb_coords[idx_FRB], frb_ee_list[idx_FRB],
                     list_candidates[idx_FRB], path_prior, 
                     box_hwidth, step_size)
+        embed(header='183 of montecarlo.py')
         '''
         all_tbls = []
         for idx_FRB in range(nFRB):
@@ -186,7 +192,7 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
             all_tbls.append(sv_tbl)
         '''
     if debug:
-        embed(header='montecarlo: 155')
+        embed(header='montecarlo: 195')
 
     # Finish
     final_tbl = pandas.concat(all_tbls)
