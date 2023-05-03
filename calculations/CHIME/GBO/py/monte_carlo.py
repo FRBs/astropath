@@ -224,7 +224,7 @@ def run_mc(outfile:str, debug:bool=False):
 
 
     if debug:
-        frb_tbl = frb_tbl.iloc[0:30]
+        frb_tbl = frb_tbl.iloc[0:50]
 
     # Define items
     path_prior = dict(U=0.1, # P_U
