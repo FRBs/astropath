@@ -78,6 +78,8 @@ def path_calc(idx:int, frb_coord:SkyCoord, frb_ee:dict,
     sv_tbl = Path.candidates.sort_values(
         'P_Ox', ascending=False)#.drop(columns=['coords'])
 
+    sv_tbl['gal_ID'] = sv_tbl.index.values
+
     # Return
     return sv_tbl, idx, Path
 
@@ -196,6 +198,7 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
 
     # Finish
     final_tbl = pandas.concat(all_tbls)
+    final_tbl.reset_index(inplace=True, drop=True)
     final_tbl.to_csv(outfile)
     print("Wrote: {}".format(outfile))
 
