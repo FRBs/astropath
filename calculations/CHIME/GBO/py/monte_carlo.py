@@ -217,9 +217,9 @@ def generate_frbs(outfile:str,
     df.to_csv(outfile, index=False)
     print(f"Wrote: {outfile}")
 
-def run_mc(outfile:str, debug:bool=False):
+def run_mc(frb_file:str, outfile:str, debug:bool=False):
     # Load up
-    frb_tbl = pandas.read_csv('frb_monte_carlo.csv')
+    frb_tbl = pandas.read_csv('frb_monte_carlo_15x3.csv')
     cosmos_df = cosmos.load_galaxies()
 
 
@@ -234,13 +234,15 @@ def run_mc(outfile:str, debug:bool=False):
                   theta=0.)
 
     # Run
-    #multi = False if debug else True
-    multi = True
+    multi = False if debug else True
+    #multi = True
     montecarlo.run_em(frb_tbl, cosmos_df, path_prior,
                       outfile, frb_ee, box_hwidth=60.,
                       step_size=0.2, 
                       mag_lim=23.2, # PS2
                       debug=debug, multi=multi)
+
+
 
 # Command line execution
 if __name__ == '__main__':
@@ -250,4 +252,5 @@ if __name__ == '__main__':
     #    debug=True, plots=False, nsample=10000)
 
     # Monte Carlo
-    run_mc('first_try.csv', debug=True)
+    #run_mc('first_try.csv', debug=True)
+    run_mc('frb_monte_carlo_15x3.csv', 'PATH_15x3.csv')#, debug=True)
