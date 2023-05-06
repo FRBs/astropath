@@ -13,5 +13,5 @@ astropy-healpix>=0.7
 ligo.skymap>=1.0
 
 # docs
-nbsphinx>=0.8.0   
+#nbsphinx>=0.8.0   
 
