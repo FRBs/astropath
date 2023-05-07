@@ -60,8 +60,18 @@ def fig_mr_cdf(outfile:str='fig_mr_cdf.png',
     print(f"Wrote: {outfile}")
 
 
-def fig_roc(path_file:str, frb_file:str,
+def fig_false_pos(path_file:str, frb_file:str,
                      outfile:str): 
+    """ False positive curve
+
+    Args:
+        path_file (str): _description_
+        frb_file (str): _description_
+        outfile (str): _description_
+
+    Returns:
+        _type_: _description_
+    """
     # parse
     frbs = analysis.parse_PATH(path_file, frb_file)
 
@@ -129,7 +139,23 @@ def fig_scatter_Pm(path_file:str, frb_file:str,
     # parse
     frbs = analysis.parse_PATH(path_file, frb_file)
 
-    ax = sns.scatterplot(frbs, x='mag', y='P_Ox', s=3)
+    fig = plt.figure(figsize=(12, 6))
+    gs = gridspec.GridSpec(1,2)
+
+    # Actual
+    ax_actual = plt.subplot(gs[1])
+    sns.scatterplot(frbs, x='mag', y='P_Ox', s=3, ax=ax_actual,
+                    color='g')
+
+    ax_actual.set_xlabel(r'$m_r$:  True Galaxy')
+    ax_actual.set_ylabel(r'$P(O|x)$:   Best Candidate')
+
+    # Best
+    ax_best = plt.subplot(gs[0])
+    sns.scatterplot(frbs, x='best_mag', y='P_Ox', s=3, ax=ax_best)
+
+    ax_best.set_xlabel(r'$m_r$:  Best Candidate')
+    ax_best.set_ylabel(r'$P(O|x)$:   Best Candidate')
 
     # High confidednce
     mag_lim = 20.
@@ -139,14 +165,14 @@ def fig_scatter_Pm(path_file:str, frb_file:str,
 
     high_conf = frbs[high & bright]
 
-    ax.text(0.05, 0.05, f'N(P_Ox>{PATH_lim}; m<{mag_lim})={len(high_conf)}/{len(frbs)}', 
-            fontsize=14, transform=ax.transAxes)
-
+    ax_best.text(0.05, 0.05, f'N(P_Ox>{PATH_lim}; m<{mag_lim})={len(high_conf)}/{len(frbs)}', 
+            fontsize=14, transform=ax_best.transAxes)
 
     # Finish
-    ffutils.set_fontsize(ax, 16.)
+    for ax in [ax_actual, ax_best]:
+        ffutils.set_fontsize(ax, 16.)
 
-    pad = 0.2
+    pad = 0.4
     plt.tight_layout(pad=0.2,h_pad=pad,w_pad=pad)
 
     plt.savefig(outfile, dpi=300)#, bbox_inches='tight')
@@ -166,20 +192,22 @@ def fig_cosmos_ex(frb_file:str, outfile:str, local:str,
     fig = plt.figure(figsize=(8, 8))
     gs = gridspec.GridSpec(2,2)
 
-    #for ss in range(4):
-    for ss in range(3):
+    for ss in range(4):
         ax = plt.subplot(gs[ss])
 
         # Select
-        if ss == 0:
+        if ss == 1:
             # Bright one
             idx = np.argmin(np.abs(frbs.mag-19.))
-        elif ss == 1:
+        elif ss == 2:
             # Faint one
             idx = np.argmin(np.abs(frbs.mag-22.5))
-        elif ss == 2:
+        elif ss == 3:
             # Large offset
             idx = np.argmin(np.abs(frbs.loc_off-25.))
+        elif ss == 0:
+            # Small offset
+            idx = np.argmin(frbs.loc_off)
 
         # Continue
         frb = frbs.iloc[idx]
@@ -225,10 +253,10 @@ def main(pargs):
         fig_scatter_Pm(f'PATH_{pargs.local}.csv', 
                      f'frb_monte_carlo_{pargs.local}.csv',
                      f'POx_mag_{pargs.local}.png')
-    elif pargs.figure == 'roc':
-        fig_roc(f'PATH_{pargs.local}.csv', 
+    elif pargs.figure == 'false_pos':
+        fig_false_pos(f'PATH_{pargs.local}.csv', 
                      f'frb_monte_carlo_{pargs.local}.csv',
-                     f'ROC_{pargs.local}.png')
+                     f'FP_{pargs.local}.png')
     elif pargs.figure == 'cosmos_ex':
         fig_cosmos_ex(f'frb_monte_carlo_{pargs.local}.csv',
                      f'fig_cosmos_ex_{pargs.local}.png',
@@ -272,5 +300,5 @@ if __name__ == '__main__':
 # Scatter
 # python py/figs_chime_gbo.py scatter
 
-# ROC
-# python py/figs_chime_gbo.py roc
+# False positives
+# python py/figs_chime_gbo.py false_pos

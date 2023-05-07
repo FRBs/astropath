@@ -5,6 +5,8 @@ import pandas
 
 from frb.surveys import catalog_utils
 
+from IPython import embed
+
 def parse_PATH(path_file:str, frb_file:str):
 
     # Load
@@ -24,14 +26,18 @@ def parse_PATH(path_file:str, frb_file:str):
     # PATH
     POxs = [np.nan]*len(frbs)
     IDs = [-1]*len(frbs)
+    best_mags = [0.]*len(frbs)
 
     for iFRB in np.unique(ftry.iFRB.values):
         best_cand = ftry[ftry.iFRB == iFRB].iloc[0] 
         # Save
         POxs[iFRB] = best_cand.P_Ox
         IDs[iFRB] = int(best_cand.gal_ID) 
+        best_mags[iFRB] = best_cand.mag
+        
 
     frbs['P_Ox'] = POxs
     frbs['PATH_ID'] = IDs
+    frbs['best_mag'] = best_mags
 
     return frbs

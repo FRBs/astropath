@@ -91,6 +91,31 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
            mag_lim:float=None,
            ncpu:int=15, multi:bool=True, mc_defs:dict=None,
            debug:bool=False):
+    """ Run the Monte Carlo analysis
+
+    Args:
+        mc_frbs (pandas.DataFrame): 
+            Table of FRBs to analyze
+        mc_galaxies (pandas.DataFrame): 
+            Table of galaxies to analyze
+        path_prior (dict): 
+            Prior for the PATH analysis
+        outfile (str): 
+            Name of the output file
+        frb_ee (dict): 
+            FRB error ellipse parameters
+        galaxy_coords (_type_, optional): _description_. Defaults to None.
+        box_hwidth (float, optional): _description_. Defaults to 20..
+        step_size (float, optional): _description_. Defaults to 0.1.
+        mag_lim (float, optional): _description_. Defaults to None.
+        ncpu (int, optional): _description_. Defaults to 15.
+        multi (bool, optional): _description_. Defaults to True.
+        mc_defs (dict, optional): _description_. Defaults to None.
+        debug (bool, optional): _description_. Defaults to False.
+
+    Raises:
+        IOError: _description_
+    """
     # Defs
     if mc_defs is None:
         mc_defs = cosmos.cosmos_defs()
@@ -183,7 +208,7 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
         results = path_calc(idx_FRB, frb_coords[idx_FRB], frb_ee_list[idx_FRB],
                     list_candidates[idx_FRB], path_prior, 
                     box_hwidth, step_size)
-        embed(header='183 of montecarlo.py')
+        embed(header='211 of montecarlo.py')
         '''
         all_tbls = []
         for idx_FRB in range(nFRB):

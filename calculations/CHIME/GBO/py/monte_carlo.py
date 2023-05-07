@@ -230,9 +230,19 @@ def generate_frbs(outfile:str,
     df.to_csv(outfile, index=False)
     print(f"Wrote: {outfile}")
 
+
 def run_mc(frb_file:str, outfile:str, debug:bool=False):
+    """ Run the Monte Carlo
+
+    Args:
+        frb_file (str): 
+            File containing the FRB info
+        outfile (str): 
+            Output file
+        debug (bool, optional): 
+    """
     # Load up
-    frb_tbl = pandas.read_csv('frb_monte_carlo_15x3.csv')
+    frb_tbl = pandas.read_csv(frb_file)
     cosmos_df = cosmos.load_galaxies()
 
 
@@ -240,7 +250,7 @@ def run_mc(frb_file:str, outfile:str, debug:bool=False):
         frb_tbl = frb_tbl.iloc[0:50]
 
     # Define items
-    path_prior = dict(U=0.1, # P_U
+    path_prior = dict(U=0.2, # P_U corresponding to mr<23.2
                       S=2.0) # scale factor
     frb_ee = dict(a=gbo_radec_sigma[1], 
                   b=gbo_radec_sigma[0],
@@ -264,10 +274,10 @@ if __name__ == '__main__':
     #generate_frbs('frb_monte_carlo_3x15.csv', 
     #              radec_sigma=(3., 15.),
     #    debug=True, plots=False, nsample=10000)
-    generate_frbs('frb_monte_carlo_1x15.csv', 
-                  radec_sigma=(1., 15.),
-        debug=False, plots=False, nsample=10000)
+    #generate_frbs('frb_monte_carlo_1x15.csv', 
+    #              radec_sigma=(1., 15.),
+    #    debug=False, plots=False, nsample=10000)
 
     # Monte Carlo
-    #run_mc('first_try.csv', debug=True)
+    run_mc('first_try.csv', 'PATH_first.csv', debug=True)
     #run_mc('frb_monte_carlo_3x15.csv', 'PATH_3x15.csv')#, debug=True)
