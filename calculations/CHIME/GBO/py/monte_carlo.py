@@ -18,7 +18,8 @@ from astropath import montecarlo
 from IPython import embed
 
 # Localization error assumed for GBO
-gbo_radec_sigma=(3.,15.) # arcsec, ra,dec
+kko_radec_sigma=(3.,15.) # arcsec, ra,dec
+gbo_radec_sigma=(0.1,15.) # arcsec, ra,dec
 
 def generate_frbs(outfile:str,
     chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
@@ -55,7 +56,7 @@ def generate_frbs(outfile:str,
             Generate plots
     """
     if radec_sigma is None:
-        radec_sigma = gbo_radec_sigma
+        radec_sigma = kko_radec_sigma
 
     # Load up m_r distribution
     chime_mr = pandas.read_parquet(chime_mr_tbl)
@@ -187,6 +188,8 @@ def generate_frbs(outfile:str,
         gal_pa[kk]*units.deg, galaxy_offset[kk]) 
                  for kk, coord in enumerate(galaxy_coords)]
 
+    true_frb_coord = frb_coord.copy()
+
     # Offset by Localization
     randn = np.random.normal(size=10*nsample)
     gd = np.abs(randn) < 3. # limit to 3 sigma
@@ -210,8 +213,12 @@ def generate_frbs(outfile:str,
     df = pandas.DataFrame()
     df['ra'] = [coord.ra.deg for coord in frb_coord]
     df['dec'] = [coord.dec.deg for coord in frb_coord]
+    df['true_ra'] = [coord.ra.deg for coord in true_frb_coord]
+    df['true_dec'] = [coord.dec.deg for coord in true_frb_coord]
     df['gal_ID'] = cosmos_sample.index.values
     df['gal_off'] = galaxy_offset.value # arcsec
+    df['mag'] = cosmos_sample.mag_best.values
+    df['half_light'] = cosmos_sample.half_light.values
     df['loc_off'] = local_offset.value # arcsec
 
     df.to_csv(outfile, index=False)
@@ -248,9 +255,13 @@ def run_mc(frb_file:str, outfile:str, debug:bool=False):
 if __name__ == '__main__':
 
     # Generate FRBs
-    #generate_frbs('frb_monte_carlo.csv',
+    #generate_frbs('frb_monte_carlo_3x15.csv', 
+    #              radec_sigma=(3., 15.),
     #    debug=True, plots=False, nsample=10000)
+    generate_frbs('frb_monte_carlo_1x15.csv', 
+                  radec_sigma=(1., 15.),
+        debug=False, plots=False, nsample=10000)
 
     # Monte Carlo
     #run_mc('first_try.csv', debug=True)
-    run_mc('frb_monte_carlo_15x3.csv', 'PATH_15x3.csv')#, debug=True)
+    #run_mc('frb_monte_carlo_3x15.csv', 'PATH_3x15.csv')#, debug=True)
