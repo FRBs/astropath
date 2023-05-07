@@ -4,6 +4,7 @@ import numpy as np
 
 import pandas
 import argparse
+from scipy import interpolate
 
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -16,8 +17,48 @@ from frb.figures import utils as ffutils
 from astropath import cosmos
 
 import analysis
+import monte_carlo
 
 from IPython import embed
+
+def fig_mr_cdf(outfile:str='fig_mr_cdf.png', 
+               chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet'): 
+    # Load mr
+    chime_mr = pandas.read_parquet(chime_mr_tbl)
+    m_r_cuts = (chime_mr.m_r < monte_carlo.def_m_r_max) & (
+            chime_mr.m_r > monte_carlo.def_m_r_min)
+    chime_mr = chime_mr[m_r_cuts]
+
+    # Generate a CDF
+    n_chime = len(chime_mr)
+    srt = np.argsort(chime_mr.m_r.values)
+
+    f_cdf = interpolate.interp1d(
+        np.arange(n_chime)/(n_chime-1),
+        chime_mr.m_r.values[srt])
+
+    # Figure
+    fig = plt.figure(figsize=(5, 5))
+    ax = fig.add_subplot(111)
+
+    # Plot cdf
+    x_cdf = np.linspace(0., 1., 10000)
+    y_cdf = f_cdf(x_cdf)
+    ax.plot(y_cdf, x_cdf, 'k-', label='Full CDF')
+
+    # Axes
+    ax.set_xlabel(r'$m_r$')
+    ax.set_ylabel('CDF')
+
+    ffutils.set_fontsize(ax, 17.)
+   
+    pad = 0.2
+    plt.tight_layout(pad=0.2,h_pad=pad,w_pad=pad)
+
+    plt.savefig(outfile, dpi=300)#, bbox_inches='tight')
+    plt.close()
+    print(f"Wrote: {outfile}")
+
 
 def fig_roc(path_file:str, frb_file:str,
                      outfile:str): 
@@ -192,6 +233,8 @@ def main(pargs):
         fig_cosmos_ex(f'frb_monte_carlo_{pargs.local}.csv',
                      f'fig_cosmos_ex_{pargs.local}.png',
                      pargs.local)
+    elif pargs.figure == 'mr_cdf':
+        fig_mr_cdf()
 
 
 def parse_option():
@@ -218,6 +261,9 @@ if __name__ == '__main__':
 
     pargs = parse_option()
     main(pargs)
+
+# m_r CDF
+# python py/figs_chime_gbo.py mr_cdf
 
 # Examples
 # python py/figs_chime_gbo.py cosmos_ex

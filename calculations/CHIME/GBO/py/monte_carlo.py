@@ -20,11 +20,12 @@ from IPython import embed
 # Localization error assumed for GBO
 kko_radec_sigma=(3.,15.) # arcsec, ra,dec
 gbo_radec_sigma=(0.1,15.) # arcsec, ra,dec
+def_m_r_min=15.
+def_m_r_max=26.
 
 def generate_frbs(outfile:str,
     chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
-                  m_r_min:float=15.,
-                  m_r_max:float=26.,
+    m_r_min:float=None, m_r_max:float=None,
                   radec_sigma:tuple=None,
                   scale:float=2., # half-light
                   nsample=10000,
@@ -55,8 +56,13 @@ def generate_frbs(outfile:str,
         plots (bool, optional): Defaults to False.
             Generate plots
     """
+    # Defaults
     if radec_sigma is None:
         radec_sigma = kko_radec_sigma
+    if m_r_min is None:
+        m_r_min = def_m_r_min
+    if m_r_max is None:
+        m_r_max = def_m_r_max
 
     # Load up m_r distribution
     chime_mr = pandas.read_parquet(chime_mr_tbl)
