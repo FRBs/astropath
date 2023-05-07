@@ -271,13 +271,13 @@ def run_mc(frb_file:str, outfile:str, debug:bool=False):
 if __name__ == '__main__':
 
     # Generate FRBs
-    #generate_frbs('frb_monte_carlo_3x15.csv', 
-    #              radec_sigma=(3., 15.),
-    #    debug=True, plots=False, nsample=10000)
+    generate_frbs('frb_monte_carlo_3x15.csv', 
+                  radec_sigma=(3., 15.), debug=False, 
+                  plots=False, nsample=10000)
     #generate_frbs('frb_monte_carlo_1x15.csv', 
     #              radec_sigma=(1., 15.),
     #    debug=False, plots=False, nsample=10000)
 
     # Monte Carlo
-    run_mc('first_try.csv', 'PATH_first.csv', debug=True)
+    #run_mc('first_try.csv', 'PATH_first.csv', debug=True)
     #run_mc('frb_monte_carlo_3x15.csv', 'PATH_3x15.csv')#, debug=True)
