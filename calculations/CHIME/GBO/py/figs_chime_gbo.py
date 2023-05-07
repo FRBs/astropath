@@ -61,13 +61,15 @@ def fig_mr_cdf(outfile:str='fig_mr_cdf.png',
 
 
 def fig_false_pos(path_file:str, frb_file:str,
-                     outfile:str): 
+                     outfile:str, POX_cut:float=0.95): 
     """ False positive curve
 
     Args:
         path_file (str): _description_
         frb_file (str): _description_
         outfile (str): _description_
+        POX_cut (float, optional): 
+            P_Ox cut to use for the false positive curve
 
     Returns:
         _type_: _description_
@@ -75,16 +77,10 @@ def fig_false_pos(path_file:str, frb_file:str,
     # parse
     frbs = analysis.parse_PATH(path_file, frb_file)
 
-    # Add success
-    success = frbs.PATH_ID == frbs.gal_ID
-    frbs['success'] = success
-
-    # 
-
     def gen_cdf(tbl):
         
         # Sort on mag
-        mag_srt = np.argsort(tbl.mag.values)
+        mag_srt = np.argsort(tbl.best_mag.values)
 
         # CDF
         cdf = np.cumsum(
@@ -93,29 +89,29 @@ def fig_false_pos(path_file:str, frb_file:str,
 
         cut_90 = np.argmin(np.abs(cdf - 0.9))
         cut_99 = np.argmin(np.abs(cdf - 0.99))
-        print(f'90% completeness at {tbl.mag.values[mag_srt][cut_90]:g}')
-        print(f'99% completeness at {tbl.mag.values[mag_srt][cut_99]:g}')
+        print(f'90% completeness at {tbl.best_mag.values[mag_srt][cut_90]:g}')
+        print(f'99% completeness at {tbl.best_mag.values[mag_srt][cut_99]:g}')
 
         return mag_srt, cdf 
 
     # Figure
-    fig = plt.figure(figsize=(5, 5))
+    fig = plt.figure(figsize=(7, 5))
     ax = fig.add_subplot(111)
 
     # All
     mag_srt, cdf_all = gen_cdf(frbs)
-    ax.plot(frbs.mag.values[mag_srt], cdf_all, 'g-', lw=2, label='All')
+    ax.plot(frbs.best_mag.values[mag_srt], 1.-cdf_all, 'g-', lw=2, label='All')
 
     # High P_Ox
-    POx_90 = frbs.P_Ox > 0.9
-    mag_90, cdf_90 = gen_cdf(frbs[POx_90])
-    #embed(header='54 of figs')
-    ax.plot(frbs[POx_90].mag.values[mag_90], cdf_90, 'b-', 
-            lw=2, label='P(O|x) > 90%')
+    POx_cut = frbs.P_Ox > POX_cut
+    mag_cut, cdf_cut = gen_cdf(frbs[POx_cut])
+    ax.plot(frbs[POx_cut].best_mag.values[mag_cut], 1.-cdf_cut, 
+            'b-', lw=2, label=f'P(O|x) > {POX_cut*100}%')
 
     # Label
-    ax.set_xlabel('Magnitude')
-    ax.set_ylabel('TP Fraction')
+    ax.set_xlabel(r'$m_r$: Best Candidate')
+    ax.set_ylabel('FP Fraction')
+    ax.set_ylim(0., 1.)
 
     ax.legend()
 
@@ -131,7 +127,7 @@ def fig_false_pos(path_file:str, frb_file:str,
 
     # Final stat
     gd_mag = frbs.mag < 20.5
-    smpl = gd_mag & POx_90
+    smpl = gd_mag & POx_cut
     print(f'We might target {np.sum(smpl)}/{len(frbs)}')
 
 def fig_scatter_Pm(path_file:str, frb_file:str,
@@ -151,8 +147,14 @@ def fig_scatter_Pm(path_file:str, frb_file:str,
     ax_actual.set_ylabel(r'$P(O|x)$:   Best Candidate')
 
     # Best
+    correct = np.array(['yes']*len(frbs))
+    correct[np.invert(frbs.success.values)] = 'no'
+    frbs['correct'] = correct
+
     ax_best = plt.subplot(gs[0])
-    sns.scatterplot(frbs, x='best_mag', y='P_Ox', s=3, ax=ax_best)
+    sns.scatterplot(frbs, x='best_mag', y='P_Ox', s=3, 
+                    ax=ax_best, hue='correct', 
+                    palette='Set1')
 
     ax_best.set_xlabel(r'$m_r$:  Best Candidate')
     ax_best.set_ylabel(r'$P(O|x)$:   Best Candidate')
@@ -165,8 +167,8 @@ def fig_scatter_Pm(path_file:str, frb_file:str,
 
     high_conf = frbs[high & bright]
 
-    ax_best.text(0.05, 0.05, f'N(P_Ox>{PATH_lim}; m<{mag_lim})={len(high_conf)}/{len(frbs)}', 
-            fontsize=14, transform=ax_best.transAxes)
+    #ax_best.text(0.05, 0.05, f'N(P_Ox>{PATH_lim}; m<{mag_lim})={len(high_conf)}/{len(frbs)}', 
+    #        fontsize=14, transform=ax_best.transAxes)
 
     # Finish
     for ax in [ax_actual, ax_best]:

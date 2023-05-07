@@ -40,4 +40,8 @@ def parse_PATH(path_file:str, frb_file:str):
     frbs['PATH_ID'] = IDs
     frbs['best_mag'] = best_mags
 
+    # Add success
+    success = frbs.PATH_ID == frbs.gal_ID
+    frbs['success'] = success
+
     return frbs
