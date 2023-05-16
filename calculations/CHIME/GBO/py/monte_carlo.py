@@ -149,6 +149,8 @@ def generate_frbs(outfile:str,
             # Set
             frb_idx[sub_frb_idx[srt_frb]] = sub_cosmos_idx[srt_cosmos[:len(srt_frb)]]
             assert np.all(frb_idx >= 0)
+            print(f'Ran out of bright ones at {sub_fake_coords.dec.deg[srt_frb[-1]]}')
+            embed(header='monte_carlo.py: 153')
             break
 
 
@@ -271,13 +273,14 @@ def run_mc(frb_file:str, outfile:str, debug:bool=False):
 if __name__ == '__main__':
 
     # Generate FRBs
-    generate_frbs('frb_monte_carlo_3x15.csv', 
-                  radec_sigma=(3., 15.), debug=False, 
-                  plots=False, nsample=10000)
-    #generate_frbs('frb_monte_carlo_1x15.csv', 
-    #              radec_sigma=(1., 15.),
-    #    debug=False, plots=False, nsample=10000)
+    #generate_frbs('frb_monte_carlo_3x15.csv', 
+    #              radec_sigma=(3., 15.), debug=False, 
+    #              plots=False, nsample=10000)
+    generate_frbs('frb_monte_carlo_1x15.csv', 
+                  radec_sigma=(1., 15.),
+        debug=False, plots=False, nsample=10000)
 
     # Monte Carlo
     #run_mc('first_try.csv', 'PATH_first.csv', debug=True)
     #run_mc('frb_monte_carlo_3x15.csv', 'PATH_3x15.csv')#, debug=True)
+    #run_mc('frb_monte_carlo_1x15.csv', 'PATH_1x15.csv')#, debug=True)

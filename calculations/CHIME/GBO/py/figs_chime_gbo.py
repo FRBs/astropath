@@ -126,7 +126,8 @@ def fig_false_pos(path_file:str, frb_file:str,
     print(f"Wrote: {outfile}")
 
     # Final stat
-    gd_mag = frbs.mag < 20.5
+    #gd_mag = frbs.mag < 20.5
+    gd_mag = frbs.mag < 22.0
     smpl = gd_mag & POx_cut
     print(f'We might target {np.sum(smpl)}/{len(frbs)}')
 
@@ -277,7 +278,7 @@ def parse_option():
     parser = argparse.ArgumentParser("CHIME/FRB GBO Figures")
     parser.add_argument("figure", type=str, 
                         help="function to execute: 'separation'")
-    parser.add_argument('--local', type=str, default='3x15', help="Precitions (3x15)")
+    parser.add_argument('--local', type=str, default='3x15', help="Predictions (3x15, 1x15)")
     parser.add_argument('--cmap', type=str, help="Color map")
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Debug?')
@@ -304,3 +305,4 @@ if __name__ == '__main__':
 
 # False positives
 # python py/figs_chime_gbo.py false_pos
+# python py/figs_chime_gbo.py false_pos --local 1x15
