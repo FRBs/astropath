@@ -149,7 +149,8 @@ def generate_frbs(outfile:str,
             # Set
             frb_idx[sub_frb_idx[srt_frb]] = sub_cosmos_idx[srt_cosmos[:len(srt_frb)]]
             assert np.all(frb_idx >= 0)
-            print(f'Ran out of bright ones at {sub_fake_coords.dec.deg[srt_frb[-1]]}')
+            mag_bright_cut = sub_fake_cosmos.dec.deg[srt_cosmos][len(sub_fake_coords)]
+            print(f'Ran out of bright ones at {mag_bright_cut}')
             embed(header='monte_carlo.py: 153')
             break
 
