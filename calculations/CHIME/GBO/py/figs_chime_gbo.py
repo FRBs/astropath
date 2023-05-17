@@ -63,7 +63,7 @@ def fig_mr_cdf(outfile:str='fig_mr_cdf.png',
 
 def fig_false_pos(path_file:str, frb_file:str,
                      outfile:str, local:str,
-                     POX_cuts:float=[0.90]):#, 0.95]): 
+                     POX_cuts:float=[0.90, 0.95]): 
     """ False positive curve
 
     Args:
@@ -72,9 +72,6 @@ def fig_false_pos(path_file:str, frb_file:str,
         outfile (str): _description_
         POX_cut (float, optional): 
             P_Ox cut to use for the false positive curve
-
-    Returns:
-        _type_: _description_
     """
     # parse
     frbs = analysis.parse_PATH(path_file, frb_file)
@@ -122,12 +119,18 @@ def fig_false_pos(path_file:str, frb_file:str,
     loc = MultipleLocator(base=0.1)
     #ax.xaxis.set_major_locator(loc)
     ax.yaxis.set_major_locator(loc)
+
+    minorLocator = MultipleLocator(0.05)
+    ax.yaxis.set_minor_locator(minorLocator)
+
+    ax.grid(which='minor')
+    ax.grid(which='major')
+
     ax.set_title(f'Localization: {local}', fontsize=16)
 
     # Finish
     ffutils.set_fontsize(ax, 16.)
 
-    plt.grid()
     pad = 0.2
     plt.tight_layout(pad=0.2,h_pad=pad,w_pad=pad)
 
@@ -146,29 +149,37 @@ def fig_scatter_Pm(path_file:str, frb_file:str,
     # parse
     frbs = analysis.parse_PATH(path_file, frb_file)
 
+    #sns.set_style("whitegrid")
+
     fig = plt.figure(figsize=(12, 6))
     gs = gridspec.GridSpec(1,2)
 
     # Actual
-    ax_actual = plt.subplot(gs[1])
+    ax_actual = plt.subplot(gs[0])
+
     sns.scatterplot(frbs, x='mag', y='P_Ox', s=3, ax=ax_actual,
                     color='g')
+    #ax_actual.set_yscale('log')
+    ax_actual.set_ylim(0, 1.)
 
     ax_actual.set_xlabel(r'$m_r$:  True Galaxy')
     ax_actual.set_ylabel(r'$P(O|x)$:   Best Candidate')
+
+
 
     # Best
     correct = np.array(['yes']*len(frbs))
     correct[np.invert(frbs.success.values)] = 'no'
     frbs['correct'] = correct
 
-    ax_best = plt.subplot(gs[0])
+    ax_best = plt.subplot(gs[1])
     sns.scatterplot(frbs, x='best_mag', y='P_Ox', s=3, 
                     ax=ax_best, hue='correct', 
                     palette='Set1')
 
     ax_best.set_xlabel(r'$m_r$:  Best Candidate')
     ax_best.set_ylabel(r'$P(O|x)$:   Best Candidate')
+    ax_best.set_ylim(0, 1.)
 
     # High confidednce
     mag_lim = 20.
@@ -184,6 +195,13 @@ def fig_scatter_Pm(path_file:str, frb_file:str,
     # Finish
     for ax in [ax_actual, ax_best]:
         ffutils.set_fontsize(ax, 16.)
+        majorLocator = MultipleLocator(0.2)
+        ax.yaxis.set_major_locator(majorLocator)
+        minorLocator = MultipleLocator(0.05)
+        ax.yaxis.set_minor_locator(minorLocator)
+
+        ax.grid(which='minor')
+        ax.grid(which='major')
 
     pad = 0.4
     plt.tight_layout(pad=0.2,h_pad=pad,w_pad=pad)
@@ -311,9 +329,10 @@ if __name__ == '__main__':
 # python py/figs_chime_gbo.py cosmos_ex
 # python py/figs_chime_gbo.py cosmos_ex --local 1x15
 
-# Scatter
+# Scatter P vs. m
 # python py/figs_chime_gbo.py scatter
 
 # False positives
 # python py/figs_chime_gbo.py false_pos
 # python py/figs_chime_gbo.py false_pos --local 1x15
+# python py/figs_chime_gbo.py false_pos --local 005x15

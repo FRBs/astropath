@@ -280,11 +280,12 @@ if __name__ == '__main__':
     #generate_frbs('frb_monte_carlo_1x15.csv', 
     #              radec_sigma=(1., 15.),
     #    debug=False, plots=False, nsample=10000)
-    generate_frbs('frb_monte_carlo_005x15.csv', 
-                  radec_sigma=(0.05, 15.),
-        debug=False, plots=False, nsample=10000)
+    #generate_frbs('frb_monte_carlo_005x15.csv', 
+    #              radec_sigma=(0.05, 15.),
+    #    debug=False, plots=False, nsample=10000)
 
     # Monte Carlo
     #run_mc('first_try.csv', 'PATH_first.csv', debug=True)
     #run_mc('frb_monte_carlo_3x15.csv', 'PATH_3x15.csv')#, debug=True)
     #run_mc('frb_monte_carlo_1x15.csv', 'PATH_1x15.csv')#, debug=True)
+    run_mc('frb_monte_carlo_005x15.csv', 'PATH_005x15.csv')#, debug=True)
