@@ -10,6 +10,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.patches import Ellipse
+from matplotlib.ticker import MultipleLocator
 
 from astropy.coordinates import SkyCoord
 
@@ -61,7 +62,8 @@ def fig_mr_cdf(outfile:str='fig_mr_cdf.png',
 
 
 def fig_false_pos(path_file:str, frb_file:str,
-                     outfile:str, POX_cut:float=0.95): 
+                     outfile:str, local:str,
+                     POX_cuts:float=[0.90]):#, 0.95]): 
     """ False positive curve
 
     Args:
@@ -103,10 +105,11 @@ def fig_false_pos(path_file:str, frb_file:str,
     ax.plot(frbs.best_mag.values[mag_srt], 1.-cdf_all, 'g-', lw=2, label='All')
 
     # High P_Ox
-    POx_cut = frbs.P_Ox > POX_cut
-    mag_cut, cdf_cut = gen_cdf(frbs[POx_cut])
-    ax.plot(frbs[POx_cut].best_mag.values[mag_cut], 1.-cdf_cut, 
-            'b-', lw=2, label=f'P(O|x) > {POX_cut*100}%')
+    for POX_cut in POX_cuts:
+        POx_cut = frbs.P_Ox > POX_cut
+        mag_cut, cdf_cut = gen_cdf(frbs[POx_cut])
+        ax.plot(frbs[POx_cut].best_mag.values[mag_cut], 1.-cdf_cut, 
+                '-', lw=2, label=f'P(O|x) > {POX_cut*100}%')
 
     # Label
     ax.set_xlabel(r'$m_r$: Best Candidate')
@@ -114,10 +117,17 @@ def fig_false_pos(path_file:str, frb_file:str,
     ax.set_ylim(0., 1.)
 
     ax.legend()
+    #ax.text(0.95, 0.05, f'Localization: {local}',
+    #        fontsize=14, transform=ax.transAxes, ha='right')
+    loc = MultipleLocator(base=0.1)
+    #ax.xaxis.set_major_locator(loc)
+    ax.yaxis.set_major_locator(loc)
+    ax.set_title(f'Localization: {local}', fontsize=16)
 
     # Finish
     ffutils.set_fontsize(ax, 16.)
 
+    plt.grid()
     pad = 0.2
     plt.tight_layout(pad=0.2,h_pad=pad,w_pad=pad)
 
@@ -259,7 +269,8 @@ def main(pargs):
     elif pargs.figure == 'false_pos':
         fig_false_pos(f'PATH_{pargs.local}.csv', 
                      f'frb_monte_carlo_{pargs.local}.csv',
-                     f'FP_{pargs.local}.png')
+                     f'FP_{pargs.local}.png',
+                     pargs.local)
     elif pargs.figure == 'cosmos_ex':
         fig_cosmos_ex(f'frb_monte_carlo_{pargs.local}.csv',
                      f'fig_cosmos_ex_{pargs.local}.png',

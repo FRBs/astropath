@@ -151,7 +151,7 @@ def generate_frbs(outfile:str,
             assert np.all(frb_idx >= 0)
             mag_bright_cut = sub_fake_cosmos.dec.deg[srt_cosmos][len(sub_fake_coords)]
             print(f'Ran out of bright ones at {mag_bright_cut}')
-            embed(header='monte_carlo.py: 153')
+            #embed(header='monte_carlo.py: 153')
             break
 
 
@@ -277,8 +277,11 @@ if __name__ == '__main__':
     #generate_frbs('frb_monte_carlo_3x15.csv', 
     #              radec_sigma=(3., 15.), debug=False, 
     #              plots=False, nsample=10000)
-    generate_frbs('frb_monte_carlo_1x15.csv', 
-                  radec_sigma=(1., 15.),
+    #generate_frbs('frb_monte_carlo_1x15.csv', 
+    #              radec_sigma=(1., 15.),
+    #    debug=False, plots=False, nsample=10000)
+    generate_frbs('frb_monte_carlo_005x15.csv', 
+                  radec_sigma=(0.05, 15.),
         debug=False, plots=False, nsample=10000)
 
     # Monte Carlo
