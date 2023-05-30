@@ -8,6 +8,15 @@ from frb.surveys import catalog_utils
 from IPython import embed
 
 def parse_PATH(path_file:str, frb_file:str):
+    """ Parse the PATH output file
+
+    Args:
+        path_file (str): PATH output file
+        frb_file (str): file of FRBs
+
+    Returns:
+        pandas.DataFrame: table of FRBs with PATH results added in
+    """
 
     # Load
     ftry = pandas.read_csv(path_file, index_col=0)

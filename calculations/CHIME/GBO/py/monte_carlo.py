@@ -23,13 +23,10 @@ gbo_radec_sigma=(0.1,15.) # arcsec, ra,dec
 def_m_r_min=15.
 def_m_r_max=26.
 
-def generate_frbs(outfile:str,
-    chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
-    m_r_min:float=None, m_r_max:float=None,
-                  radec_sigma:tuple=None,
-                  scale:float=2., # half-light
-                  nsample=10000,
-                  debug:bool=False,
+def generate_frbs(outfile:str, chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet', 
+                  m_r_min:float=None, m_r_max:float=None,
+                  radec_sigma:tuple=None, scale:float=2., # half-light
+                  nsample=10000, debug:bool=False,
                   plots:bool=False):
     """ Genereate a set of FRBs associated to COSMOS galaxies
     With random placement in the galaxy
@@ -51,6 +48,7 @@ def generate_frbs(outfile:str,
             CHIME/GBO will be precise in RA
         scale (float, optional): Defaults to 2..
             Scale factor for the galaxy half-light radius
+        nsample (int, optional): Number of samples to generate. Defaults to 10000.
         debug (bool, optional): Defaults to False.
             Debugging mode
         plots (bool, optional): Defaults to False.

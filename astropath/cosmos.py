@@ -11,12 +11,28 @@ from astropy.coordinates import SkyCoord
 from IPython import embed
 
 def cosmos_defs():
+    """ Definitions for COSMOS """
     cdefs = dict(plate_scale=0.05,
                  filter='ACS_i',
                  )
     return cdefs
 
 def load_galaxies(cosmos_file:str='cosmos_acs_iphot_200709.feather'):
+    """ Load up the galaxies for COSMOS and set a few things
+
+    The default input file may be found here:
+    https://drive.google.com/file/d/1OoKa9ua_1XZJeH5NfCDBhEEFiwG2G2Bk/view?usp=sharing 
+    
+
+    Args:
+        cosmos_file (str, optional): 
+            COSMOS galaxy file. Defaults to 'cosmos_acs_iphot_200709.feather'.
+
+
+    Returns:
+        pandas.DataFrame: Table of galaxies
+    """
+    
     # Load
     df = pandas.read_feather(cosmos_file)
 
@@ -31,12 +47,13 @@ def load_galaxies(cosmos_file:str='cosmos_acs_iphot_200709.feather'):
     return df
 
 
+'''
+# NOT IMPLEMENTED YET
 def gen_frb_galaxy_pairs(cosmos_df:pandas.DataFrame,
     a_sigma:units.Quantity=1*units.arcsec,
     b_sigma:units.Quantity=1*units.arcsec,
     pa_mode:str='fixed',
     pa_value:float=0.):
-# pix_to_arcsec = 0.05*units.arcsec
 
     frbs = []
     frb_with_gal = []
@@ -60,3 +77,4 @@ def gen_frb_galaxy_pairs(cosmos_df:pandas.DataFrame,
         frbs.append([row['name'], row['frb_ra'], row['frb_dec'], loc_sigma.value])
         
         frb_with_gal.append(row)
+'''
