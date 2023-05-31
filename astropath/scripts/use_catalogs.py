@@ -121,4 +121,4 @@ def main(pargs):
     return Path
 
 # Test
-# astropath_catalog 128.6800541558221,66.01075020181487 11.,11.,0. -U 0.2 --survey Pan-STARRS 
+# astropath_catalog 128.6800541558221,66.01075020181487 11.,11.,0. -U 0.2 --survey Pan-STARRS -o tst.csv
