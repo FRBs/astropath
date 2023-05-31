@@ -1,8 +1,11 @@
 """ Utility functions for astropath """
+import warnings
 
 import numpy as np
 import pandas
 from pandas.core.frame import DataFrame
+
+from astropy import units
 
 
 def match_ids(IDs, match_IDs, require_in_match=True):
@@ -116,7 +119,7 @@ def radec_to_coord(radec, gal=False):
                 DEC = radec[1]
             #
             coord = SkyCoord(radec[0]+DEC, frame=frame,
-                                  unit=(u.hourangle, u.deg))
+                                  unit=(units.hourangle, units.deg))
         else:
             if frame == 'galactic':
                 coord = SkyCoord(l=radec[0], b=radec[1], frame=frame, unit='deg')
@@ -132,14 +135,14 @@ def radec_to_coord(radec, gal=False):
         radec = radec[ii:]
         #
         if ':' in radec:
-            coord = SkyCoord(radec, frame='icrs', unit=(u.hourangle, u.deg))
+            coord = SkyCoord(radec, frame='icrs', unit=(units.hourangle, units.deg))
         else:  # Add in :
             if ('+' in radec) or ('-' in radec):
                 sign = max(radec.find('+'), radec.find('-'))
             else:
                 raise ValueError("radec must include + or - for DEC")
             newradec = (radec[0:2]+':'+radec[2:4]+':'+radec[4:sign+3] +':'+radec[sign+3:sign+5]+':'+radec[sign+5:])
-            coord = SkyCoord(newradec, frame='icrs', unit=(u.hourangle, u.deg))
+            coord = SkyCoord(newradec, frame='icrs', unit=(units.hourangle, units.deg))
     elif isinstance(radec,list):
         clist = []
         for item in radec:
