@@ -71,3 +71,84 @@ def vet_data_model(obj, dmodel:dict, verbose=True):
                 print("Bad key type: {}".format(key))
     # Return
     return chk, disallowed_keys, badtype_keys
+
+
+
+def radec_to_coord(radec, gal=False):
+    """ Converts one of many of Celestial Coordinates
+    `radec` formats to an astropy SkyCoord object. Assumes
+    J2000 equinox.
+
+    Parameters
+    ----------
+    radec : str or tuple or SkyCoord or list
+        Examples:
+        'J124511+144523',
+        '124511+144523',
+        'J12:45:11+14:45:23',
+        ('12:45:11','+14:45:23')
+        ('12 45 11', +14 45 23)
+        ('12:45:11','14:45:23')  -- Assumes positive DEC
+        (123.123, 12.1224) -- Assumed deg
+        [(123.123, 12.1224), (125.123, 32.1224)]
+    gal : bool, optional
+      Input pair of floats are (l,b) in deg
+
+    Returns
+    -------
+    coord : SkyCoord
+      Converts to astropy.coordinate.SkyCoord (as needed)
+      Returns a SkyCoord array if input is a list
+    """
+    from astropy.coordinates import SkyCoord
+    if gal:
+        frame = 'galactic'
+    else:
+        frame = 'icrs'
+
+    # RA/DEC
+    if isinstance(radec, (tuple)):
+        if isinstance(radec[0], str):
+            if radec[1][0] not in ['+', '-']:  #
+                DEC = '+'+radec[1]
+                warnings.warn("Assuming your DEC is +")
+            else:
+                DEC = radec[1]
+            #
+            coord = SkyCoord(radec[0]+DEC, frame=frame,
+                                  unit=(u.hourangle, u.deg))
+        else:
+            if frame == 'galactic':
+                coord = SkyCoord(l=radec[0], b=radec[1], frame=frame, unit='deg')
+            else:
+                coord = SkyCoord(ra=radec[0], dec=radec[1], frame=frame, unit='deg')
+    elif isinstance(radec,SkyCoord):
+        coord = radec
+    elif isinstance(radec,str):
+        # Find first instance of a number (i.e. strip J, SDSS, etc.)
+        for ii in range(len(radec)):
+            if radec[ii].isdigit():
+                break
+        radec = radec[ii:]
+        #
+        if ':' in radec:
+            coord = SkyCoord(radec, frame='icrs', unit=(u.hourangle, u.deg))
+        else:  # Add in :
+            if ('+' in radec) or ('-' in radec):
+                sign = max(radec.find('+'), radec.find('-'))
+            else:
+                raise ValueError("radec must include + or - for DEC")
+            newradec = (radec[0:2]+':'+radec[2:4]+':'+radec[4:sign+3] +':'+radec[sign+3:sign+5]+':'+radec[sign+5:])
+            coord = SkyCoord(newradec, frame='icrs', unit=(u.hourangle, u.deg))
+    elif isinstance(radec,list):
+        clist = []
+        for item in radec:
+            clist.append(radec_to_coord(item,gal=gal))
+        # Convert to SkyCoord array
+        ras = [ii.icrs.ra.value for ii in clist]
+        decs = [ii.icrs.dec.value for ii in clist]
+        return SkyCoord(ra=ras, dec=decs, unit='deg')
+    else:
+        raise IOError("Bad input type for radec")
+    # Return
+    return coord
