@@ -57,6 +57,8 @@ def main(pargs):
         query_fields = ['rPSFLikelihood']
     elif pargs.survey == 'DECaL':
         query_fields = ['shapedev_r', 'shapeexp_r']
+    else:
+        query_fields = None
 
     # Grab the catalo
     catalog = survey.get_catalog(query_fields=query_fields)
