@@ -3,7 +3,6 @@ import warnings
 
 import numpy as np
 import pandas
-from pandas.core.frame import DataFrame
 
 from astropy import units
 
