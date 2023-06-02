@@ -11,6 +11,11 @@ This script ingests a localization, pulls a set of candidates
 from a specified public survey (e.g. Pan-STARRS), and then
 calculates the priors and posteriors for each candidate.
 
+
+WARNING:  This script requires that the FRB repository be installed
+including all of the survey requirements as described here:
+https://github.com/FRBs/FRB/blob/main/docs/installing.rst 
+
 Here is the current usage::
 
     usage: astropath_catalog [-h] [--ltype LTYPE] [-U PU] [-s SURVEY]
