@@ -11,7 +11,7 @@ This script ingests a localization, pulls a set of candidates
 from a specified public survey (e.g. Pan-STARRS), and then
 calculates the priors and posteriors for each candidate.
 
-Here is the current usage::0
+Here is the current usage::
 
     usage: astropath_catalog [-h] [--ltype LTYPE] [-U PU] [-s SURVEY]
                             [--ssize SSIZE] [--debug] [-o OUTFILE]
