@@ -8,7 +8,7 @@ def parser(options=None):
     import argparse
     # Parse
     parser = argparse.ArgumentParser(description='Script to run PATH on a localization')
-    parser.add_argument("coord", type=str, help="Central coordinates of the localizatoin, e.g. J081240.7+320809 or 122.223,-23.2322 or 07:45:00.47,34:17:31.1")
+    parser.add_argument("coord", type=str, help="Central coordinates of the localization, e.g. J081240.7+320809 or 122.223,-23.2322 or 07:45:00.47,34:17:31.1")
     parser.add_argument("lparam", type=str, help="Localization parameters, e.g. 0.5,0.3,45 for ellipse which give semi-major and semi-minor axes and PA (in deg; E from N)")
     parser.add_argument("--ltype", type=str, default='ellipse', help="Localization type [ellipse] FUTURE: wcs, healpix")
     parser.add_argument("-U", "--PU", type=float, default=0., help="Prior on unseen galaxies")
