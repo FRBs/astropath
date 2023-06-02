@@ -34,6 +34,7 @@ Here is the current usage::
     -s SURVEY, --survey SURVEY
                             Public survey to use for the analysis ['Pan-STARRS',
                             'DECaL']
+    --scale SCALE         Scale for length in exponential prior
     --ssize SSIZE         Size of the survey in arcmin
     --debug               debug?
     -o OUTFILE, --outfile OUTFILE
@@ -48,19 +49,21 @@ and the localization as an ellipse with semi-major and semi-minor axes of 11 arc
 We have chosen the Pan-STARRS survey and an unseen prior of P_U=0.2. 
 The output for this example looks like::
 
-                 ra        dec  ang_size        mag       P_O           P_Ox
-    1    128.685113  66.007416  11.46260  16.228100  0.088470   9.078569e-01
-    2    128.689961  66.009989   3.20044  20.818001  0.000540   6.244600e-03
-    0    128.670817  66.010080   2.02068  22.538300  0.000110   1.437767e-03
-    7    128.693225  66.000910   5.26389  18.056900  0.009963   8.450841e-04
-    6    128.661478  66.003011   4.27006  18.912901  0.003845   3.685870e-04
+                ra        dec  ang_size        mag       P_O           P_Ox
+    1    128.685113  66.007416  11.64190  16.223600  0.089033   9.098311e-01
+    2    128.689961  66.009989   3.45769  20.777100  0.000563   6.504810e-03
+    0    128.670817  66.010080   2.02068  22.538300  0.000110   1.441618e-03
+    7    128.693225  66.000910   5.14814  18.084600  0.009661   7.938954e-04
+    6    128.661478  66.003011   4.27073  18.915100  0.003839   3.687519e-04
+
 
     P_Ux = 0.0829160047730884
 
-The columns are as follows:
-(ra) Right ascension of the candidate in decimal degrees,
-(dec) Declination of the candidate in decimal degrees,
-(ang_size) Angular size of the candidate in arcseconds,
-(mag) Magnitude of the candidate,
-(P_O) Prior on the candidate,
-(P_Ox) Posterior on the candidate.
+The columns are as follows::
+
+    (ra) Right ascension of the candidate in decimal degrees,
+    (dec) Declination of the candidate in decimal degrees,
+    (ang_size) Angular size of the candidate in arcseconds,
+    (mag) Magnitude of the candidate,
+    (P_O) Prior on the candidate,
+    (P_Ox) Posterior on the candidate.

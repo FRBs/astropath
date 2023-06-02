@@ -14,6 +14,7 @@ def parser(options=None):
     parser.add_argument("-U", "--PU", type=float, default=0., help="Prior on unseen galaxies")
     parser.add_argument("-s", "--survey", type=str, default='Pan-STARRS',
                         help="Public survey to use for the analysis ['Pan-STARRS', 'DECaL']")
+    parser.add_argument("--scale", type=float, default=0.5, help="Scale for length in exponential prior")
     parser.add_argument("--ssize", type=float, default=5., help='Size of the survey in arcmin')
     parser.add_argument("--debug", default=False, action="store_true", help="debug?")
     parser.add_argument("-o", "--outfile", type=str, help="Name of the output file.  Should end in .csv")
@@ -40,8 +41,6 @@ def main(pargs):
     from astropath import path
     from astropath.scripts.utils import coord_arg_to_coord
     from astropath.utils import radec_to_coord
-
-    scale = 0.5
 
     if pargs.ltype == 'ellipse':
         a, b, pa = [float(ip) for ip in pargs.lparam.split(',')]
@@ -76,6 +75,7 @@ def main(pargs):
         # Half-light radius
         mag_key = 'Pan-STARRS_r'
         catalog['ang_size'] = catalog['rKronRad'].copy() 
+        bad_ang = None
     elif pargs.survey == 'DECaL':
         mag_key = 'DECaL_r'
         # Cuts
@@ -84,8 +84,10 @@ def main(pargs):
         keep = cut_mag & cut_star
         # Half-light radius
         catalog['ang_size'] = np.maximum(catalog['shapedev_r'], catalog['shapeexp_r'])
-        zero = catalog['ang_size'] == 0.
-        catalog['ang_size'][zero] = 1. # KLUDGE!!
+        bad_ang = catalog['ang_size'] == 0.
+        if np.any(bad_ang) > 0:
+            print(f"WARNING:  Found {np.sum(bad_ang)} objects with zero ang_size. Setting to 1 arcsec")
+        catalog['ang_size'][bad_ang] = 1.   # KLUDGE!!
     else:
         raise IOError(f"Not ready for this survey: {pargs.survey}")
 
@@ -123,7 +125,7 @@ def main(pargs):
     Path.init_cand_prior('inverse', P_U=pargs.PU)
 
     # Offset prior
-    Path.init_theta_prior('exp', 6., scale)
+    Path.init_theta_prior('exp', 6., pargs.scale)
 
     # Priors
     p_O = Path.calc_priors()
@@ -132,8 +134,10 @@ def main(pargs):
     P_Ox, P_Ux = Path.calc_posteriors('local', box_hwidth=box_hwidth, 
         max_radius=box_hwidth)
 
-    # Print
+    # Finish
     Path.candidates.sort_values(by='P_Ox', ascending=False, inplace=True)
+
+    # Print
     print(Path.candidates[['ra', 'dec', 'ang_size', 'mag', 'P_O', 'P_Ox']])
     print(f"P_Ux = {Path.candidates['P_Ux'][0]}")
 
