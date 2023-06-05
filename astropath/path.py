@@ -225,6 +225,7 @@ class PATH(object):
         # P(U|x)
         logging.info("Calculating P(U|x)")
         self.P_Ux = self.cand_prior['P_U'] * self.p_xU / self.p_x
+        self.candidates['P_Ux'] = self.P_Ux
 
         # Return
         return self.P_Oix, self.P_Ux

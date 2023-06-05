@@ -9,6 +9,7 @@ __pycache__/
 # Various files
 *.png
 *.pdf
+*.csv
 papers/FRB_I/Analysis/SandBox/
 papers/FRB_I/Resub/
 papers/FRB_I/astroph/
