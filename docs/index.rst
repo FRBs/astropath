@@ -37,6 +37,13 @@ Transient
 
    localization
 
+Scripts
+-------
+
+.. toctree::
+   :maxdepth: 2
+
+   scripts
 
 Notebooks
 ---------
