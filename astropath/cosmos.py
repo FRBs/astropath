@@ -1,6 +1,7 @@
 """ Definitions and methods related to COSMOS """
 
-import tqdm
+import os
+from pkg_resources import resource_filename
 import numpy as np
 
 import pandas
@@ -17,7 +18,7 @@ def cosmos_defs():
                  )
     return cdefs
 
-def load_galaxies(cosmos_file:str='cosmos_acs_iphot_200709.feather'):
+def load_galaxies(cosmos_file:str=None): 
     """ Load up the galaxies for COSMOS and set a few things
 
     The default input file may be found here:
@@ -32,6 +33,11 @@ def load_galaxies(cosmos_file:str='cosmos_acs_iphot_200709.feather'):
     Returns:
         pandas.DataFrame: Table of galaxies
     """
+    if cosmos_file is None:
+        cosmos_file = os.path.join(resource_filename('astropath', 'data'), 'COSMOS', 
+                                   'cosmos_acs_iphot_200709.feather')
+        if not os.path.isfile(cosmos_file):
+            raise IOError("You need to download the COSMOS galaxy file from GoogleDrive.  See the README.md file in that folder for info.")                                
     
     # Load
     df = pandas.read_feather(cosmos_file)
