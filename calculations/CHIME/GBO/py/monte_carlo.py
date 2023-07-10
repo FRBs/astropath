@@ -38,7 +38,7 @@ def generate_frbs(outfile:str, chime_mr_tbl:str='CHIME_mr_5Jyms_150.parquet',
         outfile (str): 
             Filename for the output table (pandas)
         chime_mr_tbl (str, optional): Defaults to 'CHIME_mr_5Jyms_150.parquet'.
-            Table of estimated CHIME/FRB m_r values for FRBs
+            Table of estimated host magnitude m_r values for CHIME/FRBs
         m_r_min (float, optional): Defaults to 15..
             Minimum m_r value for the CHIME/FRB distribution
         m_r_max (float, optional): Defaults to 26..

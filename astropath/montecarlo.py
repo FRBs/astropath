@@ -93,6 +93,8 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
            debug:bool=False):
     """ Run the Monte Carlo analysis
 
+    Upon completion, a CSV file of the results is written to outfile.
+
     Args:
         mc_frbs (pandas.DataFrame): 
             Table of FRBs to analyze
@@ -102,16 +104,19 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
             Prior for the PATH analysis
         outfile (str): 
             Name of the output file
-        frb_ee (dict): 
-            FRB error ellipse parameters
-        galaxy_coords (_type_, optional): _description_. Defaults to None.
-        box_hwidth (float, optional): _description_. Defaults to 20..
-        step_size (float, optional): _description_. Defaults to 0.1.
-        mag_lim (float, optional): _description_. Defaults to None.
-        ncpu (int, optional): _description_. Defaults to 15.
-        multi (bool, optional): _description_. Defaults to True.
-        mc_defs (dict, optional): _description_. Defaults to None.
-        debug (bool, optional): _description_. Defaults to False.
+        frb_ee (dict or str): 
+            FRB error ellipse parameters as dictionary or string ('loc_sig')
+            which then uses the loc_sig column of mc_frbs
+        galaxy_coords (_type_, optional): Galaxy coordiantes. Defaults to None.
+        box_hwidth (float, optional): PATH parameter setting the analysis region (arcsec). Defaults to 20..
+        step_size (float, optional): PATH parameter setting the step size of the analysis region (arcsec). Defaults to 0.1.
+        mag_lim (float, optional): If provided, treats any source brighter than this limit as a star
+            and ignore is. Defaults to None.
+        ncpu (int, optional): If multi=True and we use multi-processing, use this many CPUs. Defaults to 15.
+        multi (bool, optional): If True, use multi-processing. Defaults to True.
+        mc_defs (dict, optional): A dict describing the plate_scale and filter
+            of the survey. Defaults to None.
+        debug (bool, optional): Defaults to False.
 
     Raises:
         IOError: _description_
@@ -208,16 +213,6 @@ def run_em(mc_frbs:pandas.DataFrame, mc_galaxies:pandas.DataFrame,
         results = path_calc(idx_FRB, frb_coords[idx_FRB], frb_ee_list[idx_FRB],
                     list_candidates[idx_FRB], path_prior, 
                     box_hwidth, step_size)
-        embed(header='211 of montecarlo.py')
-        '''
-        all_tbls = []
-        for idx_FRB in range(nFRB):
-            sv_tbl = path_calc(frb_coords[idx_FRB], mc_galaxies, galaxy_coords,
-                      FRB, frbA, mc_defs, prior)
-
-            sv_tbl['iFRB'] = idx_FRB
-            all_tbls.append(sv_tbl)
-        '''
     if debug:
         embed(header='montecarlo: 195')
 
