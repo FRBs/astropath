@@ -267,7 +267,9 @@ def run_mc(frb_file:str, outfile:str, debug:bool=False):
                       debug=debug, multi=multi)
 
 
-
+    #generate_frbs('frb_monte_carlo_3x15.csv', 
+    #              radec_sigma=(3., 15.), debug=False, 
+    #              plots=False, nsample=10000)
 # Command line execution
 if __name__ == '__main__':
 
