@@ -4,10 +4,14 @@ import numpy as np
 
 from astropy import units
 
+import seaborn as sns
+from matplotlib import pyplot as plt
+
 from frb.surveys import survey_utils
 
+from IPython import embed
 
-def query_catalog(psurvey:str, coord, ssize:float):
+def query_catalog(psurvey:str, coord, ssize:float, debug:bool=False):
     """  Queary a public catalog for PATH analysis
 
     The catalog is cleaned up to remove objects that 
@@ -17,6 +21,7 @@ def query_catalog(psurvey:str, coord, ssize:float):
         psurvey (str): Name of the survey ['Pan-STARRS', 'DECaL']
         coord (astropy.coordinates.SkyCoord): Coordinates of the transient
         ssize (float): Radius of the query in arcmin 
+        debug (bool, optional): Show some plots. Defaults to False.
 
     Raises:
         IOError: _description_
@@ -71,5 +76,15 @@ def query_catalog(psurvey:str, coord, ssize:float):
         raise IOError(f"Not ready for this survey: {psurvey}")
 
     catalog = catalog[keep]
+
+    if debug:
+        if psurvey == 'Pan-STARRS':
+            sns.histplot(x=catalog['Pan-STARRS_r'])#, bins=20)
+            plt.show()
+            sns.histplot(x=catalog['rKronRad'])#, bins=20)
+            plt.show()
+            sns.histplot(x=catalog['rPSFLikelihood'])#, bins=20)
+            plt.show()
+            embed(header='lowdm_bb: Need to set boxsize')
 
     return catalog, mag_key

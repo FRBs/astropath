@@ -31,13 +31,6 @@ def main(pargs):
     """
     import numpy as np
 
-    import seaborn as sns
-    from matplotlib import pyplot as plt
-
-    from astropy import units
-
-    from frb.surveys import survey_utils
-
     from astropath import path
     from astropath.scripts.utils import coord_arg_to_coord
     from astropath.utils import radec_to_coord
@@ -50,64 +43,9 @@ def main(pargs):
     # Load up the survey
     coord = radec_to_coord(coord_arg_to_coord(pargs.coord))
 
+    # Grab the catalog
     catalog, mag_key = catalogs.query_catalog(pargs.survey, coord, pargs.ssize)
 
-#    survey = survey_utils.load_survey_by_name(
-#        pargs.survey, coord, pargs.ssize*units.arcmin)
-#
-#    # Survey specific queries
-#    if pargs.survey == 'Pan-STARRS':
-#        query_fields = ['rPSFLikelihood']
-#    elif pargs.survey == 'DECaL':
-#        query_fields = ['shapedev_r', 'shapeexp_r']
-#    else:
-#        query_fields = None
-#
-#    # Grab the catalo
-#    catalog = survey.get_catalog(query_fields=query_fields)
-#
-#    if len(catalog) == 0:
-#        print(f"No objects in the catalog of your survey within {pargs.ssize} arcmin")
-#        return
-#
-#    # Clean up the catalog
-#    if pargs.survey == 'Pan-STARRS':
-#        cut_size = catalog['rKronRad'] > 0.
-#        cut_mag = catalog['Pan-STARRS_r'] > 14. # Reconsider this
-#        cut_point = np.log10(np.abs(catalog['rPSFLikelihood'])) < (-2)
-#        keep = cut_size & cut_mag & cut_point
-#        # Half-light radius
-#        mag_key = 'Pan-STARRS_r'
-#        catalog['ang_size'] = catalog['rKronRad'].copy() 
-#        bad_ang = None
-#    elif pargs.survey == 'DECaL':
-#        mag_key = 'DECaL_r'
-#        # Cuts
-#        cut_mag = (catalog[mag_key] > 14.) & np.isfinite(catalog[mag_key]) 
-#        cut_star = catalog['gaia_pointsource'] == 0
-#        keep = cut_mag & cut_star
-#        # Half-light radius
-#        catalog['ang_size'] = np.maximum(catalog['shapedev_r'], catalog['shapeexp_r'])
-#        bad_ang = catalog['ang_size'] == 0.
-#        if np.any(bad_ang) > 0:
-#            print(f"WARNING:  Found {np.sum(bad_ang)} objects with zero ang_size. Setting to 1 arcsec")
-#        catalog['ang_size'][bad_ang] = 1.   # KLUDGE!!
-#    else:
-#        raise IOError(f"Not ready for this survey: {pargs.survey}")
-#
-#
-#
-#    catalog = catalog[keep]
-
-    if pargs.debug:
-        if pargs.survey == 'Pan-STARRS':
-            sns.histplot(x=catalog['Pan-STARRS_r'])#, bins=20)
-            plt.show()
-            sns.histplot(x=catalog['rKronRad'])#, bins=20)
-            plt.show()
-            sns.histplot(x=catalog['rPSFLikelihood'])#, bins=20)
-            plt.show()
-            embed(header='lowdm_bb: Need to set boxsize')
 
     # Set boxsize accoring to the largest galaxy (arcsec)
     box_hwidth = max(30., 10.*np.max(catalog['ang_size']))
