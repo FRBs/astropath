@@ -160,8 +160,8 @@ class PATH(object):
             method (str): Approach; 
                 fixed -- One grid is generated for all candidates
                 local -- One grid is generated for each candidate
-            step_size (float, optional): [description]. Defaults to 0.1.
-            box_hwidth (float, optional): [description]. Defaults to None.
+            step_size (float, optional): Step size of the analysis grid (arcsec). Defaults to 0.1.
+            box_hwidth (float, optional): Size of the analysis box (arcsec). Defaults to None.
             max_radius (float, optional): Maximum radius (arcsec)
                 allowed for galaxy. Only required for cases
                 where P(U)>0.
