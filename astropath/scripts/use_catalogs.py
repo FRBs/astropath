@@ -51,6 +51,13 @@ def main(pargs):
     # Set boxsize accoring to the largest galaxy (arcsec)
     box_hwidth = max(30., 10.*np.max(catalog['ang_size']))
 
+    # Cut down the catalog based on box_hwidth
+    Ddec_arcsec = np.abs(catalog['dec'].data - coord.dec.deg)*3600.
+    Dra_arcsec = np.abs(catalog['ra'].data - coord.ra.deg)*3600.*np.cos(coord.dec.deg*np.pi/180.)
+
+    keep = (Ddec_arcsec < box_hwidth) & (Dra_arcsec < box_hwidth)
+    cut_catalog = catalog[keep]
+
     # Turn into a cndidate table
     Path = path.PATH()
 
@@ -59,10 +66,10 @@ def main(pargs):
                            center_coord=coord, 
                            eellipse=eellipse)
     # Coords
-    Path.init_candidates(catalog['ra'],
-                         catalog['dec'],
-                         catalog['ang_size'],
-                         mag=catalog[mag_key])
+    Path.init_candidates(cut_catalog['ra'],
+                         cut_catalog['dec'],
+                         cut_catalog['ang_size'],
+                         mag=cut_catalog[mag_key])
 
     # Candidate prior
     Path.init_cand_prior('inverse', P_U=pargs.PU)
