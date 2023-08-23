@@ -15,6 +15,7 @@ def parser(options=None):
     parser.add_argument("-s", "--survey", type=str, default='Pan-STARRS',
                         help="Public survey to use for the analysis ['Pan-STARRS', 'DECaL']")
     parser.add_argument("--scale", type=float, default=0.5, help="Scale for length in exponential prior")
+    parser.add_argument("--max_box", type=float, default=30., help="Maximum size of the analysis box in arcsec")
     parser.add_argument("--ssize", type=float, default=5., help='Radius of the survey in arcmin')
     parser.add_argument("--debug", default=False, action="store_true", help="debug?")
     parser.add_argument("-o", "--outfile", type=str, help="Name of the output file.  Should end in .csv")
@@ -49,7 +50,7 @@ def main(pargs):
 
 
     # Set boxsize accoring to the largest galaxy (arcsec)
-    box_hwidth = max(30., 10.*np.max(catalog['ang_size']))
+    box_hwidth = max(pargs.max_box, 10.*np.max(catalog['ang_size']))
 
     # Cut down the catalog based on box_hwidth
     Ddec_arcsec = np.abs(catalog['dec'].data - coord.dec.deg)*3600.
@@ -82,7 +83,7 @@ def main(pargs):
 
     # Posterior
     P_Ox, P_Ux = Path.calc_posteriors('local', box_hwidth=box_hwidth, 
-        max_radius=pargs.ssize*60.)  # This needs to match the catalog search
+        max_radius=pargs.ssize*60.)  # This needs to match the catalog search for P_Ux
 
     # Finish
     Path.candidates.sort_values(by='P_Ox', ascending=False, inplace=True)

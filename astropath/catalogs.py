@@ -35,9 +35,11 @@ def query_catalog(psurvey:str, coord, ssize:float, debug:bool=False):
     if psurvey == 'Pan-STARRS':
         query_fields = ['rPSFLikelihood']
     elif psurvey == 'DECaL':
+        print("Using Pan-STARRS")
         query_fields = ['shapedev_r', 'shapeexp_r']
     else:
         query_fields = None
+    print(f"Using: {psurvey} survey")
 
     survey = survey_utils.load_survey_by_name(
         psurvey, coord, ssize*units.arcmin)
