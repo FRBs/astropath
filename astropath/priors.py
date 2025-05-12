@@ -7,6 +7,9 @@ import pandas
 from astropath import chance
 from astropath import utils
 
+# handles for user-defined function
+USR_raw_prior_Oi = None
+
 theta_dmodel = {
     'PDF': dict(dtype=(str),
                 options=['exp', 'core', 'uniform'],
@@ -19,7 +22,7 @@ theta_dmodel = {
 
 cand_dmodel = {
     'P_O_method': dict(dtype=(str),
-                options=['inverse', 'inverse_half', 'inverse_half2', 'identical'],
+                options=['inverse', 'inverse_half', 'inverse_half2', 'identical','user'],
                 help='Method for prior assignment of detected candidates.'),
     'P_U': dict(dtype=(float, np.floating),
                 help='Prior for an unseen host.'),
@@ -41,6 +44,7 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
             inverse_ang :: Assign inverse to Sigma_m * half_light
             inverse_ang2 :: Assign inverse to Sigma_m * half_light**2
             identical :: All the same
+            user :: user-defined function
         ang_size (float or np.ndarray):
             Angular size of the galaxy in arcsec
             Only required for several methods
@@ -52,6 +56,9 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         float or np.ndarray:
 
     """
+    # allows a user to ste this externally
+    global USR_raw_prior_Oi
+    
     # Convenience
     if method not in ['identical']:
         if filter != 'r':
@@ -67,6 +74,8 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         return 1. / Sigma_m / ang_size**2
     elif method == 'identical':
         return np.ones_like(ang_size)
+    elif method == 'user':
+        return USR_raw_prior_Oi(mag,ang_size,Sigma_m)
     else:
         raise IOError("Bad method {} for prior_Oi".format(method))
 
