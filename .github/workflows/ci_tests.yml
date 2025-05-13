@@ -18,8 +18,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python: [3.9]
-        deps: [current, numpy123, astropydev, numpydev, astropydev-numpydev]
+        python: [3.11]
+        deps: [current, numpy210, astropydev, numpydev, astropydev-numpydev]
 
     steps:
     - name: Check out repository
@@ -31,10 +31,10 @@ jobs:
     - name: Install base dependencies
       run: |
         python -m pip install --upgrade pip
-    - name: Test with numpy = 1.23
-      if: "contains(matrix.deps, 'numpy123')"
+    - name: Test with numpy = 2.10
+      if: "contains(matrix.deps, 'numpy210')"
       run: |
-        python -m pip install numpy==1.23
+        python -m pip install numpy==2.10
     - name: Test with dev version of numpy
       if: "contains(matrix.deps, 'numpydev')"
       run: |
@@ -65,7 +65,7 @@ jobs:
     - name: Python codestyle check
       uses: actions/setup-python@v2
       with:
-        python-version: 3.9
+        python-version: 3.11
     - name: Install base dependencies
       run: |
         python -m pip install --upgrade pip
