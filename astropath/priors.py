@@ -95,7 +95,11 @@ def renorm_priors(raw_Oi, U):
 
     """
     raw_sum = np.sum(raw_Oi)
-    return (1.-U) * raw_Oi/raw_sum
+    if raw_sum == 0.:
+        # could instead renormalise U
+        return raw_Oi
+    else:
+        return (1.-U) * raw_Oi/raw_sum
 
 def vet_cand_prior(cand_prior:dict, candidates:pandas.DataFrame):
     """Vet the candidate prior dict
