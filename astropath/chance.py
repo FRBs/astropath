@@ -3,6 +3,9 @@ import numpy as np
 
 from scipy import interpolate
 
+from importlib.resources import files
+import os
+
 from IPython import embed
 
 
@@ -12,7 +15,8 @@ driver_tck = (np.array([15., 15., 15., 15., 30., 30., 30., 30.]),
 driver_spl = interpolate.UnivariateSpline._from_tck(driver_tck)
 
 
-def driver_sigma(rmag):
+
+def driver_sigma(mag):
     """
     Estimated incidence of galaxies per sq arcsec with r > rmag
     using Driver et al. 2016 number counts.
@@ -26,7 +30,32 @@ def driver_sigma(rmag):
         float or np.ndarray:  Galaxy number density
 
     """
-    return 10**driver_spl(rmag)
+    return 10**driver_spl(mag)
+
+def windhorst_sigma(mag):
+    """
+    Estimated incidence of galaxies per sq arcsec with F200W > mag
+    using Windhorst et al. 2024 number counts.
+
+    Spline parameters (globals) are for F200W vs Num counts
+
+    Args:
+        mag (float or np.ndarray): F200W band magnitude of galaxy
+
+    Returns:
+        float or np.ndarray:  Galaxy number density
+
+    """
+    data_path = os.path.join(files('astropath'),'data','galaxy_num_counts','windhorst2023_F200W.npz')
+    data = np.load(data_path)
+    mag_f200w = data['mag']
+    Num = data['Num(N/arcsec/0.5mag))']
+
+    winhorst_spline = interpolate.interp1d(mag_f200w, Num, kind='cubic', fill_value='extrapolate')
+
+    num_counts = winhorst_spline(mag)
+
+    return num_counts
 
 
 def bloom_sigma(rmag):

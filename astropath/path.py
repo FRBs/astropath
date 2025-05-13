@@ -11,6 +11,8 @@ from astropath import bayesian
 from astropath import localization
 from astropath import priors
 
+from IPython import embed
+
 
 class PATH(object):
     """Convenience class to run PATH analysis
@@ -122,7 +124,7 @@ class PATH(object):
         assert localization.vet_localization(self.localiz), 'Bad candidate prior input'
         logging.info("Localization is ready!")
 
-    def calc_priors(self):
+    def calc_priors(self, ifilter:str='r'):
         """Calculate and normalize the P(O) values for the candidates
 
         Raises:
@@ -138,7 +140,8 @@ class PATH(object):
         logging.info("Calculating priors")
         self.raw_prior_Oi = priors.raw_prior_Oi(
             self.cand_prior['P_O_method'], self.candidates['ang_size'], 
-            mag=self.candidates['mag'] if 'mag' in self.candidates.keys() else None)
+            mag=self.candidates['mag'] if 'mag' in self.candidates.keys() else None,
+            filter=ifilter)
 
         # Normalize
         logging.info("Normalizing priors")
