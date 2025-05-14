@@ -27,6 +27,19 @@ def test_raw_prior():
     raw_PO = priors.raw_prior_Oi('inverse', ang_size, mag=np.array([21.,22.]))
     assert np.all(np.isclose(raw_PO, np.array([2736.80588898, 1074.04504448])))
 
+def user_func(a,b,c):
+    """
+    Arbitrary user-defined function
+    """
+    return a+b+c
+
+def test_user_prior():
+    # Inverse
+    mag=np.array([21.,22.])
+    ang_size = np.ones_like(mag)
+    priors.USR_raw_prior_Oi = user_func
+    raw_PO = priors.raw_prior_Oi('user', ang_size, mag=np.array([21.,22.]))
+    assert np.all(np.isclose(raw_PO, np.array([22.00036539 23.00093106])))
 
 def test_renorm_priors():
     # U=0
