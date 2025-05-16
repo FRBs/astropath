@@ -56,7 +56,7 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         float or np.ndarray:
 
     """
-    # allows a user to ste this externally
+    # allows a user to set this externally
     global USR_raw_prior_Oi
     
     # Convenience
