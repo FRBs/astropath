@@ -27,6 +27,9 @@ cand_dmodel = {
                 help='Label for this prior.'),
 }
 
+
+# Splines for the priors
+# The key is the filter name and the value is the spline fit from  the literature
 splines = {
     'r': 'driver',
     'F200W':'windhorst'
@@ -64,10 +67,19 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         else:
             spline_fit = splines[filter]
             if spline_fit == 'driver':
+                """
+                Uses galaxy counts from Driver et al. 2016
+                """
                 Sigma_m = chance.driver_sigma(mag)
 
             elif spline_fit == 'windhorst':
+                """
+                Uses galaxy counts from Windhorst et al. 2024
+                """
                 Sigma_m = chance.windhorst_sigma(mag)
+
+            else:
+                raise IOError("Not ready for this.  Best to go with what you have that is closest to r-band or F200W")
 
     # Do it
     if method == 'inverse':
