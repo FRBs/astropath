@@ -29,7 +29,6 @@ remote_data = pytest.mark.skipif(os.getenv('PATH_DATA') is None,
 def test_raw_prior_inverse(mock_driver_sigma):
     mag = np.array([21., 22.])
     ang_size = np.ones_like(mag)
-
     mock_driver_sigma.return_value = np.array([0.0003655, 0.0009314])
     result = priors.raw_prior_Oi('inverse', ang_size, mag=mag)
     expected = 1. / mock_driver_sigma.return_value
@@ -120,3 +119,4 @@ def test_norm_theta_priors():
         theta_prior = dict(max=6, PDF=pdf, scale=1.)
         p_wOi = bayesian.pw_Oi(theta, 2.0, theta_prior)
         assert np.isclose(np.sum(p_wOi) * grid_spacing_arcsec**2, 1., atol=1e-4), f'Failed normalization on {pdf}'
+
