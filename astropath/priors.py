@@ -31,60 +31,50 @@ cand_dmodel = {
 }
 
 
-# Splines for the priors
-# The key is the filter name and the value is the spline fit from  the literature
-splines = {
-    'r': 'driver',
-    'F200W':'windhorst'
-}
-
-
 def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     """
-    Calculate raw prior for galaxy candidates
-    If Sigma(m) is required, we adopt the Driver et al. 2016 
-    evaluation 
+    Calculate the raw prior probability for galaxy candidates based on angular size and magnitude.
 
-    Args:
-        method (str):
-            inverse :: Assign inverse to Sigma_m
-            inverse_ang :: Assign inverse to Sigma_m * half_light
-            inverse_ang2 :: Assign inverse to Sigma_m * half_light**2
-            identical :: All the same
-            user :: user-defined function
-        ang_size (float or np.ndarray):
-            Angular size of the galaxy in arcsec
-            Only required for several methods
-        mag (float or np.ndarray, optional):
-            Magnitudes of the sources;  assumes r-band and corrected
-            for Galactic extinction
+    Parameters
+    ----------
+    method : str
+        Method to use for prior calculation. Options:
+        - 'inverse'       : 1 / Sigma_m
+        - 'inverse_ang'   : 1 / (Sigma_m * ang_size)
+        - 'inverse_ang2'  : 1 / (Sigma_m * ang_size^2)
+        - 'identical'     : All priors set equal (1)
+        - 'user'          : Use user-defined function (not implemented here)
 
-    Returns:
-        float or np.ndarray:
+    ang_size : float or np.ndarray
+        Angular size(s) in arcseconds. Required for all methods except 'identical'.
 
+    mag : float or np.ndarray, optional
+        Apparent magnitudes (assumed extinction-corrected r-band). Required for all methods except 'identical'.
+
+    filter : str
+        Photometric filter to use for number counts. Supported: 'r', 'F200W'
+
+    Returns
+    -------
+    float or np.ndarray
+        Raw prior value(s)
     """
+    if method == 'identical':
+        return 1.0 if np.isscalar(ang_size) else np.ones_like(ang_size)
 
-    # Setting spline_fit
-    # Convenience
-    if method not in ['identical']:
-        if filter not in splines.keys():
-                raise IOError("Not ready for this.  Best to go with what you have that is closest to r-band or F200W")
-        else:
-            spline_fit = splines[filter]
-            if spline_fit == 'driver':
-                """
-                Uses galaxy counts from Driver et al. 2016
-                """
-                Sigma_m = chance.driver_sigma(mag)
+    if mag is None:
+        raise ValueError("Magnitude `mag` must be provided for non-identical methods.")
 
-            elif spline_fit == 'windhorst':
-                """
-                Uses galaxy counts from Windhorst et al. 2024
-                """
-                Sigma_m = chance.windhorst_sigma(mag)
+    supported_filters = {
+        'r': chance.driver_sigma,
+        'F200W': chance.windhorst_sigma
+    }
 
-            else:
-                raise IOError("Not ready for this.  Best to go with what you have that is closest to r-band or F200W")
+    if filter not in supported_filters:
+        raise ValueError(f"Unsupported filter '{filter}'. Supported: {list(supported_filters.keys())}")
+
+    # Compute surface density
+    Sigma_m = supported_filters[filter](mag)
 
     # Do it
     if method == 'inverse':
