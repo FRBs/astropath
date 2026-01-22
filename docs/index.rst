@@ -61,3 +61,4 @@ Notebooks
 
    nb/FRB_example
    nb/GW_example
+   nb/Simulate_Generate_FRBs
