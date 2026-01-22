@@ -158,34 +158,37 @@ This provides access to:
 API Reference
 =============
 
-generate_frbs
--------------
+generate_frbs()
+---------------
 
-.. py:function:: generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None)
+``generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None)``
 
-   Generate a population of simulated FRBs.
+Generate a population of simulated FRBs.
 
-   :param n_frbs: Number of FRBs to generate
-   :type n_frbs: int
-   :param survey: Survey name (e.g., 'CHIME', 'DSA', 'ASKAP')
-   :type survey: str
-   :param dm_catalog: Optional array of observed DMs to sample from
-   :type dm_catalog: np.ndarray, optional
-   :param cosmo: Cosmology for distance calculations (default: Planck18)
-   :type cosmo: astropy.cosmology, optional
-   :param seed: Random seed for reproducibility
-   :type seed: int, optional
-   :returns: DataFrame with columns 'DM', 'z', 'M_r', 'm_r'
-   :rtype: pandas.DataFrame
+**Parameters:**
+
+* **n_frbs** (*int*) -- Number of FRBs to generate
+* **survey** (*str*) -- Survey name (e.g., 'CHIME', 'DSA', 'ASKAP')
+* **dm_catalog** (*np.ndarray, optional*) -- Optional array of observed DMs to sample from
+* **cosmo** (*astropy.cosmology, optional*) -- Cosmology for distance calculations (default: Planck18)
+* **seed** (*int, optional*) -- Random seed for reproducibility
+
+**Returns:**
+
+* **pandas.DataFrame** -- DataFrame with columns 'DM', 'z', 'M_r', 'm_r'
+
+**Raises:**
+
+* **ValueError** -- If survey is not recognized
 
 SURVEY_GRIDS
 ------------
 
-.. py:data:: SURVEY_GRIDS
+``SURVEY_GRIDS``
 
-   Dictionary mapping survey names to their P(z,DM) grid filenames.
-   Available surveys: CHIME, DSA, ASKAP, CRAFT, CRAFT_ICS_1300,
-   CRAFT_ICS_892, CRAFT_ICS_1632, Parkes, FAST.
+Dictionary mapping survey names to their P(z,DM) grid filenames.
+Available surveys: CHIME, DSA, ASKAP, CRAFT, CRAFT_ICS_1300,
+CRAFT_ICS_892, CRAFT_ICS_1632, Parkes, FAST.
 
 Example: Full Workflow
 ======================

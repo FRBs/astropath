@@ -1,15 +1,15 @@
-.. specdb documentation master file, created by
-   sphinx-quickstart on Fri Nov 13 13:39:35 2015.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. astropath documentation master file
 
 Welcome to the astropath documentation!
 =======================================
 
+**astropath** (Probabilistic Association of Transients to Hosts - PATH)
+is a Bayesian framework for associating astronomical transients
+with their host galaxies. It calculates posterior probabilities
+P(O_i|x) that a given galaxy candidate O_i is the true host of
+a transient at localized position x.
 
-astro PATH is a repository for associating transients
-to their host galaxies
-Made and maintained by the transient community.
+Made and maintained by the FRB community.
 
 
 Getting Started
@@ -36,6 +36,14 @@ Transient
    :maxdepth: 2
 
    localization
+
+Simulations
+-----------
+
+.. toctree::
+   :maxdepth: 2
+
+   simulations
 
 Scripts
 -------

@@ -17,8 +17,8 @@ Error Ellipse
 The simplest approach is to define the localization as an
 ellipse on the sky.  In this case, one inputs the center of
 the ellipse, the semi-major axis ["a", in arcsec], 
-the semi-minor axis ["b", in arcsec], and the PA on the sky (
-"theta", defined in wacky astronomer fashion, i.e. deg E of N).
+the semi-minor axis ["b", in arcsec], and the position angle on the sky
+("theta", defined as degrees East of North).
 
 Here is an example::
 
@@ -35,11 +35,11 @@ with sigma's "a" and "b" and orientation given by "theta".
 Healpix
 =======
 
-For complex and/or large localizations, Healpix may offer the
-best format.  Indeed, this is the preferred approach of the 
-Graviational Wave community.
+For complex and/or large localizations, HEALPix may offer the
+best format.  Indeed, this is the preferred approach of the
+Gravitational Wave community.
 
-*astropath* accomodates two appraoches to defining the Healpix
+*astropath* accommodates two approaches to defining the Healpix
 localization.  We describe each in turn.
 
 Nested
@@ -61,7 +61,7 @@ GW170817::
                    healpix_nside=header['NSIDE'],
                    healpix_ordering='NESTED',
                    healpix_coord='C')
-    assert localization.vette_localization(localiz)
+    assert localization.vet_localization(localiz)
 
 
 WCS
@@ -84,7 +84,7 @@ Here is an example::
     localiz = dict(type='wcs',
                    wcs_data=pdf, 
                    wcs_WCS=wcs)
-    assert localization.vette_localization(localiz)
+    assert localization.vet_localization(localiz)
 
 In this example, we have enforced normalization in this
 image frame.  This is not necessary.
