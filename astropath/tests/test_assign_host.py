@@ -5,8 +5,10 @@ Quick test script for assign_host module.
 This verifies the basic functionality of the FRB-to-host assignment code.
 """
 
+import os
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from astropath.simulations import generate_frbs, assign_frbs_to_hosts
 
 
@@ -119,6 +121,116 @@ def test_basic_assignment():
     return assignments
 
 
+def test_real_galaxy_catalog():
+    """
+    Test assignment using real galaxy catalog if available.
+
+    Uses the combined HSC/DECaLs/HECATE catalog if FRB_APATH is set.
+    """
+    print("\n" + "=" * 60)
+    print("Testing with real galaxy catalog (if available)")
+    print("=" * 60)
+
+    # Check for FRB_APATH environment variable
+    frb_apath = os.environ.get('FRB_APATH')
+    if frb_apath is None:
+        print("\n⚠ FRB_APATH not set, skipping real catalog test")
+        return None
+
+    catalog_path = Path(frb_apath) / 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'
+
+    if not catalog_path.exists():
+        print(f"\n⚠ Catalog not found at {catalog_path}")
+        print("  Skipping real catalog test")
+        return None
+
+    print(f"\n✓ Found catalog at {catalog_path}")
+
+    # Load the catalog
+    print("\n1. Loading galaxy catalog...")
+    galaxies = pd.read_parquet(catalog_path)
+    print(f"   Loaded {len(galaxies)} galaxies")
+
+    # Display catalog info
+    print(f"\n   Catalog columns: {list(galaxies.columns)}")
+
+    # Check for required columns
+    required_cols = ['ra', 'dec', 'mag_best', 'half_light', 'ID']
+    missing_cols = [col for col in required_cols if col not in galaxies.columns]
+
+    if missing_cols:
+        print(f"\n⚠ Missing required columns: {missing_cols}")
+        print("  Available columns:", list(galaxies.columns))
+        print("  Skipping test")
+        return None
+
+    print(f"   RA range: {galaxies['ra'].min():.2f} - {galaxies['ra'].max():.2f} deg")
+    print(f"   Dec range: {galaxies['dec'].min():.2f} - {galaxies['dec'].max():.2f} deg")
+    print(f"   Magnitude range: {galaxies['mag_best'].min():.2f} - {galaxies['mag_best'].max():.2f}")
+
+    # Generate FRBs in the catalog footprint
+    print("\n2. Generating FRBs...")
+    frbs = generate_frbs(n_frbs=50, survey='CHIME', seed=42)
+    print(f"   Generated {len(frbs)} FRBs")
+    print(f"   Magnitude range: {frbs['m_r'].min():.2f} - {frbs['m_r'].max():.2f}")
+
+    # Assign FRBs to hosts
+    print("\n3. Assigning FRBs to hosts from real catalog...")
+    localization = (0.5, 0.3, 45.)  # CHIME-like localization
+
+    try:
+        assignments = assign_frbs_to_hosts(
+            frbs,
+            galaxies,
+            localization=localization,
+            mag_range=(17., 28.),
+            seed=42
+        )
+
+        print(f"\n   Successfully assigned {len(assignments)} FRBs")
+
+        # Validate results
+        print("\n4. Validating results...")
+        assert len(assignments) > 0, "No FRBs were assigned"
+        assert 'gal_ID' in assignments.columns, "Missing 'gal_ID' column"
+        assert 'mag' in assignments.columns, "Missing 'mag' column"
+        print("   ✓ All required columns present")
+
+        # Check offsets
+        print("\n5. Checking offset distributions...")
+        print(f"   Galaxy offset: mean={assignments['gal_off'].mean():.3f}\", "
+              f"median={assignments['gal_off'].median():.3f}\"")
+        print(f"   Localization offset: mean={assignments['loc_off'].mean():.3f}\", "
+              f"median={assignments['loc_off'].median():.3f}\"")
+        print("   ✓ Offsets computed successfully")
+
+        # Display sample results
+        print("\n6. Sample assignments (first 5):")
+        cols_to_show = ['ra', 'dec', 'gal_ID', 'mag', 'gal_off', 'loc_off']
+        print(assignments[cols_to_show].head())
+
+        print("\n" + "=" * 60)
+        print("Real catalog test passed!")
+        print("=" * 60)
+
+        return assignments
+
+    except Exception as e:
+        print(f"\n✗ Error during assignment: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
 if __name__ == '__main__':
+    # Run basic test with mock catalog
     assignments = test_basic_assignment()
     print("\n✓ assign_host module is working correctly!")
+
+    # Try real catalog test if available
+    try:
+        real_assignments = test_real_galaxy_catalog()
+        if real_assignments is not None:
+            print("\n✓ Real galaxy catalog test passed!")
+    except Exception as e:
+        print(f"\n✗ Real catalog test failed: {e}")
