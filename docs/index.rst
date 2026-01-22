@@ -44,6 +44,8 @@ Simulations
    :maxdepth: 2
 
    simulations
+   assign_host
+   quickstart_assign_host
 
 Scripts
 -------

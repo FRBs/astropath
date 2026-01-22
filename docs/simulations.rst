@@ -3,18 +3,22 @@ Simulations
 ***********
 
 This document describes the simulation tools available in *astropath*
-for generating synthetic FRB populations.
+for generating synthetic FRB populations and assigning them to host galaxies.
 
 Overview
 ========
 
-The ``astropath.simulations`` module provides tools for generating
-simulated Fast Radio Burst (FRB) populations with realistic properties.
-This is useful for:
+The ``astropath.simulations`` module provides two main capabilities:
+
+1. **FRB Generation** (``generate_frbs``) -- Create simulated FRB populations
+2. **Host Assignment** (``assign_frbs_to_hosts``) -- Assign FRBs to galaxies
+
+These tools are useful for:
 
 * Testing PATH analysis pipelines
+* Validating host association methods
 * Estimating detection efficiencies
-* Studying selection effects
+* Studying selection effects and biases
 * Planning observations
 
 The primary function is ``generate_frbs()`` which produces FRBs with
@@ -24,6 +28,11 @@ the following properties:
 * **z**: Redshift
 * **M_r**: Host galaxy absolute r-band magnitude
 * **m_r**: Host galaxy apparent r-band magnitude
+
+FRB populations can then be assigned to host galaxies from a catalog
+using ``assign_frbs_to_hosts()``, which produces realistic associations
+with localization errors. See :doc:`assign_host` for full details on
+host assignment.
 
 Supported Surveys
 =================
@@ -223,3 +232,18 @@ properties::
         print(f"  DM range: {df['DM'].min():.0f} - {df['DM'].max():.0f} pc/cm^3")
         print(f"  z range: {df['z'].min():.3f} - {df['z'].max():.3f}")
         print(f"  m_r range: {df['m_r'].min():.1f} - {df['m_r'].max():.1f}")
+
+Next Steps
+==========
+
+After generating FRBs, you can assign them to host galaxies using
+the host assignment tools. See :doc:`assign_host` for complete
+documentation on:
+
+* Assigning FRBs to galaxies by magnitude matching
+* Applying realistic localization errors
+* Generating observed and true FRB coordinates
+* Analyzing offset distributions
+
+For a complete end-to-end simulation workflow, see the example
+in :doc:`nb/Simulate_Generate_FRBs`.
