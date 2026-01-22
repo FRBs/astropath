@@ -1,0 +1,14 @@
+# Documentation build requirements for Read the Docs
+# These are in addition to the main package requirements
+
+# Sphinx and extensions
+sphinx>=5.0
+sphinx-rtd-theme>=1.0
+
+# For notebook rendering
+# Note: pandoc is installed via apt_packages in .readthedocs.yaml
+nbsphinx>=0.9
+ipykernel>=6.0
+
+# For intersphinx links
+# (astropy, numpy, scipy are already in main requirements)
