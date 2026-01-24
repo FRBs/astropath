@@ -1,8 +1,7 @@
 """
 Run PATH on a single FRB given a dictionary of inputs
 
-This module provides a high-level interface for running PATH analysis
-without any dependency on chime_ffff_pz.
+This module provides a high-level interface for running PATH analysis.
 """
 
 import numpy as np
@@ -19,7 +18,10 @@ from astropath import path
 def run_on_dict(idict: dict,
                 verbose: bool = False,
                 catalog: Table = None,
-                mag_key: str = None):
+                mag_key: str = None,
+                skip_NGC: bool = False,
+                dust_correct: bool = True,
+                star_galaxy_sep: dict = None):
     """Run PATH on a single FRB, given a dictionary of inputs.
 
     The idict must have the following keys:
@@ -37,6 +39,7 @@ def run_on_dict(idict: dict,
         - priors (dict): PATH priors
             e.g. {'P_O_method': 'inverse', 'PU': 0.5, 'scale': 0.5,
                   'theta_PDF': 'exp', 'theta_max': 6.}
+            Can also include 'survey' key for automatic catalog query.
         - max_box (float): Maximum box size for PATH analysis (arcsec)
             This should usually be set with the set_anly_sizes() method
 
@@ -45,10 +48,15 @@ def run_on_dict(idict: dict,
     Args:
         idict (dict): Input dictionary with FRB and analysis parameters
         verbose (bool, optional): Print more diagnostic info. Defaults to False.
-        catalog (astropy.table.Table): Catalog of candidates. Required.
+        catalog (astropy.table.Table, optional): Catalog of candidates.
+            If None and idict['priors']['survey'] is set, will query the survey.
             Must have columns: 'ra', 'dec', 'ang_size', and the magnitude column
             specified by mag_key. Optionally includes 'ID' for source identification.
-        mag_key (str): Magnitude column key for the catalog. Required.
+        mag_key (str, optional): Magnitude column key for the catalog.
+            If None and catalog is queried, will be determined from the survey.
+        skip_NGC (bool, optional): Skip adding NGC galaxies when querying. Defaults to False.
+        dust_correct (bool, optional): Dust correct magnitudes when querying. Defaults to True.
+        star_galaxy_sep (dict, optional): Star/galaxy separation parameters for catalog query.
 
     Returns:
         tuple: 6 items --
@@ -57,17 +65,35 @@ def run_on_dict(idict: dict,
             - PATH: PATH object used for analysis
             - str: mag_key used
             - astropy.Table: Catalog cut down to the analysis box
-            - None: Placeholder for compatibility (was 'stars' in original)
+            - astropy.Table or None: Stars rejected from catalog (if queried), else None
     """
-    # Validate required inputs
+    # Unpack coordinates
+    coord = SkyCoord(ra=idict['ra'], dec=idict['dec'], unit='deg')
+
+    # Query catalog if not provided and survey is specified
+    stars = None
     if catalog is None:
-        raise ValueError("catalog is required. Pass an astropy.table.Table with "
-                        "columns: 'ra', 'dec', 'ang_size', and the magnitude column.")
+        survey = idict.get('priors', {}).get('survey')
+        if survey is not None:
+            from astropath import catalogs
+            catalog, mag_key, stars = catalogs.query_catalog(
+                survey,
+                coord,
+                idict['ssize'],
+                skip_NGC=skip_NGC,
+                dust_correct=dust_correct,
+                star_galaxy_sep=star_galaxy_sep
+            )
+        else:
+            raise ValueError(
+                "catalog is required. Pass an astropy.table.Table with "
+                "columns: 'ra', 'dec', 'ang_size', and the magnitude column, "
+                "OR set idict['priors']['survey'] to query automatically."
+            )
+
+    # Validate mag_key
     if mag_key is None:
         raise ValueError("mag_key is required. Specify the column name for magnitudes.")
-
-    # Unpack a few things for convenience
-    coord = SkyCoord(ra=idict['ra'], dec=idict['dec'], unit='deg')
 
     # Localization
     if idict['ltype'] == 'eellipse':
@@ -182,7 +208,7 @@ def run_on_dict(idict: dict,
         print(f"P_Ux = {P_Ux}")
 
     # Return
-    return Path.candidates, P_Ux, Path, mag_key, cut_catalog, None
+    return Path.candidates, P_Ux, Path, mag_key, cut_catalog, stars
 
 
 def set_anly_sizes(ltype: str, lparam: dict):
@@ -239,6 +265,7 @@ def build_idict(ra: float, dec: float,
                 scale: float = 0.5,
                 theta_PDF: str = 'exp',
                 theta_max: float = 6.0,
+                survey: str = None,
                 ssize: float = None,
                 max_box: float = None):
     """Build an input dictionary for run_on_dict().
@@ -258,6 +285,9 @@ def build_idict(ra: float, dec: float,
         scale (float): Scale factor for offset prior. Default 0.5
         theta_PDF (str): PDF for offset prior. Default 'exp'
         theta_max (float): Maximum offset for prior. Default 6.0
+        survey (str, optional): Survey name for automatic catalog query.
+            Supported: 'Pan-STARRS', 'DECaL'. If None, catalog must be provided
+            to run_on_dict().
         ssize (float): Survey search radius in arcmin. If None, auto-computed.
         max_box (float): Maximum analysis box in arcsec. If None, auto-computed.
 
@@ -279,19 +309,23 @@ def build_idict(ra: float, dec: float,
         if max_box is None:
             max_box = auto_max_box
 
+    priors = {
+        'P_O_method': P_O_method,
+        'PU': PU,
+        'scale': scale,
+        'theta_PDF': theta_PDF,
+        'theta_max': theta_max,
+    }
+    if survey is not None:
+        priors['survey'] = survey
+
     idict = {
         'ra': ra,
         'dec': dec,
         'ssize': ssize,
         'ltype': ltype,
         'lparam': lparam,
-        'priors': {
-            'P_O_method': P_O_method,
-            'PU': PU,
-            'scale': scale,
-            'theta_PDF': theta_PDF,
-            'theta_max': theta_max,
-        },
+        'priors': priors,
         'max_box': max_box,
     }
 
