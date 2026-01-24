@@ -47,6 +47,14 @@ Simulations
    assign_host
    quickstart_assign_host
 
+High-Level Interface
+--------------------
+
+.. toctree::
+   :maxdepth: 2
+
+   run
+
 Scripts
 -------
 
