@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python: [3.11]
+        python: [3.13,3.14]
         deps: [current, numpy210, astropydev, numpydev, astropydev-numpydev]
 
     steps:
