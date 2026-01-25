@@ -54,6 +54,7 @@ High-Level Interface
    :maxdepth: 2
 
    run
+   catalogs
 
 Scripts
 -------

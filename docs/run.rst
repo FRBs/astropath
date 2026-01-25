@@ -64,8 +64,13 @@ Prior Configuration (priors)
         'PU': 0.1,                # Prior probability of unseen host (0 to 1)
         'scale': 0.5,             # Scale factor for offset prior
         'theta_PDF': 'exp',       # PDF for offset prior ['exp', 'core', 'uniform']
-        'theta_max': 6.0          # Maximum offset for prior
+        'theta_max': 6.0,         # Maximum offset for prior
+        'survey': 'Pan-STARRS'    # Optional: survey for automatic catalog query
     }
+
+The ``survey`` key is optional. If provided and no catalog is passed to
+``run_on_dict()``, the catalog will be queried automatically using the
+``catalogs`` module. See :doc:`catalogs` for details.
 
 Candidate Catalog
 =================
@@ -181,6 +186,52 @@ The ``build_idict()`` function simplifies creating input dictionaries::
         max_box=300.0   # Override auto-computed value
     )
 
+    # With automatic catalog querying
+    idict = run.build_idict(
+        ra=180.0,
+        dec=-45.0,
+        lparam={'a': 2.0, 'b': 1.0, 'theta': 0.},
+        survey='Pan-STARRS'  # Will query Pan-STARRS when run_on_dict is called
+    )
+
+Automatic Catalog Querying
+==========================
+
+Instead of providing a catalog manually, you can let ``run_on_dict()``
+query public surveys automatically. This requires the ``frb`` package.
+
+Specify a survey in the input dictionary::
+
+    from astropath import run
+
+    # Build idict with survey
+    idict = run.build_idict(
+        ra=180.0,
+        dec=45.0,
+        lparam={'a': 5.0, 'b': 3.0, 'theta': 0.},
+        survey='Pan-STARRS',
+        PU=0.1
+    )
+
+    # Run PATH - catalog is queried automatically
+    result, P_Ux, Path, mag_key, cut_catalog, stars = run.run_on_dict(
+        idict,
+        verbose=True,
+        skip_NGC=False,      # Include NGC/IC galaxies
+        dust_correct=True    # Apply dust correction
+    )
+
+    print(f"Using {mag_key} magnitudes")
+    print(f"Rejected {len(stars) if stars else 0} stars")
+
+Supported surveys:
+
+- ``'Pan-STARRS'``: Pan-STARRS DR1 (dec > -30°)
+- ``'DECaL'``: DECaLS DR10
+
+See :doc:`catalogs` for detailed information about catalog querying,
+cleaning, and star/galaxy separation.
+
 Return Values
 =============
 
@@ -207,7 +258,9 @@ The ``run_on_dict()`` function returns a tuple of 6 values:
 
 5. **cut_catalog** (astropy.Table): Catalog cut to the analysis box
 
-6. **None**: Placeholder for compatibility (previously used for rejected stars)
+6. **stars** (astropy.Table or None): Table of sources rejected as stars
+   during catalog querying. Only populated when using automatic catalog
+   querying via the ``survey`` parameter; otherwise None.
 
 Example with Unseen Prior
 =========================
