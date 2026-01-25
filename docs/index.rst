@@ -74,3 +74,4 @@ Notebooks
    nb/GW_example
    nb/Simulate_Generate_FRBs
    nb/Simulate_Assign_FRBs
+   nb/Simulate_Run_PATH
