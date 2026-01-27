@@ -74,6 +74,7 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         raise ValueError(f"Unsupported filter '{filter}'. Supported: {list(supported_filters.keys())}")
 
     # Compute surface density
+    print(f"Using filter: {filter}")
     Sigma_m = supported_filters[filter](mag)
 
     # Do it

@@ -28,6 +28,7 @@ Priors
    :maxdepth: 2
 
    offset_function
+   jwst_priors
 
 Transient
 ---------
