@@ -9,6 +9,7 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy import units
+from astropath import catalogs
 
 import pandas
 
@@ -75,7 +76,6 @@ def run_on_dict(idict: dict,
     if catalog is None:
         survey = idict.get('priors', {}).get('survey')
         if survey is not None:
-            from astropath import catalogs
             catalog, mag_key, stars = catalogs.query_catalog(
                 survey,
                 coord,
