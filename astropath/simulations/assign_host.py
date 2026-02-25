@@ -6,20 +6,44 @@ galaxies from a catalog by their apparent r-band magnitudes, ensuring realistic
 associations where brighter FRBs tend to be assigned to brighter galaxies.
 """
 
+import os
 import numpy as np
+import random
 import pandas as pd
+from pathlib import Path
 from typing import Tuple, Optional
 
 from astropy import units
 from astropy.coordinates import SkyCoord, match_coordinates_sky
+
+from IPython import embed
+
+def load_galaxy_catalog():
+    # Try to load real catalog
+    frb_apath = os.environ.get('FRB_APATH')
+    
+    if frb_apath is not None:
+        catalog_path = Path(frb_apath) / 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'
+        
+        if catalog_path.exists():
+            print(f"Loading real galaxy catalog from:")
+            print(f"  {catalog_path}")
+            galaxies = pd.read_parquet(catalog_path)
+            
+            return galaxies
+        else:
+            raise ValueError(f"Catalog not found at {catalog_path}")
+    else:
+        raise ValueError("FRB_APATH not set")
+
 
 
 def assign_frbs_to_hosts(
     frb_df: pd.DataFrame,
     galaxy_catalog: pd.DataFrame,
     localization: Tuple[float, float, float],
-    mag_range: Tuple[float, float] = (17., 28.),
-    scale: float = 2.,
+    mag_range: Tuple[float, float] = None, #(17., 28.),
+    scale: float = 0.5,
     trim_catalog: units.Quantity = 1 * units.arcmin,
     seed: Optional[int] = None,
     debug: bool = False
@@ -54,7 +78,7 @@ def assign_frbs_to_hosts(
             FRBs outside this range are filtered out. Default: (17., 28.)
         scale (float, optional): Scale factor for galaxy half-light radius when
             placing FRBs. Smaller values concentrate FRBs closer to galaxy centers.
-            Default: 2.0
+            Default: 0.5
         trim_catalog (units.Quantity, optional): Buffer to trim from catalog edges
             to ensure FRBs stay within analysis region. Default: 1 arcmin
         seed (int, optional): Random seed for reproducibility
@@ -90,6 +114,7 @@ def assign_frbs_to_hosts(
     """
     # Set random seed if provided
     if seed is not None:
+        random.seed(seed)
         np.random.seed(seed)
 
     # Validate input columns
@@ -97,7 +122,10 @@ def assign_frbs_to_hosts(
     _validate_galaxy_columns(galaxy_catalog)
 
     # Filter FRBs to reasonable magnitude range
-    mag_cut = (frb_df['m_r'] >= mag_range[0]) & (frb_df['m_r'] <= mag_range[1])
+    if mag_range is not None:
+        mag_cut = (frb_df['m_r'] >= mag_range[0]) & (frb_df['m_r'] <= mag_range[1])
+    else:
+        mag_cut = np.ones(len(frb_df), dtype=bool)
     cut_frbs = frb_df[mag_cut].copy()
 
     if len(cut_frbs) == 0:
@@ -120,12 +148,12 @@ def assign_frbs_to_hosts(
 
     # Generate FRB positions within galaxies
     true_coords = _generate_galaxy_positions(
-        galaxy_sample, scale=scale, seed=seed
+        galaxy_sample, scale=scale, #seed=seed
     )
 
     # Apply localization error
     obs_coords, loc_offsets = _apply_localization_error(
-        true_coords, localization, seed=seed
+        true_coords, localization, #seed=seed
     )
 
     # Build output DataFrame
@@ -297,7 +325,8 @@ def _match_by_magnitude(
 
 def _generate_galaxy_positions(
     galaxy_sample: pd.DataFrame,
-    scale: float = 2.,
+    scale: float = 0.5,
+    function:str='exponential',
     seed: Optional[int] = None
 ) -> list:
     """
@@ -309,6 +338,7 @@ def _generate_galaxy_positions(
     Args:
         galaxy_sample: Selected host galaxies
         scale: Scale factor for half-light radius (smaller = more concentrated)
+        function: Function to use for generating galaxy positions (exponential, uniform, truncated normal)
         seed: Random seed
 
     Returns:
@@ -328,13 +358,30 @@ def _generate_galaxy_positions(
 
     # Generate offsets from galaxy centers
     # Use truncated normal distribution (within 6 sigma)
-    theta_max = galaxy_sample.half_light.values / scale
-    randn = np.random.normal(size=10 * n_frbs)
-    good = np.abs(randn) < (6. * scale)
-    randn = randn[good][:n_frbs]
+    #theta_max = galaxy_sample.half_light.values / scale
+    #randn = np.random.normal(size=10 * n_frbs)
+    #good = np.abs(randn) < (6. * scale)
+    #randn = randn[good][:n_frbs]
 
-    galaxy_offsets = randn * theta_max * units.arcsec
+    if function == 'exponential':
+        randn = np.random.exponential(scale=scale, size=10 * n_frbs)
+        good = np.abs(randn) < (6.)
+        randn = randn[good][:n_frbs]
+    elif function == 'uniform':
+        randn = np.random.uniform(low=0., high=10., size=10*n_frbs)
+        good = np.abs(randn) < (6.)
+        randn = randn[good][:n_frbs]
+    #elif function == 'truncated normal':
+    #    randn = np.random.normal(size=10 * n_frbs)
+    #    good = np.abs(randn) < (6.)
+    #    randn = randn[good][:n_frbs]
+    else:
+        raise ValueError(f"Invalid function: {function}")
+
+    # Generate offsets
+    galaxy_offsets = randn * galaxy_sample.half_light.values * units.arcsec
     position_angles = np.random.uniform(size=n_frbs, low=0., high=360.)
+    #embed(header='assign_host 382')
 
     print("Generating FRB positions within galaxies...")
 

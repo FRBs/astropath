@@ -1,9 +1,5 @@
-import pandas, time
+import pandas
 import numpy as np
-from chime_ffff_pz.path import priors
-from path_simulations import run
-from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy import units
 import scipy.stats as stats
 #from zdm.chime import grids
 #from zdm.loading import load_CHIME
@@ -14,7 +10,6 @@ from frb.defs import frb_cosmo
 #cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 from astropy.cosmology.realizations import Planck18 as cosmo
 from astropy import units as u
-from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, NearestNDInterpolator
 # JXP imports
 from frb.dm import prob_dmz
 
@@ -31,8 +26,6 @@ def orig_generate():
     random.seed(seed)
     np.random.seed(seed)
 
-    # Set the typical size of the localization region
-    localization = (15., 2., 12.)  # a (arcsec), b (arcsec), PA (deg)
 
     NFRB = 100
 
