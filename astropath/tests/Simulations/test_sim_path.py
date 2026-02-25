@@ -59,6 +59,7 @@ def build_orig_digest():
 
     generated_frbs_fn = os.path.join(output_dir, 'generated_frbs_test_{}_{}.parquet'.format(int(seed), int(NFRB)))
     frbs = pandas.read_parquet(generated_frbs_fn)
+    frbs['DMeg'] = frbs['DMex']
 
     hosts_fn = os.path.join(output_dir, 'generated_hosts_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB)))
     hosts = pandas.read_parquet(hosts_fn).reset_index()
@@ -122,18 +123,20 @@ def orig_final_plot():
 def test_astropath_path():
     # Get DECaLs catalog filename to run PATH on
     catalog_fn = os.path.join(output_dir, 'catalog_dudxmmlss_hecate_DECaL_{}_{}.parquet'.format(int(seed), int(NFRB)))
+    catalog = pandas.read_parquet(catalog_fn)
     # Get hosts filename
     hosts_fn = os.path.join(output_dir, 'generated_hosts_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB)))
+    hosts = pandas.read_parquet(hosts_fn).reset_index()
     # Set filename of output simulation results
     #output_fn = os.path.join(output_dir, 'sim_results_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB)))
 
-    final_tbl = run_path.full(hosts_fn, catalog_fn, prior_dict, 
+    final_tbl = run_path.full(hosts, catalog, prior_dict, 
         debug=False, ncpu=4, multi=True)
 
     # Digest
     generated_frbs_fn = os.path.join(output_dir, 'generated_frbs_test_{}_{}.parquet'.format(int(seed), int(NFRB)))
     frbs = pandas.read_parquet(generated_frbs_fn)
-    hosts = pandas.read_parquet(hosts_fn).reset_index()
+    frbs['DMeg'] = frbs['DMex']
     combined_file = os.path.join(os.getenv('FRB_APATH'), 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet')
     combined_catalog = pandas.read_parquet(combined_file)
 

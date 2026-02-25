@@ -46,7 +46,7 @@ def run_dict_wrapper(idx:int, idict:dict,
     return sv_tbl, idx, Path
     
 
-def full(frbs_file:str, catalog_file:str, 
+def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame, 
              prior_dict:dict,
              multi:bool=True,
              ncpu:int=4,
@@ -76,8 +76,8 @@ def full(frbs_file:str, catalog_file:str,
     - theta_max (float): The maximum value of the theta prior
 
     Args:
-        frbs_file (str): The filename of the FRBs dataframe
-        catalog_file (str): The filename of the catalog dataframe
+        frbs(pandas.DataFrame): The FRBs dataframe
+        catalog(pandas.DataFrame): The catalog dataframe
         prior_dict (dict): The dictionary of PATH priors
         multi (bool): Whether to run the simulation in multiprocessing mode
         ncpu (int): The number of CPUs to use
@@ -87,16 +87,11 @@ def full(frbs_file:str, catalog_file:str,
         pandas.DataFrame: The simulation results dataframe
     """
 
-    # Load FRBs 
-    frbs = pandas.read_parquet(frbs_file)
+    # FRBs 
     if debug:
         nFRB = 100
     else:
         nFRB = len(frbs)
-
-    # Load galaxies
-    print(f'Loading catalog: {catalog_file}')
-    catalog = pandas.read_parquet(catalog_file)
 
     # Generate the FRB dicts
     FRB_dicts = []

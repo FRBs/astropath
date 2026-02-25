@@ -27,7 +27,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     true_mags = []
     true_ang_size = []
     true_z = []
-    true_dmex = []
+    true_dmeg = []
     true_dmhost = []
     true_dmcosmic = []
     true_mr = []
@@ -49,7 +49,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         true_mags.append(orig_true_host.mag_best.item())
         true_ang_size.append(orig_true_host.ang_size.item())
         true_z.append(frb['z'].values[0])
-        true_dmex.append(frb['DMex'].values[0])
+        true_dmeg.append(frb['DMeg'].values[0])
         true_mr.append(frb['m_r'].values[0])
         true_Mr.append(frb['M_r'].values[0])
     best_cands = pandas.concat(best_cands_list, ignore_index=True)
@@ -88,7 +88,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     hosts['ang_size_host'] = true_ang_size
     hosts['sep_best_host'] = sep
     hosts['z_host'] = true_z
-    hosts['dmex_host'] = true_dmex
+    hosts['dmex_host'] = true_dmeg
     hosts['frb_mr'] = true_mr
     hosts['frb_Mr'] = true_Mr
 
