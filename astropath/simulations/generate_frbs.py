@@ -10,9 +10,13 @@ import numpy as np
 import pandas
 from scipy.interpolate import interp1d
 from scipy import stats
+import random
 
 from astropy import units as u
 from astropy.cosmology.realizations import Planck18
+
+from frb.dm import prob_dmz
+from frb.galaxies import hosts as hosts_mod
 
 # Survey-specific telescope grid mappings
 # Maps survey name to the grid filename used in frb.dm.prob_dmz
@@ -88,7 +92,7 @@ def _build_z_interpolators(pzdm, zvals, dmvals):
     return interpolators
 
 
-def sample_dm_from_catalog(dm_values, n_samples, dm_range=(0., 3000.),
+def sample_dm_from_catalog(dm_values, n_samples, dm_range:tuple=None,
                            n_kde_points=500, seed=None):
     """
     Sample DM values from a KDE fit to observed catalog DMs.
@@ -103,6 +107,8 @@ def sample_dm_from_catalog(dm_values, n_samples, dm_range=(0., 3000.),
     Returns:
         np.ndarray: Sampled DM values
     """
+    if dm_range is None:
+        dm_range=(0., dm_values.max())
     if seed is not None:
         np.random.seed(seed)
 
@@ -208,7 +214,8 @@ def calculate_apparent_mag(Mr, z, cosmo=None):
     return dist_mod + Mr
 
 
-def generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None):
+def generate_frbs(n_frbs, survey, dm_catalog=None, 
+    cosmo=None, seed=None, dm_range=None):
     """
     Generate a population of simulated FRBs with DM, z, Mr, and mr.
 
@@ -242,9 +249,6 @@ def generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None):
         >>> df = generate_frbs(1000, 'CHIME')
         >>> print(df.head())
     """
-    # Import here to avoid circular imports
-    from frb.dm import prob_dmz
-    from frb.galaxies import hosts as hosts_mod
 
     if survey not in SURVEY_GRIDS:
         raise ValueError(f"Unknown survey: {survey}. "
@@ -255,54 +259,48 @@ def generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None):
 
     # Set master seed if provided
     if seed is not None:
+        random.seed(seed)
         np.random.seed(seed)
 
     # Load the survey-specific P(z,DM) grid
     # First load CHIME grid to get z and DM arrays (they're the same for all)
-    chime_grid = prob_dmz.grab_repo_grid(SURVEY_GRIDS['CHIME'])
-    zvals = chime_grid['z']
-    dmvals = chime_grid['DM']
-
-    # Get the survey-specific P(z,DM)
-    if survey == 'CHIME':
-        pzdm = chime_grid['pzdm']
-    else:
-        grid_data = prob_dmz.grab_repo_grid(SURVEY_GRIDS[survey])
-        # Handle different return types
-        if isinstance(grid_data, dict) or hasattr(grid_data, 'keys'):
-            pzdm = grid_data['pzdm'] if 'pzdm' in grid_data else grid_data
-        else:
-            pzdm = grid_data
+    grid_data = prob_dmz.grab_repo_grid(SURVEY_GRIDS[survey])
+    zvals = grid_data['z']
+    dmvals = grid_data['DM']
+    pzdm = grid_data['pzdm']
 
     # Step 1: Sample DM values
+    print("Sampling DM values")
     if dm_catalog is not None:
         # Sample from KDE of observed DMs
         dm_samples = sample_dm_from_catalog(
             dm_catalog, n_frbs,
-            dm_range=(0., np.max(dmvals)),
+            dm_range=dm_range,
             seed=seed
         )
     else:
-        # Sample directly from the P(DM,z) grid using frb.dm.prob_dmz
+        # Sample directly from the P(DM,z) grid 
         grid_dict = {'pzdm': pzdm, 'z': zvals, 'DM': dmvals}
-        df_temp = prob_dmz.gen_random_FRBs(grid_dict, n_frbs, seed=seed)
+        df_temp = gen_random_FRBs(grid_dict, n_frbs)#, seed=seed)
         dm_samples = df_temp['DM'].values
 
     # Step 2: Sample redshifts given DMs
+    print("Sampling redshifts")
     if dm_catalog is not None:
         # Need to sample z from P(z|DM) for each DM
-        zs = sample_redshifts_from_grid(dm_samples, pzdm, zvals, dmvals, seed=seed)
+        zs = sample_redshifts_from_grid(dm_samples, pzdm, zvals, dmvals)#, seed=seed)
     else:
         # Already sampled z along with DM
         zs = df_temp['z'].values
 
     # Step 3: Sample host galaxy absolute magnitudes
     # Load the Mr PDF from frb package
+    print("Sampling host galaxy absolute magnitudes")
     Mr_grid, Mr_pdf_vals = hosts_mod.load_Mr_pdf()
     Mr_samples = sample_host_Mr(
         n_frbs,
         Mr_pdf=(Mr_grid, Mr_pdf_vals),
-        seed=seed
+        #seed=seed
     )
 
     # Step 4: Calculate apparent magnitudes
@@ -310,10 +308,63 @@ def generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None):
 
     # Build output DataFrame
     df_frbs = pandas.DataFrame({
-        'DM': dm_samples,
+        'DMeg': dm_samples,
         'z': zs,
         'M_r': Mr_samples,
         'm_r': mr_samples
     })
 
     return df_frbs
+
+def gen_random_FRBs(grid:dict, nFRBs:int, seed:int=None):
+    """
+    Generate random Fast Radio Bursts (FRBs) based on a given probability grid.
+
+    Parameters:
+    -----------
+    grid : dict
+        A dictionary containing the probability grid with keys 'pzdm', 'z', and 'DM'.
+        - 'pzdm' : 2D array-like, probability distribution over redshift (z) and dispersion measure (DM).
+        - 'z' : 1D array-like, redshift values.
+        - 'DM' : 1D array-like, dispersion measure values.
+    nFRBs : int
+        The number of random FRBs to generate.
+    seed : int, optional
+        Seed for the random number generator to ensure reproducibility. Default is None.
+
+    Returns:
+    --------
+    pandas.DataFrame
+        A DataFrame containing the generated FRBs with columns 'z' (redshift) and 'DM' (dispersion measure).
+    """
+
+    # Seed?
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Flatten 
+    pzDM = grid['pzdm'].flatten()
+
+    # Cum sum
+    cum_sum = np.cumsum(pzDM)
+    cum_sum /= cum_sum[-1]  # Normalize
+
+    # Random numbers
+    randu = np.random.uniform(size=nFRBs)
+
+    # Assign to pzDM
+    uidx = []
+    for irand in randu:
+        uidx.append(np.argmin(np.abs(irand-cum_sum)))
+    # Unravel
+    idx = np.unravel_index(uidx, grid['pzdm'].shape)
+
+    # Generate the arrays
+    z = grid['z'][idx[0]]
+    DM = grid['DM'][idx[1]]
+
+    # Pandas table
+    df = pandas.DataFrame({'z':z, 'DM':DM})
+
+    # Return
+    return df
