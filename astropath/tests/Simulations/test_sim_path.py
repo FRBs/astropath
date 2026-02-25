@@ -1,25 +1,34 @@
 import os
 import time
+import numpy as np
 import pandas
 from astropy.coordinates import SkyCoord
 
-from path_simulations import run
+from path_simulations import run as orig_run
 import matplotlib.pyplot as plt
-from chime_ffff_pz.path import priors
+
+from astropath.simulations import run_path
+from astropath.simulations import utils as sim_utils
 
 from IPython import embed
 
+# Parameters
 seed = 42
 NFRB = 100
 output_dir = '/home/xavier/Projects/FRB/data/SIMULATIONS_FINAL/'
 survey_str = 'DECaL'
 
-def standard_path_run(catalog_file, hosts_file, output_file='./sim_results_DECaLs.parquet', ncpu=4, return_df=True, save_df=True, multi=True):
-    # Get standard DECaLs PATH priors
-    prior_dict = priors.load('DECaLS_chime')
-    prior_dict['PU'] = 0.15
+# Standard DECaL Priors
+DECaLS_chime_priors = {}
+DECaLS_chime_priors['version'] = '1.0'
+DECaLS_chime_priors['PU'] = 0.15
+DECaLS_chime_priors['survey'] = 'DECaL'  # No S in the FRB repo..
+DECaLS_chime_priors['scale'] = 0.5
+prior_dict = DECaLS_chime_priors
 
-    final_tbl = run.full(hosts_file, catalog_file, prior_dict, debug=False, ncpu=ncpu, multi=multi)
+def standard_path_run(catalog_file, hosts_file, output_file='./sim_results_DECaLs.parquet', ncpu=4, return_df=True, save_df=True, multi=True):
+
+    final_tbl = orig_run.full(hosts_file, catalog_file, prior_dict, debug=False, ncpu=ncpu, multi=multi)
     
     if save_df:
         final_tbl.to_parquet(output_file)
@@ -46,7 +55,7 @@ def orig_run_path():
     end = time.time()
     print("Reading finished. Time elapsed: {0:.3f} seconds".format((end-start)))
 
-def write_digest():
+def build_orig_digest():
 
     generated_frbs_fn = os.path.join(output_dir, 'generated_frbs_test_{}_{}.parquet'.format(int(seed), int(NFRB)))
     frbs = pandas.read_parquet(generated_frbs_fn)
@@ -59,91 +68,12 @@ def write_digest():
     combined_file = os.path.join(os.getenv('FRB_APATH'), 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet')
     combined_catalog = pandas.read_parquet(combined_file)
 
-
-    # Set the survey string for saving files and making plots
     sim_results_fn = os.path.join(output_dir, 'sim_results_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB)))
     raw_sim_results = pandas.read_parquet(sim_results_fn)
 
-    print("Get parameters from the simulation results dataframe")
-    # (like galaxy ID, ra, dec, angular size, magnitude, separation, PATH parameters, etc)
-    # and append them to the hosts dataframe to construct a dataframe useful for plotting
-    best_cands_list = []
-    true_ras = []
-    true_decs = []
-    true_mags = []
-    true_ang_size = []
-    true_z = []
-    true_dmex = []
-    true_dmhost = []
-    true_dmcosmic = []
-    true_mr = []
-    true_Mr = []
-    for ii in range(len(hosts)):
-        host_row = hosts[ii:ii+1]
-        cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
-        frb = frbs.iloc[[ii]]
-        # if ii == 106:
-        #     print(cands)
-        if len(cands) == 0:
-            print(ii)
-        best_cand = cands[0:1]
-        best_cands_list.append(best_cand)
-
-        orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
-        true_ras.append(orig_true_host.ra.item())
-        true_decs.append(orig_true_host.dec.item())
-        true_mags.append(orig_true_host.mag_best.item())
-        true_ang_size.append(orig_true_host.ang_size.item())
-        true_z.append(frb['z'].values[0])
-        true_dmex.append(frb['DMex'].values[0])
-        true_mr.append(frb['m_r'].values[0])
-        true_Mr.append(frb['M_r'].values[0])
-    best_cands = pandas.concat(best_cands_list, ignore_index=True)
-
-    print("Rename some columns to make concatenation cleaner")
-    best_cands = best_cands.rename(
-        columns={
-            'ra': 'ra_cand', 
-            'dec': 'dec_cand',
-            'mag': 'mag_cand',
-            'ang_size': 'ang_size_cand',
-            'sep': 'sep_cand',
-            'ID': 'cand_ID',
-            'gal_ID': 'gal_ind',
-        },
-    )
-    hosts = hosts.rename(
-        columns={
-            'ra': 'ra_loc', 
-            'dec': 'dec_loc',
-            'mag': 'mag_host',
-            'half_light': 'half_light_host',
-            'gal_ID': 'host_ID',
-        },
-    )
-
-    print("Calculate angular separation between true host and best candidate")
-    true_host_coord = SkyCoord(ra=true_ras, dec=true_decs, unit='deg')
-    best_cand_coord = SkyCoord(ra=best_cands.ra_cand.values, dec=best_cands.dec_cand.values, unit='deg')
-    sep = true_host_coord.separation(best_cand_coord).arcsec
-
-    print("Add the RA/Dec of the host *galaxy* from the original catalog")
-    hosts['ra_host'] = true_ras
-    hosts['dec_host'] = true_decs
-    hosts['mag_true_host'] = true_mags
-    hosts['ang_size_host'] = true_ang_size
-    hosts['sep_best_host'] = sep
-    hosts['z_host'] = true_z
-    hosts['dmex_host'] = true_dmex
-    hosts['frb_mr'] = true_mr
-    hosts['frb_Mr'] = true_Mr
-
-    print("Merge dataframes, to create a nice big cross-checked dataframe for plotting purposes")
-    df = hosts.merge(best_cands, left_index=True, right_index=True)
-
     plotting_fn = os.path.join(output_dir, f'plot_data_{survey_str}_centroidfix_zinfo.parquet')
-    print("Saving to file: {}".format(plotting_fn))
-    df.to_parquet(plotting_fn)
+
+    digest = sim_utils.build_digest(raw_sim_results, frbs, hosts, combined_catalog, plotting_fn)
 
 def orig_final_plot():
     plotting_fn = os.path.join(output_dir, f'plot_data_{survey_str}_centroidfix_zinfo.parquet')
@@ -189,8 +119,49 @@ def orig_final_plot():
     plt.savefig(os.path.join(output_dir, f'plot_mr_POx_{survey_str}_centroidfix_zinfo.png'), dpi=200, format="png", bbox_inches="tight")
     embed(header='151 of orig_final_plot')
 
+def test_astropath_path():
+    # Get DECaLs catalog filename to run PATH on
+    catalog_fn = os.path.join(output_dir, 'catalog_dudxmmlss_hecate_DECaL_{}_{}.parquet'.format(int(seed), int(NFRB)))
+    # Get hosts filename
+    hosts_fn = os.path.join(output_dir, 'generated_hosts_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB)))
+    # Set filename of output simulation results
+    #output_fn = os.path.join(output_dir, 'sim_results_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB)))
+
+    final_tbl = run_path.full(hosts_fn, catalog_fn, prior_dict, 
+        debug=False, ncpu=4, multi=True)
+
+    # Digest
+    generated_frbs_fn = os.path.join(output_dir, 'generated_frbs_test_{}_{}.parquet'.format(int(seed), int(NFRB)))
+    frbs = pandas.read_parquet(generated_frbs_fn)
+    hosts = pandas.read_parquet(hosts_fn).reset_index()
+    combined_file = os.path.join(os.getenv('FRB_APATH'), 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet')
+    combined_catalog = pandas.read_parquet(combined_file)
+
+    digest = sim_utils.build_digest(final_tbl, frbs, hosts, combined_catalog)
+
+    # Orig
+    plotting_fn = os.path.join(output_dir, f'plot_data_{survey_str}_centroidfix_zinfo.parquet')
+    orig_digest = pandas.read_parquet(plotting_fn)
+
+    # Test
+    assert np.allclose(digest['host_ID'].values, orig_digest['host_ID'].values)
+    assert np.allclose(digest['cand_ID'].values, orig_digest['cand_ID'].values)
+    assert np.allclose(digest['ra_host'].values, orig_digest['ra_host'].values)
+    assert np.allclose(digest['dec_host'].values, orig_digest['dec_host'].values)
+    assert np.allclose(digest['mag_true_host'].values, orig_digest['mag_true_host'].values)
+    assert np.allclose(digest['ang_size_host'].values, orig_digest['ang_size_host'].values)
+    assert np.allclose(digest['sep_best_host'].values, orig_digest['sep_best_host'].values)
+    assert np.allclose(digest['z_host'].values, orig_digest['z_host'].values)
+    assert np.allclose(digest['dmex_host'].values, orig_digest['dmex_host'].values)
+    assert np.allclose(digest['frb_mr'].values, orig_digest['frb_mr'].values)
+    assert np.allclose(digest['frb_Mr'].values, orig_digest['frb_Mr'].values)
+
+    print("Tests passed!!")
+
 # Command line
 if __name__ == "__main__":
     #orig_run_path()
-    #write_digest()
-    orig_final_plot()
+    #build_orig_digest()
+    #orig_final_plot()
+
+    test_astropath_path()
