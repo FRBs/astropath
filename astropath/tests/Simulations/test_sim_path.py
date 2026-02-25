@@ -83,7 +83,8 @@ def orig_final_plot():
 
     fig = plt.figure(figsize=(8,5))
 
-    match_criteria = df['host_ID'] == df['cand_ID']
+    max_ang_size = np.maximum.reduce([df['ang_size_cand'], df['half_light_host']], axis=0)
+    match_criteria = (df['sep_best_host'] < 1.5*max_ang_size)
 
     correct_associations = df[match_criteria]
     incorrect_associations = df[~match_criteria]
@@ -118,7 +119,6 @@ def orig_final_plot():
 
     #plt.show()
     plt.savefig(os.path.join(output_dir, f'plot_mr_POx_{survey_str}_centroidfix_zinfo.png'), dpi=200, format="png", bbox_inches="tight")
-    embed(header='151 of orig_final_plot')
 
 def test_astropath_path():
     # Get DECaLs catalog filename to run PATH on
@@ -165,6 +165,6 @@ def test_astropath_path():
 if __name__ == "__main__":
     #orig_run_path()
     #build_orig_digest()
-    #orig_final_plot()
+    orig_final_plot()
 
-    test_astropath_path()
+    #test_astropath_path()
