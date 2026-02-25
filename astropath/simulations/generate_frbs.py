@@ -8,11 +8,12 @@ magnitude distributions to generate realistic FRB populations.
 
 import numpy as np
 import pandas
+from importlib.resources import files
 from scipy.interpolate import interp1d
 from scipy import stats
 import random
 
-from astropy import units as u
+from astropy import units
 from astropy.cosmology.realizations import Planck18
 
 from frb.dm import prob_dmz
@@ -156,7 +157,7 @@ def sample_redshifts_from_grid(dm_samples, pzdm, zvals, dmvals, seed=None):
     return zs
 
 
-def sample_host_Mr(n_samples, Mr_values=None, Mr_pdf=None,
+def sample_host_Mr(n_samples, Mr_pdf=None,
                    Mr_range=(-25., -15.), n_kde_points=500, seed=None):
     """
     Sample host galaxy absolute r-band magnitudes.
@@ -166,7 +167,6 @@ def sample_host_Mr(n_samples, Mr_values=None, Mr_pdf=None,
 
     Args:
         n_samples (int): Number of samples to generate
-        Mr_values (np.ndarray, optional): Observed Mr values for KDE fitting
         Mr_pdf (tuple, optional): (Mr_array, pdf_array) pre-computed distribution
         Mr_range (tuple): (min, max) Mr range for KDE evaluation
         n_kde_points (int): Number of points for KDE evaluation
@@ -181,13 +181,25 @@ def sample_host_Mr(n_samples, Mr_values=None, Mr_pdf=None,
     if Mr_pdf is not None:
         # Use provided PDF
         Mr_grid, pdf = Mr_pdf
-    elif Mr_values is not None:
+    else:
+        print("Using Lz values to sample host galaxy absolute magnitudes")
+        # Load up Lz values
+        host_file = files('astropath.data') / 'frb_surveys' / 'Lz_host_data.csv'
+        df= pandas.read_csv(host_file)
+        # Scale mrs with z's to find distribution of Mrs
+        mrs = np.array(df['r-band'])
+        zs_mrs = np.array(df['redshift'])
+
+        # Get luminosity distance
+        ds = Planck18.luminosity_distance(zs_mrs).to(units.parsec).value
+
+        # Calculate absolute magnitudes
+        Mr_values = mrs - 5. * np.log10(ds) + 5
+
         # Build KDE from observed values
         kernel = stats.gaussian_kde(Mr_values)
         Mr_grid = np.linspace(Mr_range[0], Mr_range[1], n_kde_points)
         pdf = kernel(Mr_grid)
-    else:
-        raise ValueError("Must provide either Mr_values or Mr_pdf")
 
     # Build interpolator and sample
     f_Mr = _build_cumulative_interpolator(Mr_grid, pdf)
@@ -296,10 +308,10 @@ def generate_frbs(n_frbs, survey, dm_catalog=None,
     # Step 3: Sample host galaxy absolute magnitudes
     # Load the Mr PDF from frb package
     print("Sampling host galaxy absolute magnitudes")
-    Mr_grid, Mr_pdf_vals = hosts_mod.load_Mr_pdf()
+    #Mr_grid, Mr_pdf_vals = hosts_mod.load_Mr_pdf()
     Mr_samples = sample_host_Mr(
         n_frbs,
-        Mr_pdf=(Mr_grid, Mr_pdf_vals),
+        #Mr_pdf=(Mr_grid, Mr_pdf_vals),
         #seed=seed
     )
 
@@ -368,3 +380,27 @@ def gen_random_FRBs(grid:dict, nFRBs:int, seed:int=None):
 
     # Return
     return df
+
+def load_chime_cat1_DMeg():
+    """ 
+    Load the DM_extra galactic component from CHIME Catalog 1
+
+    Returns:
+    --------
+    np.ndarray: DM_extra galactic component
+    """
+    # Load CHIME Catalog 1
+    chime_cat_file = files('astropath.data') / 'frb_surveys' / 'chimefrbcat1.csv'
+    df_dr1 = pandas.read_csv(chime_cat_file)
+
+    # Make cut based on bonsai S/N
+    cut_snr = 12.
+    snr_cut = df_dr1['bonsai_snr'] > cut_snr
+    df_dr1 = df_dr1[snr_cut].copy()
+
+    # Subtract MW ISM component
+    DMeg = np.nanmean([df_dr1['dm_exc_ne2001'].values,
+        df_dr1['dm_exc_ymw16'].values], axis=0) #- 100. # Minus MW halo component
+
+    # Return
+    return DMeg

@@ -1,0 +1,9 @@
+Lz_host_data.csv
+
+File of host data compiled by Alexandra Gordon
+  Mainly used for estimating the PDF of absolute magnitudes of FRB hosts
+
+chimefrbcat1.csv
+
+File of CHIME FRB catalog 1
+  Used for estimating the DM_extra galactic component of CHIME

@@ -1,20 +1,22 @@
+from importlib.resources import files
+
 import pandas
 import numpy as np
+
 import scipy.stats as stats
-#from zdm.chime import grids
-#from zdm.loading import load_CHIME
 from frb.galaxies import hosts as hosts_mod
 from frb.frb_surveys import chime
 from scipy.interpolate import interp1d
 from frb.defs import frb_cosmo
-#cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-from astropy.cosmology.realizations import Planck18 as cosmo
-from astropy import units as u
+from astropy.cosmology.realizations import Planck18
+from astropy import units
+
 # JXP imports
 from frb.dm import prob_dmz
 
 # astropath
 from astropath.simulations import generate_frbs, SURVEY_GRIDS
+from astropath.simulations.generate_frbs import load_chime_cat1_DMeg
 
 from IPython import embed
 
@@ -36,14 +38,7 @@ def orig_generate():
     all_rates = chime_grid['pzdm']
 
     # Load CHIME Catalog 1
-    df_dr1 = pandas.read_csv('./chimefrbcat1.csv')
-    # Make cut based on bonsai S/N
-    cut_snr = 12.
-    snr_cut = df_dr1['bonsai_snr'] > cut_snr
-    df_dr1 = df_dr1[snr_cut].copy()
-
-    # Load host galaxy M_r
-    xvals, prob1 = hosts_mod.load_Mr_pdf()
+    DMex = load_chime_cat1_DMeg()
 
     # Cumulative
     cum_all = np.cumsum(all_rates, axis=0)
@@ -55,7 +50,6 @@ def orig_generate():
     print("Building interpolators")
     fs = [interp1d(cum_all[:,ii], zvals) for ii in range(dmvals.size)]
 
-    DMex = np.nanmean([df_dr1['dm_exc_ne2001'].values,df_dr1['dm_exc_ymw16'].values], axis=0) #- 100. # Minus MW halo component
     kernel = stats.gaussian_kde(DMex)#, bw_method=0.6)
     dms = np.linspace(0., 3000, 500)
     DMex_kde = kernel(dms)
@@ -77,15 +71,41 @@ def orig_generate():
         zs.append(float(z))
     zs = np.array(zs)
 
-    # Load the previous distribution
-    Mr, density = hosts_mod.load_Mr_pdf()
-    mags = np.linspace(-25., -15., 500)
+    # Original Mr PDF
+    orig_Mr = False
+    if orig_Mr:
+        # Load the previous distribution
+        Mr, density = hosts_mod.load_Mr_pdf()
 
-    ## JXP
-    cum_Mr = np.cumsum(density)
-    cum_Mr[0] = 0.
-    fMr = interp1d(cum_Mr/cum_Mr[-1], Mr)
+        cum_Mr = np.cumsum(density)
+        cum_Mr[0] = 0.
+        fMr = interp1d(cum_Mr/cum_Mr[-1], Mr)
+    else:
+        # Load up Lz values
+        host_file = files('astropath.data') / 'frb_surveys' / 'Lz_host_data.csv'
+        df= pandas.read_csv(host_file)
 
+        # Scale mrs with z's to find distribution of Mrs
+        mrs = np.array(df['r-band'])
+        zs_mrs = np.array(df['redshift'])
+
+        # Get luminosity distance
+        ds = Planck18.luminosity_distance(zs_mrs).to(units.parsec).value
+
+        # Calculate absolute magnitudes
+        Mrs = mrs - 5. * np.log10(ds) + 5
+
+        # Calculate KDE of absolute magnitudes
+        kernel = stats.gaussian_kde(Mrs)#, bw_method=0.6)
+        mags = np.linspace(-25., -15., 500)
+        Mr_kde = kernel(mags)
+
+        # Cum sum
+        cum_Mr = np.cumsum(Mr_kde)
+        cum_Mr[0] = 0.
+        fMr = interp1d(cum_Mr/cum_Mr[-1], mags)
+
+    # Go forth
 
     rand = np.random.uniform(size=NFRB)
     rand_Mr = fMr(rand)
@@ -133,16 +153,18 @@ def astropath_generate():
     #np.random.seed(seed)
 
     # Load CHIME Catalog 1
-    df_dr1 = pandas.read_csv('./chimefrbcat1.csv')
-    # Make cut based on bonsai S/N
-    cut_snr = 12.
-    snr_cut = df_dr1['bonsai_snr'] > cut_snr
-    df_dr1 = df_dr1[snr_cut].copy()
-    DMex = np.nanmean([df_dr1['dm_exc_ne2001'].values,df_dr1['dm_exc_ymw16'].values], axis=0) #- 100. # Minus MW halo component
+    DMeg = load_chime_cat1_DMeg()
+
+    #df_dr1 = pandas.read_csv('./chimefrbcat1.csv')
+    ## Make cut based on bonsai S/N
+    #cut_snr = 12.
+    #snr_cut = df_dr1['bonsai_snr'] > cut_snr
+    #df_dr1 = df_dr1[snr_cut].copy()
+    #DMex = np.nanmean([df_dr1['dm_exc_ne2001'].values,df_dr1['dm_exc_ymw16'].values], axis=0) #- 100. # Minus MW halo component
 
     # Generate
     df_chime = generate_frbs(NFRB, 'CHIME', seed=seed, 
-        dm_catalog=DMex, dm_range=(0., 3000.))
+        dm_catalog=DMeg, dm_range=(0., 3000.))
 
     # Load 
     output_fn = 'generated_frbs_test_{}_{}.parquet'.format(int(seed), int(NFRB))
@@ -158,5 +180,5 @@ def astropath_generate():
 
 # Command line
 if __name__ == '__main__':
-    orig_generate()
+    #orig_generate()
     astropath_generate()

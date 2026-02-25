@@ -1,0 +1,47 @@
+FRB,r-band,redshift,age,age_up,age_lo,T22,R,Reference,survey,notes,ExcessDM
+20121102A,23.73,0.19273,5.71,0.96,1.26,SF,Y,Gordon+23,Many,,N
+20171020A,14.97,0.00867,nan,nan,nan,nan,N,Lee-Waddell+23,CRAFT,Extinction corrected with Schlafly&Finkbeiner+11,N
+20180301A,21.21,0.3305,4.34,1.10,1.29,SF,Y,Gordon+23,realfast,,N
+20180918B,16.17,0.0337,7.73,0.86,1.22,T,Y,Gordon+23,Astroflash,,N
+20180924B,20.33,0.3212,5.63,0.53,0.75,SF,N,Gordon+23,CRAFT,,N
+20181112A,21.68,0.4755,3.82,0.84,0.98,SF,N,Gordon+23,CRAFT,,N
+20181220A,15.71,0.0275,2.7,2.4,1.6,SF,N,Bhardwaj+23,CHIME,,N
+20181223C,16.78,0.0302,6.6,0.2,2.1,SF,N,Bhardwaj+23,CHIME,,N
+20190110C,18.01,0.12244,2.59,0.80,1.24,T,Y,Ibik+23,CHIME,Extinction corrected with Schlegel+98,N
+20190102C,20.77,0.29117,4.76,1.02,1.47,SF,N,Gordon+23,CRAFT,I-band,N
+20190418A,16.68,0.0715,5.5,2.1,2.5,SF,N,Bhardwaj+23,CHIME,,N
+20190425A,14.94,0.0312,6.8,2.0,2.3,SF,N,"Panther+23,Bhardwaj+23",CHIME,Manually corrected with my method,N
+20190520B,22.16,0.2418,5.27,1.02,1.32,SF,Y,Gordon+23,FAST,,Y
+20190523A,21.91,0.66,nan,nan,nan,nan,N,Ravi+19,DSA,From F4 repo,N
+20190608B,17.41,0.11778,7.13,0.70,1.21,SF,N,Gordon+23,CRAFT,,N
+20190611B,22.15,0.3778,4.45,0.98,1.34,SF,N,Gordon+23,CRAFT,,N
+20190711A,23.54,0.522,3.54,0.96,1.36,SF,Y,Gordon+23,CRAFT,,N
+20190714A,20.34,0.2365,5.48,0.75,1.02,SF,N,Gordon+23,CRAFT,,N
+20191001A,18.36,0.234,3.89,1.68,1.56,SF,N,Gordon+23,CRAFT,,N
+20200120E,8.6012,0.0008,nan,nan,nan,nan,nan,Y,Kirsten+21,CHIME,N
+20200223A,16.08,0.06024,3.37,0.47,0.73,T,Y,Ibik+23,CHIME,Extinction corrected with Schlegel+98,N
+20200430A,21.05,0.1608,5.99,0.96,1.31,SF,N,Gordon+23,CRAFT,,N
+20200906A,19.95,0.3688,4.30,0.86,1.11,SF,N,Gordon+23,CRAFT,,N
+20201124A,17.86,0.0979,6.13,0.95,1.16,SF,Y,Gordon+23,CHIME,,N
+20210117A,22.97,0.2145,5.01,0.95,1.21,SF,N,Gordon+23,CRAFT,,Y
+20210320C,19.47,0.2797,4.56,0.99,1.15,SF,N,Gordon+23,CRAFT,,N
+20210410D,20.65,0.1415,6.78,1.02,1.48,T,N,Gordon+23,MeerTRAP,,N
+20210807D,17.17,0.12927,8.36,2.25,1.84,Q,N,Gordon+23,CRAFT,,N
+20211127I,14.96,0.0469,3.85,2.13,3.65,SF,N,Gordon+23,CRAFT,,N
+20211203C,19.64,0.34386,2.47,2.00,1.25,SF,N,Gordon+23,CRAFT,,N
+20211212A,16.44,0.0707,5.83,1.05,1.16,SF,N,Gordon+23,CRAFT,,N
+20220105A,21.19,0.2785,5.67,0.73,1.24,SF,N,Gordon+23,CRAFT,,Y
+20220207C,16.84,0.04304,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20220307B,18.91,0.248123,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20220310F,20.29,0.477958,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20220319D,14.39,0.011228,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20220418A,20.60,0.622,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20220506D,19.66,0.30039,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method; stacked object,N
+20220509G,16.95,0.0894,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20220610A,24.76,1.017,2.60,0.61,0.91,SF,N,Gordon+24,CRAFT,,Y
+20220717A,21,0.363,nan,nan,nan,nan,N,Rajwade+24,MeerTRAP,,N
+20220825A,18.80,0.241397,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,Y
+20220912A,19.03,0.0771,nan,nan,Nan,nan,Y,Ravi+23,DSA,Manually corrected with my method,N
+20220914A,19.63,0.1139,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,Y
+20220920A,18.14,0.158239,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
+20221012A,19.15,0.284669,nan,nan,nan,,N,Law+23,DSA,Manually corrected with my method,N
