@@ -63,7 +63,10 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     if method not in ['identical']:
         if filter != 'r':
             raise IOError("Not ready for this.  Best to go with what you have that is closest to r-band")
-        Sigma_m = chance.driver_sigma(mag)
+        if method == 'user':
+            rho_m = chance.differential_driver_sigma(mag)
+        else:
+            Sigma_m = chance.driver_sigma(mag)
 
     # Do it
     if method == 'inverse':
@@ -75,7 +78,7 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     elif method == 'identical':
         return np.ones_like(ang_size)
     elif method == 'user':
-        return USR_raw_prior_Oi(mag,ang_size,Sigma_m)
+        return USR_raw_prior_Oi(mag,ang_size,rho_m)
     else:
         raise IOError("Bad method {} for prior_Oi".format(method))
 

@@ -141,11 +141,11 @@ class PATH(object):
             mag=self.candidates['mag'] if 'mag' in self.candidates.keys() else None)
 
         # Normalize
-        # I have remopved this from the calculation!!! MODIFIED!!!!
-        #logging.info("Normalizing priors")
         if self.cand_prior['P_O_method']=='user':
+            logging.info("Skippng prior normalization")
             self.prior_Oi = self.raw_prior_Oi
         else:
+            logging.info("Normalizing priors")
             self.prior_Oi = priors.renorm_priors(self.raw_prior_Oi, 
                                              self.cand_prior['P_U'])
         
