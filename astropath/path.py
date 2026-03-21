@@ -125,6 +125,9 @@ class PATH(object):
     def calc_priors(self):
         """Calculate and normalize the P(O) values for the candidates
 
+        If P_O_method is 'user', then the user-defined function USR_raw_prior_Oi
+        is used to calculate the raw priors.  No normalization is performed.
+
         Raises:
             IOError: [description]
 
