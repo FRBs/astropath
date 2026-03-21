@@ -39,7 +39,7 @@ also require an apparent magnitude.
 
 We read our data from disk and then pass them to the Path object::
 
-    cand_file = os.path.join(resource_filename('astropath', 'data'), 'frb_example', 'frb180924_candidates.csv')   
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')), 'frb_example', 'frb180924_candidates.csv')
     import pandas
     candidates = pandas.read_csv(cand_file, index_col=0)
     # Now in Path

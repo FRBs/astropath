@@ -51,7 +51,7 @@ map of the sky with the PDF defined at every healpix pixel.
 Here is an example using the healpix localization for
 GW170817::
 
-    lfile = os.path.join(resource_filename('astropath', 'data'), 'gw_examples',
+    lfile = os.path.join(str(resource_files('astropath').joinpath('data')), 'gw_examples',
                          'GW170817_skymap.fits.gz')
     gw170817 = hp.read_map(lfile)
     header = fits.open(lfile)[1].header
@@ -72,7 +72,7 @@ using a proper world coordinate system (WCS).
 
 Here is an example::
     
-    lfile = os.path.join(resource_filename('astropath', 'tests'), 'files',
+    lfile = os.path.join(str(resource_files('astropath').joinpath('tests')), 'files',
         'mask_frb201123_localization.fits.gz')
     hdul = fits.open(lfile)
     pdf = hdul[0].data

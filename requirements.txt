@@ -11,6 +11,7 @@ photutils>=1.5
 healpy>=1.15
 astropy-healpix>=0.7
 ligo.skymap>=1.0
+astroquery>=0.4.11
 
 # docs
 #nbsphinx>=0.8.0   

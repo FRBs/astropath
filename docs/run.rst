@@ -94,14 +94,14 @@ Here is a complete example using the FRB example data::
 
     import os
     import pandas
-    from pkg_resources import resource_filename
+    from importlib.resources import files as resource_files
     from astropy.table import Table
     from astropy.coordinates import SkyCoord
 
     from astropath import run
 
     # Load candidates
-    cand_file = os.path.join(resource_filename('astropath', 'data'),
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')),
                              'frb_example', 'frb180924_candidates.csv')
     candidates_df = pandas.read_csv(cand_file, index_col=0)
 
