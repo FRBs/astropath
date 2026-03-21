@@ -1,7 +1,7 @@
 """ Test methods in bayesian.py """
 
 import os
-from pkg_resources import resource_filename
+from importlib.resources import files as resource_files
 
 import numpy as np
 import pandas
@@ -63,7 +63,7 @@ def test_error_ellipse():
     assert localization.vet_localization(localiz)
 
     # Candidates
-    cand_file = os.path.join(resource_filename('astropath', 'data'), 'frb_example', 'frb180924_candidates.csv')
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')), 'frb_example', 'frb180924_candidates.csv')
     candidates = pandas.read_csv(cand_file, index_col=0)
     c_coords = SkyCoord(ra=candidates.ra, dec=candidates.dec, unit='deg')
 
@@ -110,7 +110,7 @@ def test_PU():
     eellipse = dict(a=0.1, b=0.1, theta=0.)
     localiz = dict(type='eellipse', center_coord=frb_coord, eellipse=eellipse)
     # Galaxies
-    cand_file = os.path.join(resource_filename('astropath', 'data'), 'frb_example', 'frb121102_candidates.csv')
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')), 'frb_example', 'frb121102_candidates.csv')
     candidates = pandas.read_csv(cand_file, index_col=0)
     c_coords = SkyCoord(ra=candidates.ra, dec=candidates.dec, unit='deg')
 

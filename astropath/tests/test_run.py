@@ -1,7 +1,7 @@
 """ Test methods in run.py """
 
 import os
-from pkg_resources import resource_filename
+from importlib.resources import files as resource_files
 
 import numpy as np
 import pandas
@@ -18,7 +18,7 @@ def test_run_on_dict_eellipse():
     """Test run_on_dict with an error ellipse localization"""
 
     # Load the FRB example candidates
-    cand_file = os.path.join(resource_filename('astropath', 'data'),
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')),
                              'frb_example', 'frb180924_candidates.csv')
     candidates_df = pandas.read_csv(cand_file, index_col=0)
 
@@ -65,7 +65,7 @@ def test_run_on_dict_with_PU():
     """Test run_on_dict with non-zero unseen prior"""
 
     # Load the FRB example candidates
-    cand_file = os.path.join(resource_filename('astropath', 'data'),
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')),
                              'frb_example', 'frb180924_candidates.csv')
     candidates_df = pandas.read_csv(cand_file, index_col=0)
 

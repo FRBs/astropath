@@ -1,7 +1,7 @@
 """ Test methods in bayesian.py """
 
 import os
-from pkg_resources import resource_filename
+from importlib.resources import files as resource_files
 
 import numpy as np
 import pandas
@@ -23,7 +23,7 @@ remote_data = pytest.mark.skipif(os.getenv('PATH_DATA') is None,
 
 def test_wcs():
     # Load up the localization
-    lfile = os.path.join(resource_filename('astropath', 'tests'), 'files',
+    lfile = os.path.join(str(resource_files('astropath').joinpath('tests')), 'files',
         'mask_frb201123_localization.fits.gz')
     hdul = fits.open(lfile)
     data = hdul[0].data
@@ -56,7 +56,7 @@ def test_wcs():
     L_wx = localization.calc_LWx(ra, dec, localiz)
 
 def test_healpix_nuniq():
-    hpix_file = os.path.join(resource_filename('astropath', 'tests'), 'files',
+    hpix_file = os.path.join(str(resource_files('astropath').joinpath('tests')), 'files',
         'FRB201123_hpix_uniform.fits.gz')
     hpix = Table.read(hpix_file)
     header = fits.open(hpix_file)[1].header
