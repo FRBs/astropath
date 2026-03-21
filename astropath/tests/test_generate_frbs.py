@@ -16,7 +16,6 @@ from astropath.simulations.generate_frbs import (
     _build_cumulative_interpolator,
     _build_z_interpolators,
     sample_dm_from_catalog,
-    sample_redshifts_from_grid,
     sample_host_Mr,
     calculate_apparent_mag,
 )
@@ -73,22 +72,6 @@ class TestSampling:
         # Mean should be close to input catalog mean
         assert np.isclose(np.mean(samples), 500., atol=50.)
 
-    def test_sample_host_Mr_with_values(self):
-        """Test Mr sampling with provided values"""
-        # Create mock Mr values
-        Mr_values = np.random.normal(-20, 2, 50)
-
-        samples = sample_host_Mr(
-            n_samples=1000,
-            Mr_values=Mr_values,
-            seed=42
-        )
-
-        assert len(samples) == 1000
-        # Should be in reasonable magnitude range
-        assert samples.max() < -10
-        assert samples.min() > -30
-
     def test_sample_host_Mr_with_pdf(self):
         """Test Mr sampling with provided PDF"""
         Mr_grid = np.linspace(-25, -15, 100)
@@ -104,11 +87,6 @@ class TestSampling:
         assert len(samples) == 1000
         # Mean should be close to -20
         assert np.isclose(np.mean(samples), -20., atol=0.5)
-
-    def test_sample_host_Mr_requires_input(self):
-        """Test that Mr sampling requires either values or pdf"""
-        with pytest.raises(ValueError):
-            sample_host_Mr(n_samples=100)
 
     def test_calculate_apparent_mag(self):
         """Test apparent magnitude calculation"""

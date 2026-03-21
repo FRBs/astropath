@@ -17,7 +17,6 @@ from astropy import units
 from astropy.cosmology.realizations import Planck18
 
 from frb.dm import prob_dmz
-from frb.galaxies import hosts as hosts_mod
 
 # Survey-specific telescope grid mappings
 # Maps survey name to the grid filename used in frb.dm.prob_dmz
