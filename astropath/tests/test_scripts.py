@@ -1,4 +1,4 @@
-""" Test methods in bayesian.py """
+""" Test scripts in astropath.scripts """
 
 import os
 
@@ -7,9 +7,10 @@ from astropath.scripts import use_catalogs
 import pytest
 
 # THIS IS A HACK
-remote_data = pytest.mark.skipif(os.getenv('PATH_DATA') is None,
-                                 reason='test requires FRB')
 
+@pytest.mark.skipif(
+        os.getenv('PATH_DATA') is None,
+        reason='test requires frb data files')
 def test_catalog():
     pytest.importorskip('frb.surveys')
     pargs = use_catalogs.parser(['128.680054,66.010750', '11.,11.,0.',
