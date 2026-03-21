@@ -58,6 +58,30 @@ def windhorst_sigma(mag):
     return num_counts
 
 
+def differential_driver_sigma(rmag):
+    """
+    Estimated incidence of galaxies per sq arcsec per magnitude with r = rmag
+    using Driver et al. 2016 number counts.
+
+    Args:
+        rmag (float or np.ndarray): r band magnitude of galaxy
+
+    Returns:
+        float or np.ndarray:  Galaxy differential number density rho
+
+    """
+    
+    delta = 1e-5 # very small delta to numerically differentiate driver_spl
+    rho = 10**driver_spl(rmag+delta) - 10**driver_spl(rmag-delta)
+    
+    # we calculate the density "per magnitude" by convention, hence must normalise
+    # from 2 delta to unity
+    rho /= 2.*delta
+    
+    return rho
+
+
+
 def bloom_sigma(rmag):
     """
     Estimated incidence of galaxies per sq arcsec with r > rmag

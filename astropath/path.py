@@ -127,6 +127,9 @@ class PATH(object):
     def calc_priors(self, ifilter:str='r'):
         """Calculate and normalize the P(O) values for the candidates
 
+        If P_O_method is 'user', then the user-defined function USR_raw_prior_Oi
+        is used to calculate the raw priors.  No normalization is performed.
+
         Raises:
             IOError: [description]
 
@@ -144,10 +147,15 @@ class PATH(object):
             filter=ifilter)
 
         # Normalize
-        logging.info("Normalizing priors")
-        self.prior_Oi = priors.renorm_priors(self.raw_prior_Oi, 
+        if self.cand_prior['P_O_method']=='user':
+            logging.info("Skippng prior normalization")
+            self.prior_Oi = self.raw_prior_Oi
+        else:
+            logging.info("Normalizing priors")
+            self.prior_Oi = priors.renorm_priors(self.raw_prior_Oi, 
                                              self.cand_prior['P_U'])
-
+        
+        
         # Add to candidate table
         logging.info("Adding prior values to candidates table")
         self.candidates['P_O'] = self.prior_Oi
@@ -213,7 +221,12 @@ class PATH(object):
         if self.cand_prior['P_U'] > 0.:
             if max_radius is None:
                 raise IOError("Set max_radius given that P(U) > 0!!")
-            self.p_xU = bayesian.px_U(max_radius)
+            if self.cand_prior['P_O_method']=='user':
+                # leave unmodified
+                self.p_xU = 1
+            else:
+                # downweight by FOV
+                self.p_xU = bayesian.px_U(max_radius)
         else:
             self.p_xU = 0.
         

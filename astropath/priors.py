@@ -43,7 +43,9 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         - 'inverse_ang'   : 1 / (Sigma_m * ang_size)
         - 'inverse_ang2'  : 1 / (Sigma_m * ang_size^2)
         - 'identical'     : All priors set equal (1)
-        - 'user'          : Use user-defined function (not implemented here)
+        - 'user'          : Use the user-defined function USR_raw_prior_Oi
+                That function must take the arguments: mag, ang_size, rho_m
+                where rho_m is the differential sigma of the galaxy in mag/arcsec^2
 
     ang_size : float or np.ndarray
         Angular size(s) in arcseconds. Required for all methods except 'identical'.
@@ -59,6 +61,9 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     float or np.ndarray
         Raw prior value(s)
     """
+    # allows a user to set this externally
+    global USR_raw_prior_Oi
+
     if method == 'identical':
         return 1.0 if np.isscalar(ang_size) else np.ones_like(ang_size)
 
@@ -73,8 +78,14 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     if filter not in supported_filters:
         raise ValueError(f"Unsupported filter '{filter}'. Supported: {list(supported_filters.keys())}")
 
-    # Compute surface density
-    Sigma_m = supported_filters[filter](mag)
+    # Convenience
+    if method == 'user':
+        if filter != 'r':
+            raise IOError("Not ready for this.  Best to go with what you have that is closest to r-band")
+        rho_m = chance.differential_driver_sigma(mag)
+    else:
+        # Compute surface density
+        Sigma_m = supported_filters[filter](mag)
 
     # Do it
     if method == 'inverse':
@@ -86,7 +97,7 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     elif method == 'identical':
         return np.ones_like(ang_size)
     elif method == 'user':
-        return USR_raw_prior_Oi(mag,ang_size,Sigma_m)
+        return USR_raw_prior_Oi(mag,ang_size,rho_m)
     else:
         raise IOError("Bad method {} for prior_Oi".format(method))
 
