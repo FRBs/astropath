@@ -140,7 +140,7 @@ def _clean_panstarrs_catalog(catalog: Table, coord: SkyCoord,
         cut_psc = np.ones(len(catalog), dtype=bool)
 
     # Cross-match to remove GAIA stars with Vizier
-    cut_gaia_stars = _remove_gaia_stars(catalog, coord, ssize)
+    cut_gaia_stars, gaia_catalog = _remove_gaia_stars(catalog, coord, ssize)
 
     keep = cut_size & cut_mag & cut_point & cut_psc & cut_psf & cut_gaia_stars
 
@@ -207,13 +207,20 @@ def _remove_gaia_stars(catalog: Table, coord: SkyCoord, ssize: float):
 
     Returns:
         np.ndarray: Boolean mask where True = not a Gaia star
+        astropy.table.Table: Gaia catalog
     """
     Vizier.ROW_LIMIT = -1
     query_radius = ssize / 60. * units.deg
 
     try:
-        gaia_catalog = Vizier.query_region(
-            coord, radius=query_radius, catalog='I/355/gaiadr3')
+        vizier = Vizier(columns=["*", "+PSS", "+PGal"], catalog='I/355/gaiadr3')
+        gaia_catalog = vizier.query_region(coord, radius=query_radius)[0]#, catalog='I/355/gaiadr3')
+
+        # Cut on PSS
+        gaia_catalog = gaia_catalog[gaia_catalog['PSS'] > 0.99]
+
+        #gaia_catalog = Vizier.query_region(
+        #    coord, radius=query_radius, catalog='I/355/gaiadr3')
         if len(gaia_catalog) > 0:
             gaia_star_ids = gaia_catalog[0]['PS1']  # Pan-STARRS IDs matched to Gaia stars
             cut_gaia_stars = np.logical_not(
@@ -224,7 +231,7 @@ def _remove_gaia_stars(catalog: Table, coord: SkyCoord, ssize: float):
         print("Vizier Gaia query failed:", e)
         cut_gaia_stars = np.ones(len(catalog), dtype=bool)
 
-    return cut_gaia_stars
+    return cut_gaia_stars, gaia_catalog
 
 
 def _apply_dust_correction(catalog: Table, mag_key: str):
