@@ -103,7 +103,7 @@ class TestCatalogCleaning:
         coord = SkyCoord(180.0, -45.0, unit='deg')
 
         # This should not raise even if Vizier query fails
-        result = _remove_gaia_stars(catalog, coord, 5.0)
+        result, _ = _remove_gaia_stars(catalog, coord, 5.0)
         assert len(result) == 3
         assert result.dtype == bool
 
