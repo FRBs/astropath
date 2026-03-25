@@ -1,7 +1,7 @@
 """ Test methods in bayesian.py """
 
 import os
-from pkg_resources import resource_filename
+from importlib.resources import files as resource_files
 
 import numpy as np
 import pandas
@@ -25,7 +25,7 @@ def test_frb():
     Path = path.PATH()
 
     # Candidates
-    cand_file = os.path.join(resource_filename('astropath', 'data'), 'frb_example', 'frb180924_candidates.csv')
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')), 'frb_example', 'frb180924_candidates.csv')
     candidates = pandas.read_csv(cand_file, index_col=0)
     Path.init_candidates(candidates.ra.values,
                          candidates.dec.values,
@@ -57,7 +57,7 @@ def test_frb():
 def test_gw():
     Path = path.PATH()
     # Load up the healpix
-    lfile = os.path.join(resource_filename('astropath', 'data'), 'gw_examples',
+    lfile = os.path.join(str(resource_files('astropath').joinpath('data')), 'gw_examples',
                          'GW170817_skymap.fits.gz')
     gw170817 = hp.read_map(lfile)
     header = fits.open(lfile)[1].header
@@ -69,7 +69,7 @@ def test_gw():
                    healpix_coord='C')
 
     # Canidates
-    galfile = os.path.join(resource_filename('astropath', 'data'), 'gw_examples',
+    galfile = os.path.join(str(resource_files('astropath').joinpath('data')), 'gw_examples',
                            'GW170817_galaxies.csv')
     cut_galaxies = pandas.read_csv(galfile)
 

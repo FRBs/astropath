@@ -18,23 +18,26 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python: [3.9]
-        deps: [current, numpy123, astropydev, numpydev, astropydev-numpydev]
+        python: ['3.12', '3.13']
+        deps: [current, numpy210, astropydev, numpydev, astropydev-numpydev]
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python }}
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python }}
     - name: Install base dependencies
       run: |
-        python -m pip install --upgrade pip
-    - name: Test with numpy = 1.23
-      if: "contains(matrix.deps, 'numpy123')"
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install git+https://github.com/FRBs/frb.git#egg=frb
+        python -m pip install git+https://github.com/FRBs/ne2001.git#egg=ne2001
+        python -m pip install git+https://github.com/linetools/linetools#egg=linetools
+    - name: Test with numpy = 2.1.0
+      if: "contains(matrix.deps, 'numpy210')"
       run: |
-        python -m pip install numpy==1.23
+        python -m pip install numpy==2.1.0
     - name: Test with dev version of numpy
       if: "contains(matrix.deps, 'numpydev')"
       run: |
@@ -45,8 +48,10 @@ jobs:
         python -m pip install git+https://github.com/astropy/astropy.git#egg=astropy
     - name: Install astropath requirements
       run: |
-        python -m pip install wheel scipy IPython
         python -m pip install -r requirements.txt
+    - name: Install astropath
+      run: |
+        python -m pip install -e .
     - name: Print Python, pip, astropy, numpy, and setuptools versions
       run: |
         python -c "import sys; print(f'Python {sys.version}')"
@@ -55,17 +60,17 @@ jobs:
         python -c "import numpy; print(f'numpy {numpy.__version__}')"
         python -c "import setuptools; print(f'setuptools {setuptools.__version__}')"
     - name: Run tests
-      run: python setup.py test
+      run: pytest --pyargs astropath
 
   codestyle:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[ci skip]')"
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Python codestyle check
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
-        python-version: 3.9
+        python-version: '3.12'
     - name: Install base dependencies
       run: |
         python -m pip install --upgrade pip

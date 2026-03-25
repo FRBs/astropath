@@ -23,7 +23,7 @@ to generate a random set of FRBs, e.g.::
                   plots=False, nsample=10000)
 
 Here, `radec_sigma` specifies the 1-sigma precision of the
-loclization in RA and Dec, in arcsec.  
+localization in RA and Dec, in arcsec.  
 
 This method requires that you have downloaded the COSMOS galaxy
 feather file and placed into the `data/COSMOS` directory.  

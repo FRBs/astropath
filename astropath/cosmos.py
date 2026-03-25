@@ -1,7 +1,7 @@
 """ Definitions and methods related to COSMOS """
 
 import os
-from pkg_resources import resource_filename
+from importlib.resources import files as resource_files
 import numpy as np
 
 import pandas
@@ -34,7 +34,7 @@ def load_galaxies(cosmos_file:str=None):
         pandas.DataFrame: Table of galaxies
     """
     if cosmos_file is None:
-        cosmos_file = os.path.join(resource_filename('astropath', 'data'), 'COSMOS', 
+        cosmos_file = os.path.join(str(resource_files('astropath').joinpath('data')), 'COSMOS',
                                    'cosmos_acs_iphot_200709.feather')
         if not os.path.isfile(cosmos_file):
             raise IOError("You need to download the COSMOS galaxy file from GoogleDrive.  See the README.md file in that folder for info.")                                

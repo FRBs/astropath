@@ -47,7 +47,7 @@ Installing astropath
 
 Presently, you must download the code from github::
 
-	#go to the directory where you would like to install specdb.
+	# Go to the directory where you would like to install astropath
 	git clone https://github.com/FRBs/astropath.git
 
 From there, you can build and install with::

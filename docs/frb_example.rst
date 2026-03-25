@@ -3,7 +3,7 @@ FRB Example
 ***********
 
 This doc shows a simple usage case for PATH.
-It bascially follows the FRB_example Notebook.
+It basically follows the FRB_example Notebook.
 
 Setup
 =====
@@ -33,13 +33,13 @@ See :doc:`localization` for further details.
 Candidates
 ----------
 
-Now we define the host galaxy candidates.  The required input
-are the ra, dec, and angular size of the sources.  Most analyses
-also require a apparent magnitude.
+Now we define the host galaxy candidates.  The required inputs
+are the RA, Dec, and angular size of the sources.  Most analyses
+also require an apparent magnitude.
 
 We read our data from disk and then pass them to the Path object::
 
-    cand_file = os.path.join(resource_filename('astropath', 'data'), 'frb_example', 'frb180924_candidates.csv')   
+    cand_file = os.path.join(str(resource_files('astropath').joinpath('data')), 'frb_example', 'frb180924_candidates.csv')
     import pandas
     candidates = pandas.read_csv(cand_file, index_col=0)
     # Now in Path
@@ -86,8 +86,8 @@ Calculate Posteriors
 There are two approaches to calculating the posteriors:
 (i) in a fixed box around the transient;  this is best for well-localized
 transients (e.g. ~1");
-(ii) locally around each source;  this is best for large 
-localiation regions (>1').
+(ii) locally around each source;  this is best for large
+localization regions (>1').
 
 Another simple call with the "fixed" approach::
 

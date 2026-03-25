@@ -31,44 +31,61 @@ cand_dmodel = {
 }
 
 
-
 def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     """
-    Calculate raw prior for galaxy candidates
-    If Sigma(m) is required, we adopt the Driver et al. 2016 
-    evaluation 
+    Calculate the raw prior probability for galaxy candidates based on angular size and magnitude.
 
-    Args:
-        method (str):
-            inverse :: Assign inverse to Sigma_m
-            inverse_ang :: Assign inverse to Sigma_m * half_light
-            inverse_ang2 :: Assign inverse to Sigma_m * half_light**2
-            identical :: All the same
-            user :: Use the user-defined function USR_raw_prior_Oi
+    Parameters
+    ----------
+    method : str
+        Method to use for prior calculation. Options:
+        - 'inverse'       : 1 / Sigma_m
+        - 'inverse_ang'   : 1 / (Sigma_m * ang_size)
+        - 'inverse_ang2'  : 1 / (Sigma_m * ang_size^2)
+        - 'identical'     : All priors set equal (1)
+        - 'user'          : Use the user-defined function USR_raw_prior_Oi
                 That function must take the arguments: mag, ang_size, rho_m
                 where rho_m is the differential sigma of the galaxy in mag/arcsec^2
-        ang_size (float or np.ndarray):
-            Angular size of the galaxy in arcsec
-            Only required for several methods
-        mag (float or np.ndarray, optional):
-            Magnitudes of the sources;  assumes r-band and corrected
-            for Galactic extinction
 
-    Returns:
-        float or np.ndarray:
+    ang_size : float or np.ndarray
+        Angular size(s) in arcseconds. Required for all methods except 'identical'.
 
+    mag : float or np.ndarray, optional
+        Apparent magnitudes (assumed extinction-corrected r-band). Required for all methods except 'identical'.
+
+    filter : str
+        Photometric filter to use for number counts. Supported: 'r', 'F200W'
+
+    Returns
+    -------
+    float or np.ndarray
+        Raw prior value(s)
     """
     # allows a user to set this externally
     global USR_raw_prior_Oi
-    
+
+    if method == 'identical':
+        return 1.0 if np.isscalar(ang_size) else np.ones_like(ang_size)
+
+    if mag is None:
+        raise ValueError("Magnitude `mag` must be provided for non-identical methods.")
+
+    supported_filters = {
+        'r': chance.driver_sigma,
+        'F200W': chance.windhorst_sigma
+    }
+
+    if filter not in supported_filters:
+        raise ValueError(f"Unsupported filter '{filter}'. Supported: {list(supported_filters.keys())}")
+
     # Convenience
-    if method not in ['identical']:
+    if method == 'user':
         if filter != 'r':
             raise IOError("Not ready for this.  Best to go with what you have that is closest to r-band")
-        if method == 'user':
-            rho_m = chance.differential_driver_sigma(mag)
-        else:
-            Sigma_m = chance.driver_sigma(mag)
+        rho_m = chance.differential_driver_sigma(mag)
+    else:
+        # Compute surface density
+        Sigma_m = supported_filters[filter](mag)
 
     # Do it
     if method == 'inverse':
