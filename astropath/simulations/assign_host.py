@@ -19,12 +19,18 @@ from astropy.coordinates import SkyCoord, match_coordinates_sky
 
 from IPython import embed
 
-def load_galaxy_catalog():
-    # Try to load real catalog
+def load_galaxy_catalog(catalog_fn:str = 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'):
+    """
+    Load possible host galaxy catalog with filename catalog_fn located
+    in the directory indicated by the FRB_APATH environmental variable.
+
+    Args:
+        catalog_fn (str): filename of the catalog of possible hosts
+    """
     frb_apath = os.environ.get('FRB_APATH')
     
     if frb_apath is not None:
-        catalog_path = Path(frb_apath) / 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'
+        catalog_path = Path(frb_apath) / catalog_fn
         
         if catalog_path.exists():
             print(f"Loading real galaxy catalog from:")
@@ -69,7 +75,7 @@ def assign_frbs_to_hosts(
         galaxy_catalog (pd.DataFrame): Galaxy catalog with columns:
             - 'ra': Right ascension (degrees)
             - 'dec': Declination (degrees)
-            - 'mag_best': Apparent r-band magnitude
+            - 'mag': Apparent r-band magnitude
             - 'half_light': Half-light radius (arcsec)
             - 'ID': Unique galaxy identifier
         localization (tuple): Error ellipse parameters (a, b, PA) where:
@@ -179,7 +185,7 @@ def _validate_frb_columns(frb_df: pd.DataFrame):
 
 def _validate_galaxy_columns(galaxy_df: pd.DataFrame):
     """Validate that galaxy DataFrame has required columns."""
-    required_cols = ['ra', 'dec', 'mag_best', 'half_light', 'ID']
+    required_cols = ['ra', 'dec', 'mag', 'half_light', 'ID']
     missing = [col for col in required_cols if col not in galaxy_df.columns]
     if missing:
         raise ValueError(f"Galaxy catalog missing required columns: {missing}")
@@ -216,17 +222,16 @@ def _match_by_magnitude(
     """
     Match FRBs to galaxies by apparent magnitude using fake coordinates.
 
-    This implements the clever magnitude-matching algorithm from
-    frb.frb_surveys.mock.frbs_in_hosts(). It creates "fake" sky coordinates
-    where the declination encodes the magnitude, then uses astropy's
-    match_coordinates_sky to match by brightness.
+    This implements a magnitude-matching algorithm from that creates
+    "fake" sky coordinates where the declination encodes the magnitude,
+    then uses astropy's match_coordinates_sky to match by brightness.
 
     The algorithm iteratively matches FRBs to galaxies, ensuring each galaxy
     is used only once.
 
     Args:
         frb_df: FRB catalog with 'm_r' column
-        galaxy_df: Galaxy catalog with 'mag_best' column
+        galaxy_df: Galaxy catalog with 'mag' column
         debug: Enable debug output
 
     Returns:
@@ -244,7 +249,7 @@ def _match_by_magnitude(
 
     fake_galaxy_coords = SkyCoord(
         ra=np.ones(len(galaxy_df)),
-        dec=galaxy_df['mag_best'].values,
+        dec=galaxy_df['mag'].values,
         unit='deg'
     )
 
@@ -494,7 +499,7 @@ def _build_output_dataframe(
         'true_dec': [coord.dec.deg for coord in true_coords],
         'gal_ID': galaxy_sample.ID.values,
         'gal_off': gal_offsets,
-        'mag': galaxy_sample.mag_best.values,
+        'mag': galaxy_sample.mag.values,
         'half_light': galaxy_sample.half_light.values,
         'loc_off': loc_offsets,
         'FRB_ID': frb_original_indices,
