@@ -2,8 +2,9 @@
 Module for assigning simulated FRBs to host galaxies by apparent magnitude (m_r).
 
 This module implements magnitude-based host assignment that matches FRBs to
-galaxies from a catalog by their apparent r-band magnitudes, ensuring realistic
-associations where brighter FRBs tend to be assigned to brighter galaxies.
+galaxies from a catalog by their apparent r-band magnitudes, and then simulates
+galactocentric offsets due to both the intrinsic FRB distribution and the
+localization region.
 """
 
 import os
@@ -43,6 +44,7 @@ def assign_frbs_to_hosts(
     galaxy_catalog: pd.DataFrame,
     localization: Tuple[float, float, float],
     mag_range: Tuple[float, float] = None, #(17., 28.),
+    offset_function:str = 'exponential', 
     scale: float = 0.5,
     trim_catalog: units.Quantity = 1 * units.arcmin,
     seed: Optional[int] = None,
@@ -56,8 +58,8 @@ def assign_frbs_to_hosts(
     where magnitudes are encoded as declinations, allowing sky coordinate
     matching to effectively match by brightness.
 
-    Each FRB is randomly placed within the host galaxy according to an
-    exponential offset distribution, then the observed coordinates are offset
+    Each FRB is randomly placed within the host galaxy according to the indicated
+    offset distribution (exponential by default), then the observed coordinates are offset
     according to the localization error ellipse.
 
     Args:
@@ -76,8 +78,10 @@ def assign_frbs_to_hosts(
             - PA: Position angle (degrees, East of North)
         mag_range (tuple, optional): (min, max) magnitude range for FRB selection.
             FRBs outside this range are filtered out. Default: (17., 28.)
-        scale (float, optional): Scale factor for galaxy half-light radius when
-            placing FRBs. Smaller values concentrate FRBs closer to galaxy centers.
+        offset_function (str, optional): Function to use for generating galaxy positions (exponential, uniform)
+        scale (float, optional): Scale factor for exponential half-light radius or uniform distribution
+            outer cutoff when offsetting FRBs due to intrinsic distribution.
+            Smaller values concentrate FRBs closer to galaxy centers.
             Default: 0.5
         trim_catalog (units.Quantity, optional): Buffer to trim from catalog edges
             to ensure FRBs stay within analysis region. Default: 1 arcmin
@@ -148,7 +152,7 @@ def assign_frbs_to_hosts(
 
     # Generate FRB positions within galaxies
     true_coords = _generate_galaxy_positions(
-        galaxy_sample, scale=scale, #seed=seed
+        galaxy_sample, scale=scale, function=offset_function, #seed=seed
     )
 
     # Apply localization error
@@ -218,8 +222,7 @@ def _match_by_magnitude(
     match_coordinates_sky to match by brightness.
 
     The algorithm iteratively matches FRBs to galaxies, ensuring each galaxy
-    is used only once. Brighter FRBs are preferentially matched to brighter
-    galaxies.
+    is used only once.
 
     Args:
         frb_df: FRB catalog with 'm_r' column
@@ -337,8 +340,9 @@ def _generate_galaxy_positions(
 
     Args:
         galaxy_sample: Selected host galaxies
-        scale: Scale factor for half-light radius (smaller = more concentrated)
-        function: Function to use for generating galaxy positions (exponential, uniform, truncated normal)
+        scale: Scale factor for exponential half-light radius (smaller = more concentrated), or for the
+               outer cutoff for the uniform function (arcseconds)
+        function: Function to use for generating galaxy positions (exponential, uniform)
         seed: Random seed
 
     Returns:
@@ -369,7 +373,7 @@ def _generate_galaxy_positions(
         randn = randn[good][:n_frbs]
     elif function == 'uniform':
         randn = np.random.uniform(low=0., high=10., size=10*n_frbs)
-        good = np.abs(randn) < (6.)
+        good = np.abs(randn) < scale
         randn = randn[good][:n_frbs]
     #elif function == 'truncated normal':
     #    randn = np.random.normal(size=10 * n_frbs)
