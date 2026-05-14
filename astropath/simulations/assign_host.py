@@ -368,12 +368,16 @@ def _generate_galaxy_positions(
     #randn = randn[good][:n_frbs]
 
     if function == 'exponential':
-        randn = np.random.exponential(scale=scale, size=10 * n_frbs)
-        good = np.abs(randn) < (6.)
+        # Gamma(2, scale) gives p(r) ∝ r·exp(-r/scale), matching the
+        # PATH per-solid-angle exponential prior
+        randn = np.random.gamma(shape=2, scale=scale, size=10 * n_frbs)
+        good = randn < 6.
         randn = randn[good][:n_frbs]
     elif function == 'uniform':
-        randn = np.random.uniform(low=0., high=10., size=10*n_frbs)
-        good = np.abs(randn) < scale
+        # scale * sqrt(U) gives p(r) ∝ r over [0, scale], matching the
+        # PATH per-solid-angle uniform prior (constant per pixel over a disk)
+        randn = scale * np.sqrt(np.random.uniform(low=0., high=1., size=10 * n_frbs))
+        good = randn < scale
         randn = randn[good][:n_frbs]
     #elif function == 'truncated normal':
     #    randn = np.random.normal(size=10 * n_frbs)
