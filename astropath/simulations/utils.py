@@ -1,4 +1,5 @@
 import pandas
+import numpy as np
 from astropy.coordinates import SkyCoord
 
 
@@ -62,11 +63,10 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
             'dec': 'dec_cand',
             'mag': 'mag_cand',
             'ang_size': 'ang_size_cand',
-            'sep': 'sep_cand',
             'ID': 'cand_ID',
         },
     )
-    best_cands.drop(columns=['iFRB', 'gal_ID'], inplace=True)
+    best_cands.drop(columns=['sep', 'iFRB', 'gal_ID'], inplace=True)
     hosts = hosts.rename(
         columns={
             'ra': 'ra_loc', 
@@ -109,8 +109,9 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     df = hosts.merge(best_cands, left_index=True, right_index=True)
 
     print("Determine correct and incorrect matches")
-    max_ang_size = np.maximum.reduce([df.ang_size_cand.values, df.half_light_host.values], axis=0)
-    match_criteria = (df.sep_best_host.values < thresh_cross_match*max_ang_size)
+    max_ang_size = np.maximum.reduce([df.ang_size_cand.values, df.ang_size_host.values], axis=0)
+    match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match*max_ang_size)
+    df['correct_association'] = match_criteria
 
     if output_fn is not None:
         print("Saving to file: {}".format(output_fn))
