@@ -6,7 +6,8 @@ from astropy.coordinates import SkyCoord
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
                  output_fn:str=None, thresh_cross_match:float=2.):
     """
-    Construct a digest of the simulation results.
+    Combines together the pandas.DataFrame from each simulation step into a "digest"
+    DataFrame that can be easily parsed to make informative plots about the simulation results
 
     Args:
         raw_sim_results (pandas.DataFrame): The simulation results dataframe
@@ -19,7 +20,41 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
             it is a multiple of the galaxy half-light radius.
 
     Returns:
-        pandas.DataFrame: The digest dataframe
+        pandas.DataFrame: The digest dataframe with the following columns:
+            - `ra_loc`: Observed FRB RA (degrees) - includes localization error
+            - `dec_loc`: Observed FRB Dec (degrees) - includes localization error
+            - `true_ra`: True FRB RA in the galaxy (degrees)
+            - `true_dec`: True FRB Dec in the galaxy (degrees)
+            - `host_ID`: ID of assigned host galaxy within the possible host catalog (see `assign_host` step)
+            - `gal_off`: Offset from galaxy center (arcsec)
+            - `mag_host`: Apparent r-band magnitude of the true host galaxy
+            - `ang_size_host`: Angular size of the true host galaxy (arcsec)
+            - `loc_off`: Localization error offset (arcsec)
+            - `FRB_ID`: FRB index from the `generate_frbs` step
+            - `a`: Localization semi-major axis (arcsec)
+            - `b`: Localization semi-minor axis (arcsec)
+            - `PA`: Localization position angle (degrees)
+            - `ra_host`: RA of the host galaxy center (degrees)
+            - `dec_host`: DEC of the host galaxy center (degrees)
+            - `sep_best_host_arcsec`: Separation between the center of the best candidate and true host (arcsec)
+            - `sep_host_loc_arcsec`: Separation between the center of the true host and localization (arcsec)
+            - `sep_best_loc_arcsec`: Separation between the center of the best candidate and localization (arcsec)
+            - `sep_host_loc_norm`: Separation between the center of the true host and localization, normalized by the angular size of the true host
+            - `sep_best_loc_norm`: Separation between the center of the best candidate and localization, normalized by the angular size of the best candidate
+            - `z_host`: Simulated FRB redshift
+            - `dmex_host`: Simulated FRB extragalactic DM
+            - `frb_mr`: Simulated FRB host apparent r-band magnitude
+            - `frb_Mr`: Simulated FRB host absolute r-band magnitude
+            - `ra_cand`: RA of the best candidate galaxy center (degrees)
+            - `dec_cand`: DEC of the best candidate galaxy center (degrees)
+            - `mag_cand`: Apparent r-band magnitude of the best candidate galaxy
+            - `ang_size_cand`: Angular size of the best candidate galaxy (arcsec)
+            - `cand_ID`: ID of assigned host galaxy within the galaxy catalog used to run PATH (see `run_path` step)
+            - `P_O`: Value of the PATH prior P(Oi) for the best candidate
+            - `p_xO`: Value of the PATH likelihood p(x|Oi) for the best candidate
+            - `P_Ox`: Value of the PATH posterior P(Oi|x) for the best candidate
+            - `P_Ux`: Value of the PATH posterior P(U|x)
+            - `correct_association`: A boolean indicating whether the best candidate matches the true host (a "correct" association), based on a spatial cross-match
     """
 
     print("Get parameters from the simulation results dataframe")
