@@ -84,7 +84,7 @@ def assign_frbs_to_hosts(
             - PA: Position angle (degrees, East of North)
         mag_range (tuple, optional): (min, max) magnitude range for FRB selection.
             FRBs outside this range are filtered out. Default: (17., 28.)
-        offset_function (str, optional): Function to use for generating galaxy positions (exponential, uniform)
+        offset_function (str, optional): Function to use for generating galaxy positions (exponential, uniform_1d, uniform_2d)
         scale (float, optional): Scale factor for exponential half-light radius or uniform distribution
             outer cutoff when offsetting FRBs due to intrinsic distribution.
             Smaller values concentrate FRBs closer to galaxy centers.
@@ -378,18 +378,242 @@ def _generate_galaxy_positions(
         randn = np.random.gamma(shape=2, scale=scale, size=10 * n_frbs)
         good = randn < 6.
         randn = randn[good][:n_frbs]
-    elif function == 'uniform':
+    _galaxy_positions(
+        galaxy_sample, scale=scale, function=offset_function, #seed=seed
+    )
+
+    # Apply localization error
+    obs_coords, loc_offsets = _apply_localization_error(
+        true_coords, localization, #seed=seed
+    )
+
+    # Build output DataFrame
+    df_out = _build_output_dataframe(
+        obs_coords, true_coords, galaxy_sample,
+        loc_offsets, localization, cut_frbs.index.values
+    )
+
+    return df_out
+
+
+def _validate_frb_columns(frb_df: pd.DataFrame):
+    """Validate that FRB DataFrame has required columns."""
+    required_cols = ['m_r']
+    missing = [col for col in required_cols if col not in frb_df.columns]
+    if missing:
+        raise ValueError(f"FRB DataFrame missing required columns: {missing}")
+
+
+def _validate_galaxy_columns(galaxy_df: pd.DataFrame):
+    """Validate that galaxy DataFrame has required columns."""
+    required_cols = ['ra', 'dec', 'mag', 'half_light', 'ID']
+    missing = [col for col in required_cols if col not in galaxy_df.columns]
+    if missing:
+        raise ValueError(f"Galaxy catalog missing required columns: {missing}")
+
+
+def _trim_catalog(galaxy_df: pd.DataFrame, trim: units.Quantity) -> pd.DataFrame:
+    """
+    Trim edges off catalog to maintain PATH analysis region.
+
+    Args:
+        galaxy_df: Galaxy catalog
+        trim: Buffer size to remove from edges
+
+    Returns:
+        Trimmed galaxy catalog
+    """
+    ra = galaxy_df.ra.values * units.deg
+    dec = galaxy_df.dec.values * units.deg
+
+    ra_min, ra_max = ra.min(), ra.max()
+    dec_min, dec_max = dec.min(), dec.max()
+
+    cut_ra = (ra > (ra_min + trim)) & (ra < (ra_max - trim))
+    cut_dec = (dec > (dec_min + trim)) & (dec < (dec_max - trim))
+
+    return galaxy_df[cut_ra & cut_dec]
+
+
+def _match_by_magnitude(
+    frb_df: pd.DataFrame,
+    galaxy_df: pd.DataFrame,
+    debug: bool = False
+) -> np.ndarray:
+    """
+    Match FRBs to galaxies by apparent magnitude using fake coordinates.
+
+    This implements a magnitude-matching algorithm from that creates
+    "fake" sky coordinates where the declination encodes the magnitude,
+    then uses astropy's match_coordinates_sky to match by brightness.
+
+    The algorithm iteratively matches FRBs to galaxies, ensuring each galaxy
+    is used only once.
+
+    Args:
+        frb_df: FRB catalog with 'm_r' column
+        galaxy_df: Galaxy catalog with 'mag' column
+        debug: Enable debug output
+
+    Returns:
+        Array of galaxy DataFrame indices matching each FRB
+    """
+    n_frbs = len(frb_df)
+
+    # Create fake coordinates with magnitude encoded as declination
+    # RA is set to 1 for all (doesn't matter, only dec is used for matching)
+    fake_frb_coords = SkyCoord(
+        ra=np.ones(n_frbs),
+        dec=frb_df['m_r'].values,
+        unit='deg'
+    )
+
+    fake_galaxy_coords = SkyCoord(
+        ra=np.ones(len(galaxy_df)),
+        dec=galaxy_df['mag'].values,
+        unit='deg'
+    )
+
+    # Prepare for iterative matching
+    galaxy_used = np.zeros(len(galaxy_df), dtype=bool)
+    galaxy_indices = np.arange(len(galaxy_df))
+    galaxy_df_indices = galaxy_df.index.values.copy()
+    frb_assignments = -1 * np.ones(n_frbs, dtype=int)
+
+    # Iteratively match FRBs to galaxies
+    iteration = 0
+    while np.any(frb_assignments < 0):
+        iteration += 1
+        n_remaining = np.sum(frb_assignments < 0)
+
+        if debug or (iteration == 1) or (n_remaining < 100) or (iteration % 10 == 0):
+            print(f"Iteration {iteration}: {n_remaining} FRBs remaining")
+            print(f"  Brightest unassigned FRB: m_r = {np.min(fake_frb_coords[frb_assignments < 0].dec):.2f}")
+
+        # Get unassigned FRBs and available galaxies
+        unassigned_mask = frb_assignments < 0
+        available_mask = ~galaxy_used
+
+        sub_frb_coords = fake_frb_coords[unassigned_mask]
+        sub_frb_indices = np.where(unassigned_mask)[0]
+
+        sub_galaxy_coords = fake_galaxy_coords[available_mask]
+        sub_galaxy_df_indices = galaxy_df_indices[available_mask]
+        sub_galaxy_flag_indices = galaxy_indices[available_mask]
+
+        # Check if we've run out of bright galaxies
+        if np.max(sub_frb_coords.dec.deg) < np.min(sub_galaxy_coords.dec.deg):
+            # Assign remaining FRBs to remaining galaxies by sorted magnitude
+            print(f"Ran out of bright galaxies at iteration {iteration}")
+            print(f"  Brightest remaining galaxy: m_r = {np.min(sub_galaxy_coords.dec.deg):.2f}")
+            print(f"  Faintest remaining FRB: m_r = {np.max(sub_frb_coords.dec.deg):.2f}")
+
+            srt_galaxies = np.argsort(sub_galaxy_coords.dec.deg)
+            srt_frbs = np.argsort(sub_frb_coords.dec.deg)
+
+            n_to_assign = min(len(srt_frbs), len(srt_galaxies))
+            frb_assignments[sub_frb_indices[srt_frbs[:n_to_assign]]] = \
+                sub_galaxy_df_indices[srt_galaxies[:n_to_assign]]
+
+            if len(srt_frbs) > len(srt_galaxies):
+                print(f"WARNING: {len(srt_frbs) - len(srt_galaxies)} FRBs could not be assigned")
+
+            break
+
+        # Match coordinates (effectively matching by magnitude)
+        idx, d2d, _ = match_coordinates_sky(
+            sub_frb_coords, sub_galaxy_coords, nthneighbor=1
+        )
+
+        if debug or iteration == 1:
+            print(f"  Max magnitude separation: {d2d.max():.4f} deg")
+
+        # Handle case where multiple FRBs match to same galaxy
+        # Keep only first match for each unique galaxy
+        unique_galaxies, unique_indices = np.unique(idx, return_index=True)
+
+        # Assign these FRBs to their matched galaxies
+        frb_assignments[sub_frb_indices[unique_indices]] = \
+            sub_galaxy_df_indices[unique_galaxies]
+
+        # Mark these galaxies as used
+        galaxy_used[sub_galaxy_flag_indices[unique_galaxies]] = True
+
+    print(f"Assignment complete after {iteration} iterations")
+
+    # Verify all FRBs were assigned
+    if np.any(frb_assignments < 0):
+        n_unassigned = np.sum(frb_assignments < 0)
+        raise RuntimeError(
+            f"{n_unassigned} FRBs could not be assigned to galaxies. "
+            "Galaxy catalog may be too small or magnitude distribution mismatch."
+        )
+
+    return frb_assignments
+
+
+def _generate_galaxy_positions(
+    galaxy_sample: pd.DataFrame,
+    scale: float = 0.5,
+    function:str='exponential',
+    seed: Optional[int] = None
+) -> list:
+    """
+    Generate random FRB positions within host galaxies.
+
+    FRB positions are sampled from a truncated normal distribution with
+    width proportional to the galaxy's half-light radius.
+
+    Args:
+        galaxy_sample: Selected host galaxies
+        scale: Scale factor for exponential half-light radius (smaller = more concentrated), or for the
+               outer cutoff for the uniform function (arcseconds)
+        function: Function to use for generating galaxy positions (exponential, uniform)
+        seed: Random seed
+
+    Returns:
+        List of SkyCoord objects for true FRB positions
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    n_frbs = len(galaxy_sample)
+
+    # Galaxy center coordinates
+    galaxy_coords = SkyCoord(
+        ra=galaxy_sample.ra.values,
+        dec=galaxy_sample.dec.values,
+        unit='deg'
+    )
+
+    # Generate offsets from galaxy centers
+    # Use truncated normal distribution (within 6 sigma)
+    #theta_max = galaxy_sample.half_light.values / scale
+    #randn = np.random.normal(size=10 * n_frbs)
+    #good = np.abs(randn) < (6. * scale)
+    #randn = randn[good][:n_frbs]
+
+    if function == 'exponential':
+        # Gamma(2, scale) gives p(r) ∝ r·exp(-r/scale), matching the
+        # PATH per-solid-angle exponential prior
+        randn = np.random.gamma(shape=2, scale=scale, size=10 * n_frbs)
+        good = randn < 6.
+        randn = randn[good][:n_frbs]
+    elif function == 'uniform_1d':
+        # Uniform when integrated over azimuth
+        randn = np.random.uniform(low=0., high=10., size=10*n_frbs)
+        good = np.abs(randn) < scale
+        randn = randn[good][:n_frbs]
+    elif function == 'uniform_2d':
         # scale * sqrt(U) gives p(r) ∝ r over [0, scale], matching the
         # PATH per-solid-angle uniform prior (constant per pixel over a disk)
-        randn = scale * np.sqrt(np.random.uniform(low=0., high=1., size=10 * n_frbs))
-        good = randn < scale
-        randn = randn[good][:n_frbs]
+        randn = scale * np.sqrt(np.random.uniform(low=0., high=1., size=n_frbs))
     #elif function == 'truncated normal':
     #    randn = np.random.normal(size=10 * n_frbs)
     #    good = np.abs(randn) < (6.)
     #    randn = randn[good][:n_frbs]
     else:
-        raise ValueError(f"Invalid function: {function}")
+        raise ValueError(f"Invalid offset function: {function} (options: 'exponential', 'uniform_1d', uniform_2d'")
 
     # Generate offsets
     galaxy_offsets = randn * galaxy_sample.half_light.values * units.arcsec
