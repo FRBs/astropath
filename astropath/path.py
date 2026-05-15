@@ -148,7 +148,7 @@ class PATH(object):
 
         # Normalize
         if self.cand_prior['P_O_method']=='user':
-            logging.info("Skippng prior normalization")
+            logging.info("Skipping prior normalization")
             self.prior_Oi = self.raw_prior_Oi
         else:
             logging.info("Normalizing priors")

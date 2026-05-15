@@ -362,13 +362,25 @@ def _generate_galaxy_positions(
     #randn = np.random.normal(size=10 * n_frbs)
     #good = np.abs(randn) < (6. * scale)
     #randn = randn[good][:n_frbs]
-
+    
     if function == 'exponential':
-        randn = np.random.exponential(scale=scale, size=10 * n_frbs)
+        # create pdf
+        xvals = np.linspace(0.,10.101)
+        # generate pdf
+        pdf = xvals * np.exp(-xvals/scale)
+        # generate cdf
+        cdf = np.cumsum(pdf)
+        cdf /= cdf[-1] # normalise
+        deviates = np.random.rand(10 * n_frbs) #calculate deviates
+        randn = np.interp(deviates, cdf, xvals)
+        
+        #randn = np.random.exponential(scale=scale, size=10 * n_frbs)
         good = np.abs(randn) < (6.)
         randn = randn[good][:n_frbs]
     elif function == 'uniform':
-        randn = np.random.uniform(low=0., high=10., size=10*n_frbs)
+        # power of 0.5 below samples from a distribution where p(x) \propto x
+        # *10 givs a final sample from 0 to 10
+        randn = np.random.uniform(low=0., high=1., size=10*n_frbs)**0.5 * 10.
         good = np.abs(randn) < (6.)
         randn = randn[good][:n_frbs]
     #elif function == 'truncated normal':
