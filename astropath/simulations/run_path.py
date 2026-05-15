@@ -149,6 +149,7 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
 
     # RUn it!
     print("PATH time")
+    print("Will take a while, ~1 hr for 10,000 FRBs, depending on your computing setup and ncpu.")
     if multi:
         pool = multiprocessing.Pool(processes=ncpu)
         results = [pool.apply_async(run_dict_wrapper,
