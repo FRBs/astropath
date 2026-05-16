@@ -1,6 +1,8 @@
 import pandas
 import numpy as np
 from astropy.coordinates import SkyCoord
+from scipy.signal import convolve
+from scipy.special import ellipe
 
 
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
@@ -153,3 +155,145 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         df.to_parquet(output_fn)
     
     return df
+
+
+def azimuthal_integrated_prior(u, theta_prior):
+    """
+    1D radial PDF p(u) where u = theta/phi, obtained by integrating 
+    pw_Oi over azimuth:
+        p(u) = 2*pi*theta * pw_Oi(theta) * phi   [change of variables theta->u]
+
+    For 'exp':     p(u) = u*exp(-u/s) / (s^2 * (1-(1+max)*exp(-max)))
+    For 'uniform': p(u) = 2u / max^2  for u in [0, max]
+
+    Parameters
+    ----------
+    u : np.ndarray
+        Normalized galactocentric offset theta/phi
+    theta_prior : dict
+        Same format as pw_Oi: keys 'PDF', 'scale', 'max'
+
+    Returns
+    -------
+    np.ndarray : normalized 1D PDF values on grid u
+    """
+    u = np.asarray(u, dtype=float)
+    p = np.zeros_like(u)
+
+    if theta_prior['PDF'] == 'exp':
+        s     = theta_prior.get('scale', 1.0)
+        max_v = theta_prior['max']          # cutoff in units of phi_eff = phi*s
+        max_u = max_v * s                   # cutoff in units of phi
+        ok    = u <= max_u
+        # Normalization: integral of u*exp(-u/s) du from 0 to max_u
+        # = s^2 * (1 - (1+max_v)*exp(-max_v))
+        norm  = s**2 * (1 - (1 + max_v) * np.exp(-max_v))
+        p[ok] = u[ok] * np.exp(-u[ok] / s) / norm
+
+    elif theta_prior['PDF'] == 'uniform':
+        max_u = theta_prior['max']
+        ok    = u <= max_u
+        # p(u) = 2u/max^2, integrates to 1 over [0, max]
+        p[ok] = 2 * u[ok] / max_u**2
+
+    elif theta_prior['PDF'] == 'core':
+        # p_2d = phi/(theta+phi)/norm  =>  p_1d(u) = 2*pi*phi*u / (u*phi+phi) * phi / norm
+        # = 2*pi*phi^2 * u / (phi*(u+1)) / norm = 2*pi*phi * u/(u+1) / norm
+        # norm_2d = 2*pi*(term_max - term0), so in normalized units:
+        # p(u) = u/(u+1) / integral[u/(u+1) du from 0 to max]
+        max_u = theta_prior['max']
+        ok    = u <= max_u
+        norm  = max_u - np.log(1 + max_u)
+        p[ok] = u[ok] / (u[ok] + 1) / norm
+
+    return p
+
+
+def convolve_prior_with_loc(u, p_prior, sigma_over_phi):
+    """
+    Convolve the 1D radial prior p(u) (u = theta/phi) with a Gaussian
+    localization kernel of width sigma_over_phi = sigma_loc / phi.
+
+    Uses a 1D Gaussian as an approximation to the azimuthally-marginalized
+    2D localization error.
+
+    Parameters
+    ----------
+    u : np.ndarray
+        Uniformly spaced grid of theta/phi values
+    p_prior : np.ndarray
+        Prior values on grid u (from azimuthal_integrated_prior)
+    sigma_over_phi : float
+        Localization 1-sigma in units of the host half-light radius phi
+
+    Returns
+    -------
+    u_conv : np.ndarray
+        Extended u grid for the convolved distribution
+    p_conv : np.ndarray
+        Convolved, normalized distribution
+    """
+    du     = u[1] - u[0]
+    kernel = np.exp(-u**2 / (2 * sigma_over_phi**2))
+    kernel /= np.sum(kernel) * du          # normalize kernel to unit integral
+
+    p_conv = convolve(p_prior, kernel, mode='full')
+    p_conv = np.maximum(p_conv, 0.)        # clip numerical negatives
+
+    u_conv = np.arange(len(p_conv)) * du   # extended grid
+    norm   = np.sum(p_conv) * du
+    if norm > 0:
+        p_conv /= norm
+
+    return u_conv, p_conv
+
+
+def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host'):
+    """
+    Average the localization-convolved prior over a population of FRBs,
+    each with its own localization ellipse and host half-light radius.
+
+    Parameters
+    ----------
+    u : np.ndarray
+        Normalized offset grid (theta/phi)
+    theta_prior : dict
+        Prior parameters for azimuthal_integrated_prior
+    frb_df : pd.DataFrame
+        Must have columns 'a', 'b' (loc semi-axes in arcsec) and phi_col
+    phi_col : str
+        Column name for host half-light radius in arcsec
+
+    Returns
+    -------
+    u_conv : np.ndarray
+    p_stacked : np.ndarray
+        Mean convolved prior over all FRBs
+    """
+    p_prior   = azimuthal_integrated_prior(u, theta_prior)
+    stacked   = None
+
+    for _, frb in frb_df.iterrows():
+        # Effective circular sigma from ellipse via mean radius of ellipse
+        sig_a = max(frb.a, frb.b)
+        sig_b = min(frb.a, frb.b)
+        k     = np.sqrt(1 - (sig_b / sig_a)**2)
+        sigma_arcsec    = (2. / np.pi) * sig_a * ellipe(k) * np.sqrt(2)
+        sigma_over_phi  = sigma_arcsec / frb[phi_col]
+
+        u_conv, p_conv = convolve_prior_with_loc(u, p_prior, sigma_over_phi)
+
+        if stacked is None:
+            stacked = p_conv.copy()
+        else:
+            # pad shorter array to match length
+            if len(p_conv) < len(stacked):
+                p_conv  = np.pad(p_conv,  (0, len(stacked) - len(p_conv)))
+            elif len(stacked) < len(p_conv):
+                stacked = np.pad(stacked, (0, len(p_conv) - len(stacked)))
+            stacked += p_conv
+
+    stacked /= len(frb_df)
+    du       = u[1] - u[0]
+    stacked /= np.sum(stacked) * du    # renormalize after stacking
+    return u_conv, stacked
