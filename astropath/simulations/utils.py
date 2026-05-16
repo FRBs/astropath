@@ -1,8 +1,9 @@
 import pandas
 import numpy as np
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, match_coordinates_sky
 from scipy.signal import convolve
 from scipy.special import ellipe
+import time
 
 
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
@@ -147,7 +148,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
 
     print("Determine correct and incorrect matches")
     max_ang_size = np.maximum.reduce([df.ang_size_cand.values, df.ang_size_host.values], axis=0)
-    match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match*max_ang_size)
+    match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match * max_ang_size)
     df['correct_association'] = match_criteria
 
     if output_fn is not None:
@@ -155,6 +156,53 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         df.to_parquet(output_fn)
     
     return df
+
+
+def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
+                     mag_limit:float=15., thresh_cross_match:float=2.):
+    """
+    Determines whether a set of FRB host galaxies (hosts) is "unseen" (not detected
+    as a source) in the given galaxy catalog of limited magnitude depths
+
+    Args:
+        hosts (pandas.DataFrame): Simulated FRB hosts, must contain columns:
+            `mag_host`, `ra_host`, `dec_host`, `ang_size_host`
+        galaxy_catalog (pandas.DataFrame): Galaxy catalog of limited depth,
+            must contain columns: `ra`, `dec`, `ang_size`
+        mag_limit (float): Lower limit to filter hosts catalog. This exists because we
+            make cuts in our galaxy_catalog samples mr < 14. Thus, below this threshold,
+            a simulated host will artificially not have a matching source in the galaxy_catalog.
+        thresh_cross_match (float): A factor that sets the cross-matching threshold
+            that determines whether an FRB host is "unseen" or not. Specifically,
+            it is a multiple of the galaxy half-light radius.
+
+    Returns:
+        pandas.DataFrame: Hosts catalog, but with an `unseen` column indicating
+            whether the host is visible in the galaxy catalog
+    """
+    host_coords = SkyCoord(ra=hosts.ra_host.values, dec=hosts.dec_host.values, unit='deg')
+    galaxy_catalog_coords = SkyCoord(ra=galaxy_catalog.ra.values, dec=galaxy_catalog.dec.values, unit='deg')
+
+    # Match hosts to galaxy catalog sources, finding the closest source at any distance
+    print("Starting cross-matching (will take a minute)...")
+    start_write = time.time()
+    idx, d2d, _ = match_coordinates_sky(host_coords, galaxy_catalog_coords, nthneighbor=1)
+    end_write = time.time()
+    print("Cross-matching finished. Time elapsed: {0:.3f} minutes".format((end_write-start_write)/60.))
+
+    # Filter by distance, finding those matching within the angular size of the galaxy
+    max_ang_size = thresh_cross_match * np.maximum.reduce([hosts['ang_size_host'], galaxy_catalog.iloc[idx]['ang_size']], axis=0)
+    dup = (d2d.arcsec <  max_ang_size)
+    # galaxy_catalog_keep = galaxy_catalog.iloc[idx[dup]]
+
+    # Add "unseen" status to hosts DataFrame
+    unseen = np.full(len(hosts), True)
+    unseen[dup] = False
+    if mag_limit is not None:
+        unseen[hosts['mag_host'] < mag_limit] = False
+    hosts['unseen'] = unseen
+    
+    return hosts
 
 
 def azimuthal_integrated_prior(u, theta_prior):
