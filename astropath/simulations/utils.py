@@ -180,6 +180,9 @@ def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
         pandas.DataFrame: Hosts catalog, but with an `unseen` column indicating
             whether the host is visible in the galaxy catalog
     """
+    if mag_limit is not None:
+        hosts = hosts[hosts['mag_host'] > mag_limit]
+    
     host_coords = SkyCoord(ra=hosts.ra_host.values, dec=hosts.dec_host.values, unit='deg')
     galaxy_catalog_coords = SkyCoord(ra=galaxy_catalog.ra.values, dec=galaxy_catalog.dec.values, unit='deg')
 
@@ -198,8 +201,6 @@ def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
     # Add "unseen" status to hosts DataFrame
     unseen = np.full(len(hosts), True)
     unseen[dup] = False
-    if mag_limit is not None:
-        unseen[hosts['mag_host'] < mag_limit] = False
     hosts['unseen'] = unseen
     
     return hosts
