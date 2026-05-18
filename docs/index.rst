@@ -44,8 +44,9 @@ Simulations
    :maxdepth: 2
 
    simulations
-   assign_host
-   quickstart_assign_host
+   notebook_generate_frbs
+   notebook_assign_hosts
+   notebook_run_path
 
 High-Level Interface
 --------------------
@@ -72,6 +73,3 @@ Notebooks
 
    nb/FRB_example
    nb/GW_example
-   nb/Simulate_Generate_FRBs
-   nb/Simulate_Assign_FRBs
-   nb/Simulate_Run_PATH
