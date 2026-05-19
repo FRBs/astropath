@@ -297,11 +297,11 @@ def _make_output_names(args: argparse.Namespace) -> tuple[str, str]:
     loc_tag = _loc_tag(args.loc_a, args.loc_b, args.loc_pa)
 
     # Stem shared by both files:
-    #   <loc>_<offset_dist>_<offset_prior>_<mag_prior>_pu<unseen>_<path_catalog_stem>
+    #   <loc>_<offset_dist>_<offset_prior>_<mag_prior>_pu<unseen>_<path_catalog_stem>_<nfrbs>
     path_cat_stem = Path(args.path_catalog).stem
     stem = (
         f"{loc_tag}_{args.offset_dist}_{args.offset_prior}"
-        f"_{args.mag_prior}_pu{args.unseen_prior}_{path_cat_stem}"
+        f"_{args.mag_prior}_pu{args.unseen_prior}_{path_cat_stem}_{args.n_frbs}"
     )
 
     full_fn    = args.full_output   or str(out_dir / f"full_path_results_{stem}.parquet")
