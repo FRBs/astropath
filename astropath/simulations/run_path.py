@@ -12,6 +12,8 @@ from astropath.run import run_on_dict, set_anly_sizes
 
 from IPython import embed
 
+import gc
+
     
 
 def run_dict_wrapper(idx:int, idict:dict,
@@ -147,7 +149,15 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         #
         list_candidates.append(close_galaxies)
 
-    # RUn it!
+    # Slicing done — the full catalog and coords are no longer needed
+    # Delete them BEFORE creating the pool so workers don't inherit 31.5G
+    del catalog
+    del galaxy_coords
+    del idx1, idx2, sep2d
+    gc.collect()
+
+    # Now create the pool - workers will fork from a much smaller parent
+    # Run PATH
     print("PATH time")
     print("Will take a while, ~1 hr for 10,000 FRBs, depending on your computing setup and ncpu.")
     if multi:
