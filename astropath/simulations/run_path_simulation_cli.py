@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PU",
         help=(
             "Prior probability that the host galaxy is unseen in the catalog, P(U). "
-            "Must be in (0, 1). Default: 0.15."
+            "Must be in [0, 1). Default: 0.15."
         ),
     )
     pri.add_argument(
@@ -277,8 +277,8 @@ def _positive_float(val: str) -> float:
 
 def _unit_float(val: str) -> float:
     v = float(val)
-    if not (0.0 < v < 1.0):
-        raise argparse.ArgumentTypeError(f"{val!r} must be strictly between 0 and 1.")
+    if not (0.0 <= v <=x 1.0):
+        raise argparse.ArgumentTypeError(f"{val!r} must be between 0 and 1.")
     return v
 
 
