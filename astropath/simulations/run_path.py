@@ -156,19 +156,18 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
             args=(idx_FRB, FRB_dicts[idx_FRB], 
                   list_candidates[idx_FRB]))
             for idx_FRB in range(nFRB)]
-        # Run
-        output = [p.get() for p in results]
-        idx = [item[1] for item in output]
-        # Unpack
-        all_tbls = np.array([item[0] for item in output], dtype=object)
-        all_tbls = all_tbls[idx]
-        # Expunge the None's
-        gd_tbl = np.array([False if item is None else True for item in all_tbls])
-        gd_idx = np.arange(all_tbls.size)[gd_tbl]
-        all_tbls = all_tbls[gd_tbl]
-        for kk in range(all_tbls.size):
-            all_tbls[kk]['iFRB'] = gd_idx[kk]
-
+        pool.close()
+        
+        # Collect incrementally instead of all at once
+        print('Processing done, combine results')
+        for ii, p in enumerate(results):
+            if (ii % 1000) == 0:
+                print(f'Collecting result {ii}/{nFRB}...')
+            sv_tbl, idx, Path = p.get() # blocks until this one result is ready
+            if sv_tbl is not None:
+                sv_tbl['iFRB'] = idx
+                all_tbls.append(sv_tbl)
+            del p # free result memory immediately
     else:
         idx_FRB = 0
         results = run_dict_wrapper(
