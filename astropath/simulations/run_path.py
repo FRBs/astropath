@@ -160,6 +160,7 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         
         # Collect incrementally instead of all at once
         print('Processing done, combine results')
+        all_tbls = []
         for ii, p in enumerate(results):
             if (ii % 1000) == 0:
                 print(f'Collecting result {ii}/{nFRB}...')
