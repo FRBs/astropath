@@ -4,6 +4,34 @@ from astropy.coordinates import SkyCoord, match_coordinates_sky
 from scipy.signal import convolve
 from scipy.special import ellipe
 import time
+import matplotlib.pyplot as plt
+import matplotlib.pylab as pylab
+params = {'axes.labelsize':20,
+         'axes.titlesize':20,
+         'xtick.labelsize':20,
+         'ytick.labelsize':20}
+pylab.rcParams.update(params)
+from matplotlib import rc
+rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+rc('text', usetex=False)
+import matplotlib
+import requests
+from PIL import Image
+from io import BytesIO
+from io import StringIO
+import aplpy
+from astropy.table import Table
+from astropy.table import unique, vstack
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+from astropy.io import fits
+import glob
+import os
+from subprocess import Popen, PIPE, STDOUT
+import shutil
+from reproject.mosaicking import find_optimal_celestial_wcs
+from reproject import reproject_interp
+from reproject.mosaicking import reproject_and_coadd
 
 
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
@@ -346,3 +374,397 @@ def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host'):
     du       = u[1] - u[0]
     stacked /= np.sum(stacked) * du    # renormalize after stacking
     return u_conv, stacked
+
+
+ps1filename = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
+ps1fitscut = "https://ps1images.stsci.edu/cgi-bin/fitscut.cgi"
+
+
+def get_color_image_table_panstarrs(ra, dec, size_arcmin=1., filters="grizy", format="fits"):
+    """Query ps1filenames.py service to get a list of images
+    
+    ra, dec = position in degrees
+    size = extracted image size in arcmins (0.25 arcsec/pixel)
+    filters = string with filters to include
+    format = data format (options are "jpg", "png" or "fits")
+    color = if True, creates a color image (only for jpg or png format).
+            Default is return a list of URLs for single-filter grayscale images.
+
+    Returns a table with the results
+    """
+    conversion_arcsec_to_pix = 0.25
+    size = int(size_arcmin * 60. / conversion_arcsec_to_pix)
+    
+    # Get the table for the given RA/Dec and filters
+    service = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
+    url = f"{service}?ra={ra}&dec={dec}&filters={filters}"
+    table = Table.read(url, format='ascii')
+    
+    # Add the query URLs into the table
+    url = (f"https://ps1images.stsci.edu/cgi-bin/fitscut.cgi?"
+           f"ra={ra}&dec={dec}&size={size}&format={format}")
+    # Sort filters from red to blue
+    flist = ["yzirg".find(x) for x in table['filter']]
+    table = table[np.argsort(flist)]
+    # If more than 3 filters listed, pick the 3 most spread out
+    if len(table) > 3:
+        table = table[[0, len(table)//2, len(table)-1]]
+    # Add colors to the urls and populate the table
+    table["url"] = None
+    for ii, param in enumerate(["red","green","blue"]):
+        table["url"][ii] = "{}&{}={}".format(url, param, table['filename'][ii])
+    
+    return table
+
+
+def get_images_panstarrs(ra,dec,filters="grizy"):
+    
+    """Query ps1filenames.py service to get a list of images
+    
+    ra, dec = position in degrees
+    size = image size in pixels (0.25 arcsec/pixel)
+    filters = string with filters to include
+    Returns a table with the results
+    """
+    service = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
+    url = f"{service}?ra={ra}&dec={dec}&filters={filters}"
+    table = Table.read(url, format='ascii')
+    return table
+
+
+def get_url_panstarrs(ra, dec, size=240, output_size=None, filters="grizy", format="jpg", color=False, scale=99.9):
+    
+    """Get URL for images in the table
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png" or "fits")
+    color = if True, creates a color image (only for jpg or png format).
+            Default is return a list of URLs for single-filter grayscale images.
+    Returns a string with the URL
+    """
+    
+    if color and format == "fits":
+        raise ValueError("color images are available only for jpg or png formats")
+    if format not in ("jpg","png","fits"):
+        raise ValueError("format must be one of jpg, png, fits")
+    table = get_images_panstarrs(ra,dec,filters=filters)
+    url = (f"https://ps1images.stsci.edu/cgi-bin/fitscut.cgi?"
+           f"ra={ra}&dec={dec}&size={size}&format={format}")
+    if output_size:
+        url = url + "&output_size={}".format(output_size)
+    # sort filters from red to blue
+    flist = ["yzirg".find(x) for x in table['filter']]
+    table = table[np.argsort(flist)]
+    if color:
+        if len(table) > 3:
+            # pick 3 filters
+            table = table[[0,len(table)//2,len(table)-1]]
+        for i, param in enumerate(["red","green","blue"]):
+            url = url + "&{}={}".format(param,table['filename'][i])
+    else:
+        urlbase = url + "&red="
+        url = []
+        for filename in table['filename']:
+            url.append(urlbase+filename)
+    
+    #Adjust contrast
+    url = url + "&autoscale={}".format(scale)
+    print(url)
+    
+    return url
+
+
+def get_color_png_panstarrs(ra, dec, size=240, output_size=None, filters="grizy", scale=99.9):
+    
+    """Get color image at a sky position
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png")
+    Returns the image
+    """
+    url = get_url_panstarrs(ra,dec,size=size,filters=filters,output_size=output_size,format="png",color=True, scale=scale)
+    r = requests.get(url)
+    im = Image.open(BytesIO(r.content))
+    return im
+
+desi_jpeg_url = 'https://www.legacysurvey.org/viewer/jpeg-cutout'
+desi_fits_url = 'https://www.legacysurvey.org/viewer/fits-cutout'
+
+def get_color_png_desi(ra, dec, size_pix=512, conversion_arcsec_to_pix = 0.262, filt="grz"):
+    
+    """Get color image at a sky position
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png")
+    Returns the image
+    """
+    url = '{}?ra={}&dec={}&width={}&height={}&layer=ls-dr9&pixscale={}&bands={}'.format(
+        desi_jpeg_url, ra, dec, 
+        size_pix, size_pix, 
+        conversion_arcsec_to_pix, filt
+    )
+
+    r = requests.get(url, stream=True, verify=True)
+    im = Image.open(BytesIO(r.content))
+    return im
+
+def get_color_fits_desi(ra, dec, size_pix=512, conversion_arcsec_to_pix = 0.262, filt="grz"):
+    
+    """Get color image at a sky position
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png")
+    Returns the image
+    """
+    url = '{}?ra={}&dec={}&width={}&height={}&layer=ls-dr9&pixscale={}&bands={}'.format(
+        desi_fits_url, ra, dec, 
+        size_pix, size_pix, 
+        conversion_arcsec_to_pix, filt
+    )
+
+    im = fits.open(url)
+    return im
+
+def get_color_images_HSC(ra, dec, size_arcmin):
+    """ Note that the username and password for an HSC account should be
+        set as environmental variables. The colorPostage.py HSC helper
+        tool should also be in the current directory
+        More info here:
+        https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/tree/master/pdr3/colorPostage
+    """
+    # Set up preliminaries for the query
+    coord_fn = './coord.txt'
+    coord_png = './coord.png'
+    coord_str = f"{ra}\t{dec}\t{coord_png}"
+    with open(coord_fn, "w") as text_file:
+        text_file.write(coord_str)      
+    output_dir = './temp_dir'
+    user = os.environ["HSC_SSP_CAS_USER"]
+    password = os.environ["HSC_SSP_CAS_PASSWORD"]
+    semiwidth_float = size_arcmin / 2 * 60 # Half-width of the postage stamp, arcsec
+    semiwidth_arg = '{0}asec'.format(semiwidth_float)
+
+    # Query for the png/fits to be saved to output_dir
+    command_list = ["python", "colorPostage.py", "--semiwidth", semiwidth_arg, "--user", user, "--outDir", output_dir,  coord_fn]
+    print(command_list)
+    p = Popen(command_list, stdout=PIPE, stdin=PIPE, stderr=PIPE, text=True)
+    stdout_data = p.communicate(input=password)
+
+    # Load png and fits from output_dir
+    png_fn = "{}/{}".format(output_dir, coord_png)
+    im_png = Image.open(png_fn)
+    fits_fn = png_fn.replace('.png', '.fits')
+    im_fs = fits.open(fits_fn)
+    
+    # Cleanup temporary files
+    #shutil.rmtree(output_dir)
+    
+    return im_png, im_fs
+
+def plot_color_image(
+    ra_true_host, dec_true_host,
+    mag_true_host, angsize_host,
+    ra_best_cand, dec_best_cand,
+    mag_best_cand, angsize_cand,
+    POx_best_cand, POx_second_cand, PUx,
+#     ras_catalog, decs_catalog,
+#     ra_frb, dec_frb,
+    ra_loc, dec_loc,
+    a_err, b_err,
+    theta,
+    sup_fig,
+    axes,
+    include_legend,
+    size_arcmin=4., 
+    filt="gri", 
+    survey_str='Pan-STARRS',
+    outfile : str = None,
+    scale=99.88,
+):
+    """
+    Create diagnostic plot for a PATH analysis
+    
+    Parameter
+    ---------
+    path_obj : astropy.table.Table 
+        A table containing PATH results. Will have columns for:
+        ra, dec, angular size of the host in arcseconds, r-band magnitude, P(O), P(O|x)
+    ra : float
+        Right ascension (degrees)
+    a_err : float
+        The semi-major axis in arcseconds
+    dec : float
+        Declination (degrees)
+    b_err : float
+        The semi-major axis in arcseconds
+    theta : float
+        Angle of the ellipse in degrees. The angle is defined as the angle of the
+        semi-major axis, as degrees East from North
+    dm : float
+        The FRB dispersion measure in pc/cc
+    gal_dm : float
+        The Milky Way DM contribution for the given FRB
+    size_arcmin : float
+        Size of the image to query in arcminutes
+    filt : float
+        The optical filters to query for the image (should be one of "g", "r", "i", "z", "y")
+    survey_str : str
+        A string indicating which survey to run the PATH analysis on, should be
+        'Pan-STARRS' or 'DECaL' (Dark Energy Legacy Survey). Pan-STARRS is shallower,
+        to a depth of rmag ~ 23. DECaL is deeper, with a depth of rmag ~ 24. So DECaL
+        is preferred, but it is not always available (only covers ~1/2 of the CHIME FOV)
+    outfile : str
+        File path/filename where the PATH results will be output. Should be a .png file
+    scale : float
+        A parameter indicating how to scale the dynamic range of the image. The default
+        value will work for most Pan-STARRS and DECaLs images
+        
+    Return
+    ------
+    Path : astropy.table.Table 
+        A table containing PATH results. Will have columns for:
+        ra, dec, angular size of the host in arcseconds, r-band magnitude, P(O), P(O|x)
+    Will output the image to a png file in outfile
+    """
+    ra = ra_loc
+    dec = dec_loc
+    if survey_str == 'Pan-STARRS':
+        conversion_arcsec_to_pix = 0.25
+        size_pix = int(size_arcmin * 60. / conversion_arcsec_to_pix)
+
+        print('Get nice {} PNG of {} pixels'.format(survey_str, size_pix))
+        cim_png = get_color_png_panstarrs(ra, dec, size=size_pix, filters=filt, scale=scale)
+        print('Get available fits from {} at given location'.format(survey_str))
+        img_table = get_color_image_table_panstarrs(ra, dec, size_arcmin=size_arcmin, filters=filt, format="fits")
+
+        print('Load all the RGB fits images')
+        im_fits_orig = []
+        for ii in range(len(img_table)):
+            url = img_table[ii]['url']
+            print("Loading fits: {}".format(url))
+            im = fits.open(url)
+            im_fits_orig.append(im)
+        hdu_orig_fits = im_fits_orig[0][0].header
+    if survey_str == 'DECaL':
+        size_pix = 512
+        conversion_arcsec_to_pix = size_arcmin * 60. / size_pix
+
+        print('Get nice {} PNG of {} pixels with conversion scale of {} arcseconds per pixel'.format(survey_str, size_pix, conversion_arcsec_to_pix))
+        cim_png = get_color_png_desi(ra, dec, size_pix=size_pix, conversion_arcsec_to_pix=conversion_arcsec_to_pix, filt=filt)
+        print('Get available fits from {} at given location'.format(survey_str))
+        im_fits = get_color_fits_desi(ra, dec, size_pix=size_pix, conversion_arcsec_to_pix=conversion_arcsec_to_pix, filt=filt)
+        hdu_orig_fits = im_fits[0].header
+    if survey_str == 'HSC':
+        print('Get nice {} PNG of {} arcmins across, along with a fits image'.format(survey_str, size_arcmin))
+        cim_png, im_fits = get_color_images_HSC(ra, dec, size_arcmin)
+        hdu_orig_fits = im_fits[1].header
+        
+    print('Convert color png into fits')
+    xsize, ysize = cim_png.size
+    r, g, b = cim_png.split()
+    r_data = np.array(r.getdata()) # data is now an array of length ysize*xsize
+    g_data = np.array(g.getdata())
+    b_data = np.array(b.getdata())
+
+    r_data = r_data.reshape(xsize, ysize)[:,::-1] # data is now a matrix (xsize, ysize)
+    g_data = g_data.reshape(xsize, ysize)[:,::-1]
+    b_data = b_data.reshape(xsize, ysize)[:,::-1]
+    data = [r_data, g_data, b_data]
+
+    im_fits = []
+    for ii in range(len(data)):
+        hdu = fits.PrimaryHDU(data[ii], header=hdu_orig_fits)
+        im_fits.append(hdu)
+        
+    print('Calculate an optimal WCS to share between all the fits')
+    coord = SkyCoord(ra, dec, unit=(u.deg, u.deg), frame='icrs')
+    res = 0.25*u.arcsec
+    wcs_out, shape_out = find_optimal_celestial_wcs(
+        im_fits,
+        resolution = res,
+        reference = coord,
+    )
+    header_out = wcs_out.to_header()
+
+    print('Generate empty datacube, reprojecting each color to the new WCS')
+    image_cube = np.zeros((len(im_fits),) + shape_out, dtype=np.float32)
+    for ii, im in enumerate(im_fits):
+        array, footprint = reproject_interp(im, header_out, shape_out=shape_out)
+        image_cube[ii, :, :] = array[:,::-1]
+        
+    output_fn = 'rgb_2d.fits'
+    print('Write out collapsed version of cube for aplpy plotting purposes')
+    fits.writeto(
+        output_fn,
+        np.mean(image_cube, axis=0), 
+        hdu_orig_fits,
+        overwrite=True,
+    )
+    
+    print('Save the reprojected fits into a PNG, also for aplpy plotting purposes')
+    img = Image.merge("RGB", (
+        Image.fromarray(image_cube[0].astype(np.uint8)), 
+        Image.fromarray(image_cube[1].astype(np.uint8)), 
+        Image.fromarray(image_cube[2].astype(np.uint8)),
+    ))
+    img.save(output_fn.replace('_2d.fits', '.png'))
+    cim_png.save(output_fn.replace('_2d.fits', '.png'))
+    
+    print('Make plot!')
+
+    fig = aplpy.FITSFigure(output_fn, figure=sup_fig, subplot=axes)
+    fig.show_rgb(output_fn.replace('_2d.fits', '.png'))
+    fig.tick_labels.set_font(size=20)
+    fig.axis_labels.set_font(size=20)
+    fig.axis_labels.set_xtext('Right Ascension (J2000)')
+    fig.axis_labels.set_ytext('Declination (J2000)')
+    fig.add_grid()
+    fig.grid.set_color('white')
+    fig.grid.set_alpha(0.5)
+    fig.grid.set_linestyle('solid')
+    fig.grid.set_linewidth(1)
+    
+    # Plot all the markers
+    fig.show_ellipses(ra_best_cand, dec_best_cand, 4*2*angsize_cand/3600., 4*2*angsize_cand/3600., angle=0., edgecolor='xkcd:azure', linestyle='dashdot', lw=3, zorder=101)
+    fig.show_ellipses(ra_true_host, dec_true_host, 5*2*angsize_host/3600., 5*2*angsize_host/3600., angle=0., edgecolor='xkcd:green', lw=3, zorder=101)
+    label_str = "$P(O_1|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_best_cand*100, mag_best_cand)
+    fig.add_label(ra_best_cand - 35/3600., dec_best_cand + 10/3600., label_str, relative=False, family='sans-serif', size=20, color='xkcd:azure', weight='bold')
+    label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_true_host)
+    fig.add_label(ra_true_host - 28/3600., dec_true_host, label_str, relative=False, family='sans-serif', size=20, color='xkcd:green', weight='bold')
+    label_str = "$P(U|x)$ = {0:.2f}%".format(PUx*100)
+    fig.add_label(0.18, 0.06, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold')
+    
+    # Note: width and height parameters should be 2 times semi-major/minor axes
+    rot = theta - 90
+    fig.show_ellipses(ra_loc, dec_loc, 2.*a_err, 2.*b_err, angle=rot, edgecolor='white', lw=2, zorder=31)
+    fig.show_ellipses(ra_loc, dec_loc, 2.*a_err*3, 2.*b_err*3, angle=rot, edgecolor='white', linestyle='dashed', lw=2, zorder=31)
+    
+    if include_legend:
+        legend = fig.ax.legend(fontsize=17, loc='lower left')
+
+    zoom_width = size_arcmin
+    print(ra, dec, size_arcmin, zoom_width/60.)
+    fig.recenter(ra, dec, width=zoom_width/60., height=zoom_width/60.)
+    
+    if outfile is not None:
+        plt.savefig(outfile, dpi=100, format="png", bbox_inches="tight")
+    
+    print('Remove temporary plotting files: {}, {}'.format(output_fn, output_fn.replace('_2d.fits', '.png')))
+    os.remove(output_fn)
+    os.remove(output_fn.replace('_2d.fits', '.png'))
