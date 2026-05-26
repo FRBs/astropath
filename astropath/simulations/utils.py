@@ -32,6 +32,7 @@ import shutil
 from reproject.mosaicking import find_optimal_celestial_wcs
 from reproject import reproject_interp
 from reproject.mosaicking import reproject_and_coadd
+from scipy.special import i0e # i0e(x) = I_0(x)·exp(−x), numerically stable
 
 
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
@@ -236,100 +237,101 @@ def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
 
 def azimuthal_integrated_prior(u, theta_prior):
     """
-    1D radial PDF p(u) where u = theta/phi, obtained by integrating 
-    pw_Oi over azimuth:
-        p(u) = 2*pi*theta * pw_Oi(theta) * phi   [change of variables theta->u]
-
-    For 'exp':     p(u) = u*exp(-u/s) / (s^2 * (1-(1+max)*exp(-max)))
+    1D radial PDF p(u) where u = theta/phi, obtained by integrating
+    pw_Oi over azimuth.
+ 
+    For 'exp':     p(u) = u*exp(-u/s) / (s^2 * (1-(1+max_v)*exp(-max_v)))
     For 'uniform': p(u) = 2u / max^2  for u in [0, max]
-
-    Parameters
-    ----------
-    u : np.ndarray
-        Normalized galactocentric offset theta/phi
-    theta_prior : dict
-        Same format as pw_Oi: keys 'PDF', 'scale', 'max'
-
-    Returns
-    -------
-    np.ndarray : normalized 1D PDF values on grid u
+    For 'core':    p(u) = [u/(u+1)] / (max - ln(1+max))
     """
     u = np.asarray(u, dtype=float)
     p = np.zeros_like(u)
-
+ 
     if theta_prior['PDF'] == 'exp':
         s     = theta_prior.get('scale', 1.0)
-        max_v = theta_prior['max']          # cutoff in units of phi_eff = phi*s
-        max_u = max_v * s                   # cutoff in units of phi
+        max_v = theta_prior['max']
+        max_u = max_v * s
         ok    = u <= max_u
-        # Normalization: integral of u*exp(-u/s) du from 0 to max_u
-        # = s^2 * (1 - (1+max_v)*exp(-max_v))
         norm  = s**2 * (1 - (1 + max_v) * np.exp(-max_v))
         p[ok] = u[ok] * np.exp(-u[ok] / s) / norm
-
+ 
     elif theta_prior['PDF'] == 'uniform':
         max_u = theta_prior['max']
         ok    = u <= max_u
-        # p(u) = 2u/max^2, integrates to 1 over [0, max]
         p[ok] = 2 * u[ok] / max_u**2
-
+ 
     elif theta_prior['PDF'] == 'core':
-        # p_2d = phi/(theta+phi)/norm  =>  p_1d(u) = 2*pi*phi*u / (u*phi+phi) * phi / norm
-        # = 2*pi*phi^2 * u / (phi*(u+1)) / norm = 2*pi*phi * u/(u+1) / norm
-        # norm_2d = 2*pi*(term_max - term0), so in normalized units:
-        # p(u) = u/(u+1) / integral[u/(u+1) du from 0 to max]
         max_u = theta_prior['max']
         ok    = u <= max_u
         norm  = max_u - np.log(1 + max_u)
         p[ok] = u[ok] / (u[ok] + 1) / norm
-
+ 
     return p
-
-
+ 
+ 
 def convolve_prior_with_loc(u, p_prior, sigma_over_phi):
     """
-    Convolve the 1D radial prior p(u) (u = theta/phi) with a Gaussian
-    localization kernel of width sigma_over_phi = sigma_loc / phi.
-
-    Uses a 1D Gaussian as an approximation to the azimuthally-marginalized
-    2D localization error.
-
+    Convolve the 1D radial prior p(u) with the correct 2D radial (Rice/Rician)
+    convolution kernel for a circular Gaussian localisation of width
+    sigma_over_phi = sigma_loc / phi.
+ 
+    WHY NOT A 1D GAUSSIAN:
+    p(u) is a radial PDF in 2D.  Adding a 2D Gaussian localisation error
+    ε ~ N(0, σ²I) produces an observed offset whose distribution is NOT the
+    1D convolution of p with a Gaussian.  The correct result follows from
+    marginalising the full 2D convolution over azimuth:
+ 
+        p_obs(u) = ∫₀^∞ p(u') · (u/σ²) · exp(-(u²+u'²)/2σ²) · I₀(uu'/σ²) du'
+ 
+    Using the numerically stable form i0e(x) = I₀(x)·exp(-x):
+ 
+        kernel(u,u') = (u/σ²) · exp(-(u-u')²/2σ²) · i0e(uu'/σ²)
+ 
+    which is evaluated as a matrix-vector product over the u' grid.
+ 
     Parameters
     ----------
     u : np.ndarray
-        Uniformly spaced grid of theta/phi values
+        Uniformly spaced grid of theta/phi values (length N)
     p_prior : np.ndarray
         Prior values on grid u (from azimuthal_integrated_prior)
     sigma_over_phi : float
-        Localization 1-sigma in units of the host half-light radius phi
-
+        Localisation 1-sigma in units of the host half-light radius phi
+ 
     Returns
     -------
-    u_conv : np.ndarray
-        Extended u grid for the convolved distribution
-    p_conv : np.ndarray
-        Convolved, normalized distribution
+    u_out : np.ndarray  (length 2N-1)
+    p_obs : np.ndarray  (normalised)
     """
-    du     = u[1] - u[0]
-    kernel = np.exp(-u**2 / (2 * sigma_over_phi**2))
-    kernel /= np.sum(kernel) * du          # normalize kernel to unit integral
-
-    p_conv = convolve(p_prior, kernel, mode='full')
-    p_conv = np.maximum(p_conv, 0.)        # clip numerical negatives
-
-    u_conv = np.arange(len(p_conv)) * du   # extended grid
-    norm   = np.sum(p_conv) * du
+    du   = u[1] - u[0]
+    sig2 = sigma_over_phi ** 2
+ 
+    n_out = 2 * len(u) - 1
+    u_out = np.arange(n_out) * du
+ 
+    U  = u_out[:, None]   # (n_out, 1) — observed radii
+    UP = u[None,  :]      # (1,     N) — true radii
+ 
+    # Rice kernel (stable via i0e):
+    #   (u/σ²)·exp(-(u-u')²/2σ²)·i0e(uu'/σ²)
+    # = (u/σ²)·exp(-(u²+u'²)/2σ²)·I₀(uu'/σ²)   [exact Rice formula]
+    kernel = (U / sig2) * np.exp(-(U - UP)**2 / (2 * sig2)) * i0e(U * UP / sig2)
+ 
+    p_obs = (kernel @ p_prior) * du   # integrate over u'
+    p_obs = np.maximum(p_obs, 0.)
+ 
+    norm = np.sum(p_obs) * du
     if norm > 0:
-        p_conv /= norm
-
-    return u_conv, p_conv
-
-
+        p_obs /= norm
+ 
+    return u_out, p_obs
+ 
+ 
 def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host'):
     """
-    Average the localization-convolved prior over a population of FRBs,
-    each with its own localization ellipse and host half-light radius.
-
+    Average the localisation-convolved prior over a population of FRBs,
+    each with its own localisation ellipse and host half-light radius.
+ 
     Parameters
     ----------
     u : np.ndarray
@@ -337,42 +339,51 @@ def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host'):
     theta_prior : dict
         Prior parameters for azimuthal_integrated_prior
     frb_df : pd.DataFrame
-        Must have columns 'a', 'b' (loc semi-axes in arcsec) and phi_col
+        Must have columns 'a', 'b' (1-sigma loc semi-axes in arcsec) and phi_col
     phi_col : str
         Column name for host half-light radius in arcsec
-
+ 
     Returns
     -------
     u_conv : np.ndarray
     p_stacked : np.ndarray
         Mean convolved prior over all FRBs
     """
-    p_prior   = azimuthal_integrated_prior(u, theta_prior)
-    stacked   = None
-
+    p_prior = azimuthal_integrated_prior(u, theta_prior)
+    stacked = None
+ 
     for _, frb in frb_df.iterrows():
-        # Effective circular sigma from ellipse via mean radius of ellipse
-        sig_a = max(frb.a, frb.b)
-        sig_b = min(frb.a, frb.b)
-        k     = np.sqrt(1 - (sig_b / sig_a)**2)
-        sigma_arcsec    = (2. / np.pi) * sig_a * ellipe(k) * np.sqrt(2)
-        sigma_over_phi  = sigma_arcsec / frb[phi_col]
-
+        # Effective circular 1-sigma from the localisation ellipse.
+        #
+        # The simulation draws:
+        #   a_offset ~ N(0, a²) along PA
+        #   b_offset ~ N(0, b²) along PA+90
+        # giving total 2D variance Var(ΔRA) + Var(ΔDec) = a² + b²  (PA-independent).
+        #
+        # The Rice kernel requires the equivalent circular σ such that
+        # 2σ² = a² + b², i.e.:
+        #
+        #   σ_eff = √((a² + b²) / 2)
+        #
+        # This is the RMS of the two axes.  For a circular beam (a=b): σ=a ✓
+        # For an elongated beam (b→0): σ=a/√2 ✓  (not zero, unlike geometric mean)
+        sigma_arcsec   = np.sqrt((frb.a**2 + frb.b**2) / 2.0)
+        sigma_over_phi = sigma_arcsec / frb[phi_col]
+ 
         u_conv, p_conv = convolve_prior_with_loc(u, p_prior, sigma_over_phi)
-
+ 
         if stacked is None:
             stacked = p_conv.copy()
         else:
-            # pad shorter array to match length
             if len(p_conv) < len(stacked):
                 p_conv  = np.pad(p_conv,  (0, len(stacked) - len(p_conv)))
             elif len(stacked) < len(p_conv):
                 stacked = np.pad(stacked, (0, len(p_conv) - len(stacked)))
             stacked += p_conv
-
+ 
     stacked /= len(frb_df)
     du       = u[1] - u[0]
-    stacked /= np.sum(stacked) * du    # renormalize after stacking
+    stacked /= np.sum(stacked) * du
     return u_conv, stacked
 
 

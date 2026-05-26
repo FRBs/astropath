@@ -107,21 +107,39 @@ def run_on_dict(idict: dict,
 
     # Handle empty catalog
     if len(catalog) == 0:
-        return catalog, None, None, None, None, None
+        return None, None, None, None, None, None
 
-    # Set boxsize according to the largest galaxy (arcsec)
-    box_hwidth = max(idict['max_box'], 10. * np.max(catalog['ang_size']))
+    # Set up priors from idict
+    priors_dict = idict['priors']
 
-    # Cut down the catalog based on box_hwidth
-    Ddec_arcsec = np.abs(catalog['dec'].data - coord.dec.deg) * 3600.
-    Dra_arcsec = np.abs(catalog['ra'].data - coord.ra.deg) * 3600. * np.cos(coord.dec.rad)
+    # Prune galaxies that will have p(x|O)~0 so that they do not dilute
+    # the P(O) prior in normalization
+    N_sigma = 3.
+    theta_max = priors_dict.get('theta_max', 6.)
+    sigma_loc = np.nanmax([eellipse['a'], eellipse['b']])
+    separation = catalog['separation'].data
+    sep_thresh = theta_max * catalog['ang_size'].data + N_sigma * sigma_loc
+    mask = separation < (sep_thresh)
+    cut_catalog = catalog[mask]
+    print(f'Max separation threshold: {np.nanmax(sep_thresh)}')
 
-    # This speeds things up and is required for the P_Ux calculation
-    keep = (Ddec_arcsec < box_hwidth) & (Dra_arcsec < box_hwidth)
-    cut_catalog = catalog[keep]
+    # Adjust max_box used to calculate p(x|U) to match galaxy pruning
+    if len(cut_catalog) > 0:
+        box_hwidth = np.nanmax(theta_max * cut_catalog['ang_size'] + N_sigma * sigma_loc)
+    else:
+        box_hwidth = max(idict['max_box'], 10. * np.max(catalog['ang_size']))
+    
+    # # Set boxsize according to the largest galaxy (arcsec)
+    # box_hwidth = max(idict['max_box'], 10. * np.max(catalog['ang_size']))
+    # # Cut down the catalog based on box_hwidth
+    # Ddec_arcsec = np.abs(catalog['dec'].data - coord.dec.deg) * 3600.
+    # Dra_arcsec = np.abs(catalog['ra'].data - coord.ra.deg) * 3600. * np.cos(coord.dec.rad)
+    # # This speeds things up and is required for the P_Ux calculation
+    # keep = (Ddec_arcsec < box_hwidth) & (Dra_arcsec < box_hwidth)
+    # cut_catalog = catalog[keep]
 
     if len(cut_catalog) == 0:
-        return cut_catalog, None, None, None, None, None
+        return None, None, None, None, None, None
 
     # Initialize PATH
     Path = path.PATH()
@@ -155,9 +173,6 @@ def run_on_dict(idict: dict,
     sep = ccand.separation(coord)
     Path.candidates['sep'] = sep.arcsec
 
-    # Set up priors from idict
-    priors_dict = idict['priors']
-
     # Candidate prior
     P_O_method = priors_dict.get('P_O_method', 'inverse')
     P_U = priors_dict.get('PU', 0.)
@@ -176,7 +191,7 @@ def run_on_dict(idict: dict,
     if idict['ltype'] == 'eellipse':
         a = eellipse['a']
         b = eellipse['b']
-        step_size_max = 2 * 3 * np.nanmin([a, b]) / np.nanmax(cut_catalog['ang_size'])
+        step_size_max = np.nanmin([a, b]) / np.nanmax(5 * cut_catalog['ang_size'])
         step_size = np.nanmin([0.1, step_size_max])
     else:
         # For healpix, use default step size
