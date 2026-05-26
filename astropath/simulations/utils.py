@@ -593,7 +593,7 @@ def plot_color_image(
     mag_true_host, angsize_host,
     ra_best_cand, dec_best_cand,
     mag_best_cand, angsize_cand,
-    POx_best_cand, POx_second_cand, PUx,
+    POx_best_cand,  PUx,
 #     ras_catalog, decs_catalog,
 #     ra_frb, dec_frb,
     ra_loc, dec_loc,
@@ -602,11 +602,13 @@ def plot_color_image(
     sup_fig,
     axes,
     include_legend,
+    POx_second_cand=None,
     size_arcmin=4., 
     filt="gri", 
     survey_str='Pan-STARRS',
     outfile : str = None,
     scale=99.88,
+    all_cands = None,
 ):
     """
     Create diagnostic plot for a PATH analysis
@@ -756,10 +758,15 @@ def plot_color_image(
     fig.show_ellipses(ra_true_host, dec_true_host, 5*2*angsize_host/3600., 5*2*angsize_host/3600., angle=0., edgecolor='xkcd:green', lw=3, zorder=101)
     label_str = "$P(O_1|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_best_cand*100, mag_best_cand)
     fig.add_label(ra_best_cand - 35/3600., dec_best_cand + 10/3600., label_str, relative=False, family='sans-serif', size=20, color='xkcd:azure', weight='bold')
-    label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_true_host)
-    fig.add_label(ra_true_host - 28/3600., dec_true_host, label_str, relative=False, family='sans-serif', size=20, color='xkcd:green', weight='bold')
+    if POx_second_cand is not None:
+        label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_true_host)
+        fig.add_label(ra_true_host - 28/3600., dec_true_host, label_str, relative=False, family='sans-serif', size=20, color='xkcd:green', weight='bold')
     label_str = "$P(U|x)$ = {0:.2f}%".format(PUx*100)
     fig.add_label(0.18, 0.06, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold')
+
+    # If list of candidates is provided, plot them all
+    if all_cands is not None:
+        fig.show_markers(all_cands['ra'], all_cands['dec'], edgecolor='xkcd:goldenrod', facecolor='None', marker='D', s=20, lw=1.5)
     
     # Note: width and height parameters should be 2 times semi-major/minor axes
     rot = theta - 90

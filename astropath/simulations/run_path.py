@@ -39,6 +39,9 @@ def run_dict_wrapper(idx:int, idict:dict,
     candidates, P_Ux, Path, mag_key, cut_catalog, stars = \
         run_on_dict(idict, catalog=catalog, mag_key='mag')
 
+    if candidates is None or len(candidates) == 0:
+        return None, idx, None
+
     # Return
     sv_tbl = candidates.sort_values(
         'P_Ox', ascending=False)
@@ -146,7 +149,6 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         # Extras
         close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
         close_galaxies['coords'] = galaxy_coords[gd_gal]
-        #
         list_candidates.append(close_galaxies)
 
     # Slicing done — the full catalog and coords are no longer needed
@@ -179,14 +181,15 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
                 sv_tbl['iFRB'] = idx
                 all_tbls.append(sv_tbl)
             del p # free result memory immediately
+        # Finish
+        final_tbl = pandas.concat(all_tbls)
     else:
         idx_FRB = 0
         results = run_dict_wrapper(
             idx_FRB, FRB_dicts[idx_FRB],
             list_candidates[idx_FRB])
-
+        final_tbl = sv_tbl
     # Finish
-    final_tbl = pandas.concat(all_tbls)
     final_tbl.reset_index(inplace=True, drop=True)
 
     # Return

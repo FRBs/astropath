@@ -48,13 +48,18 @@ def pw_Oi(theta, phi, theta_prior):
         if np.any(ok_w):
             p[ok_w] = 1. / norm
     elif theta_prior['PDF'] == 'exp':
-        # Wolfram
-        phi = phi * theta_prior['scale']
-        # Updated by JXP on 14-Feb-2023
-        norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max'])*np.exp(
-            -theta_prior['max']))
+        # # Wolfram
+        # phi = phi * theta_prior['scale']
+        # # Updated by JXP on 14-Feb-2023
+        # norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max'])*np.exp(
+        #     -theta_prior['max']))
+        # Fixed by BCA 05-26-2026
+        phi_eff = phi * theta_prior['scale']
+        max_in_eff = theta_prior['max'] / theta_prior['scale']  # max*phi_orig expressed in units of phi_eff
+        norm = 2 * np.pi * phi_eff**2 * (
+            1 - (1 + max_in_eff) * np.exp(-max_in_eff))
         if np.any(ok_w):
-            p[ok_w] = np.exp(-theta[ok_w]/phi) / norm
+            p[ok_w] = np.exp(-theta[ok_w]/phi_eff) / norm
     else:
         raise IOError("Bad theta PDF")
     #
