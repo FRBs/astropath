@@ -103,6 +103,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     true_dmcosmic = []
     true_mr = []
     true_Mr = []
+    valid_idx = [] # Track which FRBs have valid results
     for ii in range(len(hosts)):
         host_row = hosts[ii:ii+1]
         cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
@@ -110,7 +111,9 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         # if ii == 106:
         #     print(cands)
         if len(cands) == 0:
-            print(ii)
+            print(f"FRB {ii} has no candidates — skipping")
+            continue
+        valid_idx.append(ii)
         best_cand = cands[0:1]
         best_cands_list.append(best_cand)
 
@@ -122,6 +125,11 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         true_mr.append(frb['m_r'].values[0])
         true_Mr.append(frb['M_r'].values[0])
     best_cands = pandas.concat(best_cands_list, ignore_index=True)
+
+    # Filter hosts to only valid FRBs so shapes match
+    hosts = hosts.iloc[valid_idx].reset_index(drop=True)
+    frbs  = frbs.iloc[valid_idx].reset_index(drop=True)
+    print(f"Excluded {len(hosts) - len(valid_idx)} FRBs with no candidates")
 
     print("Rename some columns to make concatenation cleaner")
     best_cands = best_cands.rename(

@@ -191,7 +191,7 @@ def run_on_dict(idict: dict,
     if idict['ltype'] == 'eellipse':
         a = eellipse['a']
         b = eellipse['b']
-        step_size_max = np.nanmin([a, b]) / np.nanmax(5 * cut_catalog['ang_size'])
+        step_size_max = np.nanmin([a, b]) / np.nanmax(cut_catalog['ang_size'])
         step_size = np.nanmin([0.1, step_size_max])
     else:
         # For healpix, use default step size

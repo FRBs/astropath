@@ -26,6 +26,9 @@ import numpy as np
 import pandas as pd
 from astropy import units
 
+# Set FRB_APATH to access catalog files
+os.environ['FRB_APATH'] = '/arc/projects/chime_frb/bandersen/path-simulations/catalogs/'
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -277,7 +280,7 @@ def _positive_float(val: str) -> float:
 
 def _unit_float(val: str) -> float:
     v = float(val)
-    if not (0.0 <= v <=x 1.0):
+    if not (0.0 <= v <= 1.0):
         raise argparse.ArgumentTypeError(f"{val!r} must be between 0 and 1.")
     return v
 
