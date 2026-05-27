@@ -66,7 +66,7 @@ def pw_Oi(theta, phi, theta_prior):
 
 def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords, 
                     cand_ang_size, theta_prior, step_size=0.1, 
-                    return_grids=False):
+                    return_grids=False, return_debug:bool=False):
     """
     Calculate p(x|O_i), the primary piece of the analysis
 
@@ -147,6 +147,8 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     # Return
     if return_grids:
         return np.array(p_xOis), grids
+    elif return_debug:
+        return L_wx, p_wOi, grid_p, p_xOis[0]
     else:
         return np.array(p_xOis)
 
