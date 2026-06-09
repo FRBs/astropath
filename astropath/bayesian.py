@@ -119,7 +119,7 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     ra = localiz['center_coord'].ra.deg + \
         xcoord/3600. / np.cos(localiz['center_coord'].dec).value
     dec = localiz['center_coord'].dec.deg + ycoord/3600.
-    L_wx = localization.calc_LWx(ra, dec, localiz) 
+    L_wx = localization.calc_LWx(ra, dec, localiz)
 
     p_xOis, grids = [], []
     # TODO -- multiprocess this
