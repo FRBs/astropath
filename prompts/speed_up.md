@@ -121,6 +121,17 @@ We will use numba to speed up the code.  This will mainly be for sandbox analyse
 - Perform your validation plan using the test_speed_up.py module.
 - Log your work in the "Logs" section below.
 
+## Docs
+
+1. Examine the docs in the astropath/docs directory.  We need to update the documentation to reflect the new code and the numba option.  Please:
+
+- Update the documentation to reflect the new code and the numba option.
+- Emphasize that the numba option is optional and that the code will fall back to the numpy option if numba is not installed or if the user does not set use_numba to True.
+- Comment that the numba option is only available for the px_Oi_fixedgrid method.
+- Add that it is primarily recommended for sandbox analyses.
+- Comment on the profiling.py module too
+- Log your work in the "Logs" section below.
+
 ## Prompts
 
 1. Read this doc.  Proceed with the 1st item under Development/calc_LWx
@@ -133,6 +144,7 @@ We will use numba to speed up the code.  This will mainly be for sandbox analyse
 8. Read this doc.  Proceed with the 2nd item under Numba/px_Oi_fixedgrid
 9. Read this doc.  Proceed with the 3rd item under Development/Profiling
 10. Read this doc.  Proceed with the 4th item under Development/Profiling
+11. Read this doc.  Proceed with the 1st item under Docs
 
 ## Logging
 
@@ -695,3 +707,35 @@ between `calc_LWx` (blue) and the numpy `px_Oi_fixedgrid` (red): at the
 largest grid the per-candidate work is no longer dominating — numba
 brings it down toward the cost of the single `calc_LWx` localization
 pass. Figure re-written to `astropath/profiling_timing.png`.
+
+### 2026-06-10 (Documentation: numpy/numba speed-ups + profiling)
+
+**Docs added/updated** under `docs/`.
+- New page `docs/performance.rst` with sections: (1) the transparent
+  numpy acceleration of `calc_LWx` (eellipse) and `px_Oi_fixedgrid`;
+  (2) the optional numba option — how to enable it
+  (`px_Oi_fixedgrid(..., use_numba=True)`) and the key caveats; (3) the
+  `profiling` module (CLI `python -m astropath.profiling` + import use),
+  with an `automodule` API reference.
+- Emphasized per the prompt: numba is **optional** (need not be
+  installed), `use_numba` defaults to **False**, and the code **falls
+  back to numpy** (with a warning) if numba is absent or the flag is not
+  set; the numba option is available **only for `px_Oi_fixedgrid`**
+  (not `px_Oi_local`/others, and bypassed for
+  `return_grids`/`return_debug`); and it is **primarily recommended for
+  sandbox analyses**.
+- Added an honest `.. note::` that `use_numba` is exposed on
+  `bayesian.px_Oi_fixedgrid` directly and is *not* currently forwarded
+  by `path.PATH.calc_posteriors` (verified in `path.py`) — call the
+  bayesian function directly to use it.
+- Linked the new page from `docs/index.rst` (new "Performance"
+  toctree section). Added cross-reference `.. note::` pointers in
+  `docs/frb_example.rst` (posterior step) and `docs/localization.rst`
+  (calc_LWx eellipse) to `:doc:\`performance\``.
+
+**Validation:** sphinx/docutils are not installed in astro14, so I
+could not run `make html` here. Instead I checked that all RST section
+underlines are >= their title length (no would-be build warnings) and
+that every `index.rst` toctree entry resolves to an existing
+`.rst`/`.ipynb` file. Both checks pass. A full `make html` should be
+run in the docs environment to confirm rendering.

@@ -32,6 +32,10 @@ The last line of code checks against the data model.
 The code then defines the localization PDF as a 2D Gaussian
 with sigma's "a" and "b" and orientation given by "theta".
 
+The error-ellipse evaluation of :math:`L(w-x)`
+(``localization.calc_LWx``) is implemented in pure numpy for speed;
+see :doc:`performance`.
+
 Healpix
 =======
 

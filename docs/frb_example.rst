@@ -95,3 +95,9 @@ Another simple call with the "fixed" approach::
 
 
 And we are all done!
+
+.. note::
+
+   For large grids you can optionally accelerate the fixed-grid
+   calculation with ``numba`` (off by default; falls back to numpy if
+   ``numba`` is not installed). See :doc:`performance` for details.
