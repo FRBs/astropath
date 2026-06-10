@@ -153,10 +153,16 @@ def px_Oi_numba(ra, dec, L_wx, cand_ra, cand_dec, cos_dec,
             square.
 
     Returns:
-        float: p(x|O_i) for the candidate.
+        tuple: (p_xOi, pw_sum)
+            p_xOi (float): UNcorrected p(x|O_i) for the candidate
+                (= sum of L_wx*p(w|O_i) over the grid, times spacing^2).
+            pw_sum (float): Sum of p(w|O_i) over the grid.  Returned so
+                ``px_Oi_fixedgrid`` can apply the optional 'p_wO'
+                correction with the same formula as the numpy path.
     """
     nrow, ncol = ra.shape
     acc = 0.0
+    pw_sum = 0.0  # sum of p(w|O_i) over the grid, for the p_wO correction
     for i in range(nrow):
         for j in range(ncol):
             dra = ra[i, j] - cand_ra
@@ -172,13 +178,15 @@ def px_Oi_numba(ra, dec, L_wx, cand_ra, cand_dec, cos_dec,
                 else:  # _PDF_EXP
                     pw = np.exp(-theta / kparam) / norm
                 acc += L_wx[i, j] * pw
-    return acc * spacing * spacing
+                pw_sum += pw  # p(w|O_i)=0 outside support, so this is
+                #               the full-grid sum
+    return acc * spacing * spacing, pw_sum
 
 
 def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
                     cand_ang_size, theta_prior, step_size=0.1,
                     return_grids=False, return_debug:bool=False,
-                    use_numba:bool=False):
+                    use_numba:bool=False, correction:str=None):
     """
     Calculate p(x|O_i), the primary piece of the analysis
 
@@ -211,6 +219,10 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
             False.  Silently falls back to the numpy path if numba is
             not installed, or if return_grids/return_debug is set (the
             fused kernel does not build per-pixel grids).
+        correction (str, optional): Correction to apply to the posteriors
+            'p_wO' -- Correct p(w|O)
+            'L_wx' -- Correct L(w-x)
+            None -- No correction
 
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
@@ -241,9 +253,13 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
     # Approximate as flat sky
     #  Warning:  RA increases in x for these grids!!
+    print('Calculating L(w-x)')
     ra = center_ra + xcoord/3600. / cos_center_dec
     dec = center_dec + ycoord/3600.
     L_wx = localization.calc_LWx(ra, dec, localiz)
+    # Prep for correction
+    if correction == 'L_wx':
+        corr_Lwx = np.sum(L_wx) * grid_spacing_arcsec**2
 
     # Pre-extract candidate coordinates to numpy arrays ONCE (numpy
     # only).  Iterating a SkyCoord array and reading .ra/.dec per
@@ -265,17 +281,28 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
 
     p_xOis, grids = [], []
     # TODO -- multiprocess this
+    print('Looping on candidates')
     for icand in range(cand_ra.size):
+        if icand % 50 == 0:
+            print(f'icand: {icand}')
 
         if use_numba_eff:
             # Resolve the prior to scalars, then fuse theta/PDF/product/
             # sum in one numba pass (no full-grid temporaries).
             pdf_code, theta_max, kparam, norm = _resolve_offset_prior(
                 cand_ang_size[icand], theta_prior)
-            p_xOis.append(px_Oi_numba(
+            p_val, pw_sum = px_Oi_numba(
                 ra, dec, L_wx, cand_ra[icand], cand_dec[icand],
                 cos_cand_dec[icand], pdf_code, theta_max, kparam, norm,
-                grid_spacing_arcsec))
+                grid_spacing_arcsec)
+            # Apply the SAME optional correction as the numpy path.
+            # Dividing the grid by a scalar then summing == dividing the
+            # sum, so we correct the scalar p(x|O_i) directly.
+            if correction == 'p_wO':
+                p_val /= np.sum(pw_sum) * grid_spacing_arcsec**2
+            elif correction == 'L_wx':
+                p_val /= corr_Lwx
+            p_xOis.append(p_val)
             continue
 
         # Offsets from the transient (approximate + flat sky)
@@ -290,12 +317,21 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         # Product
         grid_p = L_wx * p_wOi
 
+
         # Save grids if returning
         if return_grids:
             grids.append(grid_p.copy())
 
         # Sum
-        p_xOis.append(np.sum(grid_p)*grid_spacing_arcsec**2)
+        p_val = np.sum(grid_p)*grid_spacing_arcsec**2
+
+        # Correction
+        if correction == 'p_wO':
+            p_val /= np.sum(p_wOi) * grid_spacing_arcsec**2
+        elif correction == 'L_wx':
+            p_val /= corr_Lwx
+
+        p_xOis.append(p_val)
 
     # Return
     if return_grids:
@@ -372,21 +408,24 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
     return np.array(p_xOis)
 
 
-def px_U(box_hwidth):
+def px_U(radius:float):
     """
 
     Args:
-        box_hwidth (float):
-            Half-width of the analysis box, in arcsec
+        radius (float):
+            Radius of the area enclosing the candidates
+            in arcsec
 
     Returns:
-        float: p(x|U)
+        float: p(x|U) in squarearcsec
 
     """
-    box_sqarcsec = (2*box_hwidth)**2
+    #box_sqarcsec = (2*box_hwidth)**2
     #box_steradians = box_sqarcsec * sqarcsec_steradians
+    area = np.pi * radius**2
     #
-    return 1./box_sqarcsec  # box_steradians
+    #return 1./box_sqarcsec  # box_steradians
+    return 1./area  
 
 
 

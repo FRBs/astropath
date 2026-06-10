@@ -335,6 +335,26 @@ def test_px_Oi_fixedgrid_numba_matches_numpy(pdf):
     assert np.allclose(p_np, p_nb, rtol=1e-10, atol=1e-15)
 
 
+@numba_required
+@pytest.mark.parametrize("pdf", ['exp', 'core', 'uniform'])
+@pytest.mark.parametrize("correction", ['p_wO', 'L_wx'])
+def test_px_Oi_fixedgrid_numba_matches_numpy_correction(pdf, correction):
+    """numba must match numpy with the optional correction factor too."""
+    cent_ra, cent_dec = 120.0, 32.0
+    localiz = _eellipse_localiz(cent_ra, cent_dec, a=1.0, b=0.6, theta=30.)
+    cand_coords, cand_ang_size = _make_candidates(cent_ra, cent_dec)
+    theta_prior = dict(PDF=pdf, max=6., scale=0.5)
+
+    p_np = bayesian.px_Oi_fixedgrid(
+        10., localiz, cand_coords, cand_ang_size, theta_prior,
+        use_numba=False, correction=correction)
+    p_nb = bayesian.px_Oi_fixedgrid(
+        10., localiz, cand_coords, cand_ang_size, theta_prior,
+        use_numba=True, correction=correction)
+
+    assert np.allclose(p_np, p_nb, rtol=1e-10, atol=1e-15)
+
+
 def test_px_Oi_fixedgrid_numba_fallback_without_numba(monkeypatch):
     """use_numba=True falls back to numpy (with a warning) if numba is
     unavailable, and still returns the correct result."""

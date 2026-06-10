@@ -97,6 +97,12 @@ We wish to speed up the calculation of p(x|O_i) for a given localization using t
 - Add a dark grey horiztonal line at 10s on the figure
 - You do not need to Log these changes
 
+5. Make these changes to profiling.py:
+
+- Include the JIT warm-up as part of the timing 
+- Have it be the default option to call px_Oi_fixedgrid() with correction='p_wO'
+- Log your work in the "Logs" section below.
+
 ## Numba
 
 We will use numba to speed up the code.  This will mainly be for sandbox analyses.
@@ -119,6 +125,12 @@ We will use numba to speed up the code.  This will mainly be for sandbox analyse
 - It is ok to single-source the *norm*
 - Start with single-threaded @njit
 - Perform your validation plan using the test_speed_up.py module.
+- Log your work in the "Logs" section below.
+
+3. I have made a changes to the px_Oi_fixedgrid method to implement an optional correction factor. Please:
+
+- Update the numba version to implement the same correction factor as the numpy version
+- Test these changes
 - Log your work in the "Logs" section below.
 
 ## Docs
@@ -145,6 +157,8 @@ We will use numba to speed up the code.  This will mainly be for sandbox analyse
 9. Read this doc.  Proceed with the 3rd item under Development/Profiling
 10. Read this doc.  Proceed with the 4th item under Development/Profiling
 11. Read this doc.  Proceed with the 1st item under Docs
+12. Read this doc.  Proceed with the 3rd item under Numba/px_Oi_fixedgrid
+13. Read this doc.  Proceed with the 5th item under Development/Profiling
 
 ## Logging
 
@@ -739,3 +753,45 @@ underlines are >= their title length (no would-be build warnings) and
 that every `index.rst` toctree entry resolves to an existing
 `.rst`/`.ipynb` file. Both checks pass. A full `make html` should be
 run in the docs environment to confirm rendering.
+
+### 2026-06-10 (numba: match the optional correction factor)
+
+**Context:** the user added an optional `correction` kwarg to the numpy
+`px_Oi_fixedgrid` (`'p_wO'`, `'L_wx'`, or `None`). For a candidate the
+numpy path does `grid_p = L_wx * p_wOi`, then divides the grid by a
+scalar — `sum(p_wOi)/spacing^2` for `'p_wO'` (candidate-dependent) or
+`sum(L_wx)/spacing^2` for `'L_wx'` (candidate-independent) — before
+summing. This entry makes the numba path apply the identical
+correction.
+
+**Code changed:** `astropath/bayesian.py`.
+- `px_Oi_numba` now also accumulates `pw_sum = sum(p(w|O_i))` over the
+  grid and returns `(p_xOi_uncorrected, pw_sum)`. Since p(w|O_i)=0
+  outside the support (`theta >= theta_max`), accumulating only inside
+  the cutoff gives the full-grid sum, matching numpy's `np.sum(p_wOi)`.
+- In the `use_numba` branch of `px_Oi_fixedgrid`, after the kernel call
+  I apply the SAME correction expressions as the numpy branch. Key
+  identity: dividing the grid by a scalar then summing equals dividing
+  the scalar sum, so correcting the returned scalar p(x|O_i) is exact:
+    - `'p_wO'`: `p_val /= pw_sum / spacing^2`
+    - `'L_wx'`: `p_val /= np.sum(L_wx) / spacing^2`
+  No correction logic was duplicated inside the jitted kernel; only the
+  extra `pw_sum` reduction is. (`return_grids`/`return_debug` still force
+  the numpy path, so the grid-level correction there is unaffected.)
+
+**Tests added** to `tests/test_speed_up.py`:
+- `test_px_Oi_fixedgrid_numba_matches_numpy_correction[p_wO|L_wx]
+  [exp|core|uniform]` — 6 cases asserting numba == numpy to
+  `rtol=1e-10` with each correction. All pass (11 numba tests total).
+
+**Note — unrelated pre-existing test failure:** `test_bayesian.py::
+test_PU` fails in the current working tree, but NOT from this change.
+It is caused by a separate uncommitted user edit to `px_U` (signature
+`box_hwidth`->`radius`, formula `1/(2*box_hwidth)^2` ->
+`1/(pi*radius^2)`); `px_U(30)` changed from `1/3600` to `1/(pi*900)`,
+which breaks `test_PU`'s hard-coded expected `p_x`/`P_Ux`. Verified by
+running `test_PU` on the committed baseline (passes) vs the working
+tree (fails on the `p_x` assertion). Left untouched — it is outside the
+scope of this prompt and reflects an intentional user change; the
+`test_PU` expectations (or `px_U` call sites) likely need updating
+separately.

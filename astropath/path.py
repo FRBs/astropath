@@ -163,8 +163,12 @@ class PATH(object):
         # Return them too
         return self.prior_Oi
 
-    def calc_posteriors(self, method:str, step_size=0.1, box_hwidth=None,
-                        max_radius=None, debug:bool=False):
+    def calc_posteriors(self, method:str, step_size:float=0.1, 
+                        box_hwidth=None,
+                        survey_radius:float=None, 
+                        use_numba:bool=False, 
+                        debug:bool=False, 
+                        correction:str=None):
         """Calculate the posteriors
 
         Args:
@@ -173,10 +177,14 @@ class PATH(object):
                 local -- One grid is generated for each candidate
             step_size (float, optional): [description]. Defaults to 0.1.
             box_hwidth (float, optional): [description]. Defaults to None.
-            max_radius (float, optional): Maximum radius (arcsec)
+            survey_radius (float, optional): Maximum radius (arcsec)
                 allowed for galaxy. Only required for cases
                 where P(U)>0.
+            use_numba (bool, optional): Use numba for calculations. Default False.
             debug (bool, optional):  Debug
+            correction (str, optional): Correction to apply to the posteriors
+                'p_wO' -- Correct p(w|O)
+                'L_wx' -- Correct L(w-x)
 
         Raises:
             IOError: [description]
@@ -205,7 +213,9 @@ class PATH(object):
                         self.cand_coords,
                         self.candidates['ang_size'].values, 
                         self.theta_prior, 
-                        step_size=step_size)
+                        step_size=step_size,
+                        use_numba=use_numba,
+                        correction=correction)
         elif method == 'local':
             self.p_xOi = bayesian.px_Oi_local(
                         self.localiz, 
@@ -219,14 +229,14 @@ class PATH(object):
         # P(U|x)
         logging.info("Calculating p(x|U)")
         if self.cand_prior['P_U'] > 0.:
-            if max_radius is None:
-                raise IOError("Set max_radius given that P(U) > 0!!")
+            if survey_radius is None:
+                raise IOError("Set survey_radius given that P(U) > 0!!")
             if self.cand_prior['P_O_method']=='user':
                 # leave unmodified
                 self.p_xU = 1
             else:
                 # downweight by FOV
-                self.p_xU = bayesian.px_U(max_radius)
+                self.p_xU = bayesian.px_U(survey_radius)
         else:
             self.p_xU = 0.
         
