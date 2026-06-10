@@ -146,33 +146,63 @@ def run_profiling(step_sizes=None, box_hwidth=BOX_HWIDTH):
 
     Returns:
         pandas.DataFrame: One row per step size with columns
-            ``step_size``, ``ngrid``, ``n_pixels``, ``calc_LWx_s`` and
-            ``px_Oi_fixedgrid_s`` (times in seconds).
+            ``step_size``, ``ngrid``, ``n_pixels``, ``calc_LWx_s``,
+            ``px_Oi_fixedgrid_s`` (numpy) and ``px_Oi_numba_s`` (the
+            numba ``use_numba=True`` path; NaN if numba is unavailable).
     """
     if step_sizes is None:
         step_sizes = DEFAULT_STEP_SIZES
     localiz, cand_coords, cand_ang_size, theta_prior = default_setup()
+
+    print("Starting profiling sweep over %d step sizes, %d candidates"
+          % (len(step_sizes), len(cand_ang_size)))
+
+    # Warm up the numba JIT once (compile cost is paid on the first call
+    # and must not pollute the timings).  Small grid is enough to compile.
+    if bayesian.HAS_NUMBA:
+        print("  Warming up numba JIT...")
+        bayesian.px_Oi_fixedgrid(
+            box_hwidth, localiz, cand_coords, cand_ang_size,
+            theta_prior, step_size=DEFAULT_STEP_SIZES[0], use_numba=True)
 
     rows = []
     for step_size in step_sizes:
         # Grid for the standalone calc_LWx timing
         ra, dec, ngrid = _build_grid(localiz, box_hwidth, step_size)
         npix = ngrid * ngrid
+        print("  step_size=%.4f  grid=%dx%d (%d pix) ..."
+              % (step_size, ngrid, ngrid, npix))
 
         # Time calc_LWx (localization term only)
         t_lwx = _time_call(localization.calc_LWx,
                            (ra, dec, localiz), npix)
+        print("    calc_LWx: %.1f ms" % (t_lwx * 1e3))
 
-        # Time the full fixed-grid p(x|O_i)
+        # Time the full fixed-grid p(x|O_i) -- numpy path
         t_pxoi = _time_call(
             bayesian.px_Oi_fixedgrid,
             (box_hwidth, localiz, cand_coords, cand_ang_size,
              theta_prior, step_size), npix)
+        print("    px_Oi_fixedgrid (numpy): %.1f ms" % (t_pxoi * 1e3))
+
+        # Time the numba path (use_numba=True), if available
+        if bayesian.HAS_NUMBA:
+            t_numba = _time_call(
+                lambda *a: bayesian.px_Oi_fixedgrid(
+                    box_hwidth, localiz, cand_coords, cand_ang_size,
+                    theta_prior, step_size=step_size, use_numba=True),
+                (), npix)
+            print("    px_Oi_fixedgrid (numba): %.1f ms (%.1fx)"
+                  % (t_numba * 1e3, t_pxoi / t_numba))
+        else:
+            t_numba = np.nan
 
         rows.append(dict(step_size=step_size, ngrid=ngrid,
                          n_pixels=npix, calc_LWx_s=t_lwx,
-                         px_Oi_fixedgrid_s=t_pxoi))
+                         px_Oi_fixedgrid_s=t_pxoi,
+                         px_Oi_numba_s=t_numba))
 
+    print("Profiling sweep complete.")
     return pandas.DataFrame(rows)
 
 
@@ -192,13 +222,20 @@ def plot_results(df, outfile):
     ax.plot(sqrt_pix, df['calc_LWx_s'], 'o-',
             label='calc_LWx')
     ax.plot(sqrt_pix, df['px_Oi_fixedgrid_s'], 's-', color='red',
-            label='px_Oi_fixedgrid')
+            label='px_Oi_fixedgrid (numpy)')
+    # numba curve (only if it was timed)
+    if 'px_Oi_numba_s' in df and df['px_Oi_numba_s'].notna().any():
+        ax.plot(sqrt_pix, df['px_Oi_numba_s'], '^-', color='green',
+                label='px_Oi_fixedgrid (numba)')
+    # Reference line at 10 s
+    ax.axhline(10., color='dimgray', linestyle='--', linewidth=1.5)
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlabel('sqrt(grid pixels)')
     ax.set_ylabel('Time (s)')
-    ax.set_title('PATH profiling: numpy implementations')
+    ax.set_title('PATH profiling')
     ax.grid(True, which='both', alpha=0.3)
+    ax.set_xlim(None, 10000.)
     ax.legend()
     fig.tight_layout()
     fig.savefig(outfile, dpi=120)
@@ -220,9 +257,13 @@ def main():
     # Print a readable table (times in ms for legibility)
     show = df.copy()
     show['calc_LWx_ms'] = show['calc_LWx_s'] * 1e3
-    show['px_Oi_fixedgrid_ms'] = show['px_Oi_fixedgrid_s'] * 1e3
-    cols = ['step_size', 'ngrid', 'n_pixels',
-            'calc_LWx_ms', 'px_Oi_fixedgrid_ms']
+    show['px_Oi_numpy_ms'] = show['px_Oi_fixedgrid_s'] * 1e3
+    show['px_Oi_numba_ms'] = show['px_Oi_numba_s'] * 1e3
+    # numba speed-up factor over the numpy path
+    show['numba_speedup'] = (show['px_Oi_fixedgrid_s']
+                             / show['px_Oi_numba_s'])
+    cols = ['step_size', 'ngrid', 'n_pixels', 'calc_LWx_ms',
+            'px_Oi_numpy_ms', 'px_Oi_numba_ms', 'numba_speedup']
     print('\nPATH profiling results (best-of-reps):')
     print(show[cols].to_string(index=False,
                                float_format=lambda v: '%.3f' % v))

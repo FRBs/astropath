@@ -5,11 +5,84 @@ import numpy as np
 
 from astropy import units
 
-from astropath import localization 
+from astropath import localization
 
 from IPython import embed
 
+# Optional numba acceleration.  numba need not be installed; when it is
+# absent HAS_NUMBA is False and njit is a no-op decorator (the jitted
+# kernel is simply never called -- callers fall back to numpy).
+try:
+    from numba import njit
+    HAS_NUMBA = True
+except ImportError:  # numba not installed
+    HAS_NUMBA = False
+
+    def njit(*args, **kwargs):
+        """No-op stand-in for numba.njit when numba is unavailable."""
+        # Support both @njit and @njit(...) usage
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+
+        def _wrap(func):
+            return func
+        return _wrap
+
 sqarcsec_steradians = 4 * np.pi * (1 / 3600 / 3600) / (180. / np.pi) ** 2
+
+
+# PDF integer codes shared by pw_Oi and the numba kernel
+_PDF_CORE = 0
+_PDF_UNIFORM = 1
+_PDF_EXP = 2
+
+
+def _resolve_offset_prior(phi, theta_prior):
+    """Resolve the offset prior to plain scalars (single source).
+
+    Centralizes the offset-PDF normalization and parameters so that the
+    pure-numpy ``pw_Oi`` and the numba kernel share one definition.
+
+    Args:
+        phi (float):
+            Angular size of the galaxy in arcsec.
+        theta_prior (dict):
+            Offset-prior parameters (keys: PDF, max, and scale for exp).
+
+    Returns:
+        tuple: (pdf_code, theta_max, kparam, norm)
+            pdf_code (int): One of _PDF_CORE/_PDF_UNIFORM/_PDF_EXP.
+            theta_max (float): Cutoff offset (arcsec); p=0 beyond it.
+            kparam (float): PDF scale param -- phi for core, phi*scale
+                for exp, unused (=phi) for uniform.
+            norm (float): Normalization so the PDF integrates to 1.
+    """
+    pdf = theta_prior['PDF']
+    # Cutoff always uses the ORIGINAL phi (matches the legacy pw_Oi,
+    # where ok_w is computed before phi is rescaled for the exp PDF).
+    theta_max = theta_prior['max'] * phi
+    if pdf == 'core':
+        pdf_code = _PDF_CORE
+        kparam = phi
+        # Wolfram; updated by JXP on 14-Feb-2023
+        term0 = -1 * phi**2 * np.log(phi)
+        term_max = phi * (theta_prior['max']*phi
+                          - phi*np.log(phi+theta_prior['max']*phi))
+        norm = 2*np.pi*(term_max - term0)
+    elif pdf == 'uniform':
+        pdf_code = _PDF_UNIFORM
+        kparam = phi  # unused by the uniform PDF
+        norm = np.pi * (phi*theta_prior['max'])**2
+    elif pdf == 'exp':
+        pdf_code = _PDF_EXP
+        # exp decay length is phi*scale; cutoff stays at max*phi above
+        kparam = phi * theta_prior['scale']
+        # Wolfram; updated by JXP on 14-Feb-2023
+        norm = 2 * np.pi * kparam**2 * (1 - (1+theta_prior['max'])*np.exp(
+            -theta_prior['max']))
+    else:
+        raise IOError("Bad theta PDF")
+    return pdf_code, theta_max, kparam, norm
 
 
 def pw_Oi(theta, phi, theta_prior):
@@ -32,41 +105,80 @@ def pw_Oi(theta, phi, theta_prior):
         np.ndarray: Probability values without grid-size normalization
 
     """
-    p = np.zeros_like(theta)
-    ok_w = theta < theta_prior['max']*phi
-    if theta_prior['PDF'] == 'core':
-        # Wolfram
-        # Updated by JXP on 14-Feb-2023
-        term0 = -1 * phi**2 * np.log(phi)
-        term_max = phi * (theta_prior['max']*phi - phi*np.log(phi+theta_prior['max']*phi))
-        norm = 2*np.pi*(term_max - term0)
-        #
-        if np.any(ok_w):
-            p[ok_w] = phi / (theta[ok_w] + phi) / norm
-    elif theta_prior['PDF'] == 'uniform':
-        norm = np.pi * (phi*theta_prior['max'])**2
-        if np.any(ok_w):
-            p[ok_w] = 1. / norm
-    elif theta_prior['PDF'] == 'exp':
-        # Wolfram
-        phi = phi * theta_prior['scale']
-        # Updated by JXP on 14-Feb-2023
-        norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max'])*np.exp(
-            -theta_prior['max']))
-        if np.any(ok_w):
-            p[ok_w] = np.exp(-theta[ok_w]/phi) / norm
-    else:
-        raise IOError("Bad theta PDF")
+    # Resolve PDF code + normalization once (single-sourced, also used
+    # by the numba kernel).  kparam = phi (core) or phi*scale (exp).
+    pdf_code, theta_max, kparam, norm = _resolve_offset_prior(
+        phi, theta_prior)
     #
     if norm == 0:
         raise ValueError("You forgot to normalize!")
+    p = np.zeros_like(theta)
+    ok_w = theta < theta_max
+    if np.any(ok_w):
+        if pdf_code == _PDF_CORE:
+            p[ok_w] = kparam / (theta[ok_w] + kparam) / norm
+        elif pdf_code == _PDF_UNIFORM:
+            p[ok_w] = 1. / norm
+        else:  # _PDF_EXP
+            p[ok_w] = np.exp(-theta[ok_w]/kparam) / norm
     # Return
     return p
 
 
-def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords, 
-                    cand_ang_size, theta_prior, step_size=0.1, 
-                    return_grids=False, return_debug:bool=False):
+@njit(cache=True)
+def px_Oi_numba(ra, dec, L_wx, cand_ra, cand_dec, cos_dec,
+          pdf_code, theta_max, kparam, norm, spacing):
+    """Numba kernel: p(x|O_i) for a SINGLE candidate (fused, 1 pass).
+
+    Computes the flat-sky offset theta, the offset PDF p(w|O_i), the
+    product with L(w-x), and the grid sum in one loop over pixels --
+    avoiding the full-grid temporaries (theta, p_wOi, grid_p) that the
+    numpy path allocates per candidate.  Single-threaded @njit.
+
+    Kept separate from ``px_Oi_fixedgrid`` (which orchestrates the grid,
+    L_wx, and the candidate loop) and from ``pw_Oi`` (pure-numpy PDF).
+
+    Args:
+        ra (np.ndarray): 2D grid of RA (deg).
+        dec (np.ndarray): 2D grid of Dec (deg).
+        L_wx (np.ndarray): 2D localization term on the same grid.
+        cand_ra (float): Candidate RA (deg).
+        cand_dec (float): Candidate Dec (deg).
+        cos_dec (float): cos(candidate Dec) for flat-sky scaling.
+        pdf_code (int): Offset-PDF code (see _resolve_offset_prior).
+        theta_max (float): Cutoff offset (arcsec).
+        kparam (float): PDF scale param (phi or phi*scale).
+        norm (float): PDF normalization.
+        spacing (float): Grid spacing (arcsec); result scales by its
+            square.
+
+    Returns:
+        float: p(x|O_i) for the candidate.
+    """
+    nrow, ncol = ra.shape
+    acc = 0.0
+    for i in range(nrow):
+        for j in range(ncol):
+            dra = ra[i, j] - cand_ra
+            ddec = dec[i, j] - cand_dec
+            # flat-sky offset in arcsec
+            theta = 3600.0 * np.sqrt(
+                cos_dec * cos_dec * dra * dra + ddec * ddec)
+            if theta < theta_max:
+                if pdf_code == _PDF_CORE:
+                    pw = kparam / (theta + kparam) / norm
+                elif pdf_code == _PDF_UNIFORM:
+                    pw = 1.0 / norm
+                else:  # _PDF_EXP
+                    pw = np.exp(-theta / kparam) / norm
+                acc += L_wx[i, j] * pw
+    return acc * spacing * spacing
+
+
+def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
+                    cand_ang_size, theta_prior, step_size=0.1,
+                    return_grids=False, return_debug:bool=False,
+                    use_numba:bool=False):
     """
     Calculate p(x|O_i), the primary piece of the analysis
 
@@ -91,6 +203,14 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
             Step size for grid, in arcsec
         return_grids (bool, optional):
             if True, return the calculation grid
+        return_debug (bool, optional):
+            if True, return intermediate grids for debugging
+        use_numba (bool, optional):
+            if True, evaluate the per-candidate loop with the numba
+            ``px_Oi`` kernel (single-threaded @njit).  Defaults to
+            False.  Silently falls back to the numpy path if numba is
+            not installed, or if return_grids/return_debug is set (the
+            fused kernel does not build per-pixel grids).
 
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
@@ -134,9 +254,29 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     cand_dec = cand_coords.dec.deg    # deg, shape (N,)
     cos_cand_dec = np.cos(np.radians(cand_dec))  # flat-sky scaling
 
+    # The fused numba kernel returns only the scalar p(x|O_i); it cannot
+    # build per-pixel grids, so disable it when those are requested.
+    # Warn (don't error) if numba was asked for but isn't installed.
+    use_numba_eff = use_numba and not return_grids and not return_debug
+    if use_numba and not HAS_NUMBA:
+        warnings.warn("use_numba=True but numba is not installed; "
+                      "falling back to numpy.")
+        use_numba_eff = False
+
     p_xOis, grids = [], []
     # TODO -- multiprocess this
     for icand in range(cand_ra.size):
+
+        if use_numba_eff:
+            # Resolve the prior to scalars, then fuse theta/PDF/product/
+            # sum in one numba pass (no full-grid temporaries).
+            pdf_code, theta_max, kparam, norm = _resolve_offset_prior(
+                cand_ang_size[icand], theta_prior)
+            p_xOis.append(px_Oi_numba(
+                ra, dec, L_wx, cand_ra[icand], cand_dec[icand],
+                cos_cand_dec[icand], pdf_code, theta_max, kparam, norm,
+                grid_spacing_arcsec))
+            continue
 
         # Offsets from the transient (approximate + flat sky)
         theta = 3600*np.sqrt(cos_cand_dec[icand]**2 * (

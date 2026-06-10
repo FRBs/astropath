@@ -84,6 +84,43 @@ We wish to speed up the calculation of p(x|O_i) for a given localization using t
 - Use red, and not orange for px_Oi_fixedgrid 
 - Instead of pixels, label the x-axis in sqrt(pixels)
 
+3. I have added the px_Oi_numba method to the bayesian.py file.  Please:
+
+- Update the profiling.py tests to use the px_Oi_numba method
+- Report back on the speed up
+- Include a new curve on the figure for when using numba
+- Log your work in the "Logs" section below.
+
+4. Make these changes to profiling.py:
+
+- Add a few print statements to the profiling.py module to report on progress
+- Add a dark grey horiztonal line at 10s on the figure
+- You do not need to Log these changes
+
+## Numba
+
+We will use numba to speed up the code.  This will mainly be for sandbox analyses.
+
+### px_Oi_fixedgrid
+
+1. Examine the code for px_Oi_fixedgrid.  We will use numba ot speed up the main loop.  Please:
+
+- Examine the code
+- Develop a plan to introduce numba 
+- Try to keep the pw_Oi() method separate from px_Oi_fixedgrid()
+- Log your work in the "Logs" section below.
+- If you have any questions, ask them in the Logs and I will clarify at my next prompt
+- Do not generate any new code yet
+
+2. Proceed with generating a numba option for the main loop.  Please:
+
+- Make numba optional.  It need not be installed, although I have just done so in the astro14 environment.
+- Have use_numba be a boolean flag for the method that is set to False by default.
+- It is ok to single-source the *norm*
+- Start with single-threaded @njit
+- Perform your validation plan using the test_speed_up.py module.
+- Log your work in the "Logs" section below.
+
 ## Prompts
 
 1. Read this doc.  Proceed with the 1st item under Development/calc_LWx
@@ -92,7 +129,10 @@ We wish to speed up the calculation of p(x|O_i) for a given localization using t
 4. Read this doc.  Proceed with the 2nd item under Development/px_Oi_fixedgrid
 5. Read this doc.  Proceed with the 1st item under Development/Profiling
 6. Read this doc.  Proceed with the 2nd item under Development/Profiling
-
+7. Read this doc.  Proceed with the 1st item under Numba/px_Oi_fixedgrid
+8. Read this doc.  Proceed with the 2nd item under Numba/px_Oi_fixedgrid
+9. Read this doc.  Proceed with the 3rd item under Development/Profiling
+10. Read this doc.  Proceed with the 4th item under Development/Profiling
 
 ## Logging
 
@@ -464,3 +504,194 @@ the per-candidate grid loop — not the localization term — is the
 dominant cost, making it the prime target for the next optimization
 (numba / vectorization with a memory guard). Figure re-written to
 `astropath/profiling_timing.png`.
+
+### 2026-06-10 (Plan: numba for the px_Oi_fixedgrid main loop)
+
+**Code examined:** `astropath/bayesian.py` — `px_Oi_fixedgrid`
+(lines 67-166) and the `pw_Oi` it calls (15-64). No new code written.
+
+**What the per-candidate loop does** (lines 139-158), per candidate i:
+1. `theta = 3600*sqrt(cos_dec_i^2*(ra-ra_i)^2 + (dec-dec_i)^2)` — a
+   full-grid temporary.
+2. `p_wOi = pw_Oi(theta, phi_i, theta_prior)` — another full-grid
+   temporary; internally allocates `p` and the boolean mask `ok_w`.
+3. `grid_p = L_wx * p_wOi` — a third full-grid temporary.
+4. `p_xOi = np.sum(grid_p) * spacing^2` — reduction to a scalar.
+
+So each candidate allocates ~3-4 arrays the size of the grid (at 7200^2
+that is ~415 MB each) and makes ~5 full-grid passes. With N candidates
+that is the cost the profiling showed (px_Oi_fixedgrid ~ N x the inner
+work). This is exactly what numba fuses well: one pass, no temporaries.
+
+**Plan to introduce numba (keeping px_Oi() separate):**
+
+1. **Factor out a per-candidate kernel `px_Oi(...)`.** Currently no
+   `px_Oi()` exists (only `pw_Oi` and `px_Oi_fixedgrid`). Create
+   `px_Oi()` that computes p(x|O_i) for ONE candidate and returns the
+   scalar. `px_Oi_fixedgrid()` stays the orchestrator: builds the grid,
+   computes `L_wx` via `calc_LWx`, pre-extracts candidate arrays, and
+   loops calling `px_Oi()` once per candidate. This is the separation
+   the prompt asks for and keeps the jitted hot path isolated.
+
+2. **Make `px_Oi()` a numba `@njit` fused kernel.** Signature roughly:
+   `px_Oi(ra, dec, L_wx, cand_ra, cand_dec, cos_dec, pdf_code,
+   theta_max, kparam, norm, spacing) -> float`. It runs a single loop
+   over grid pixels accumulating `L_wx[p] * p_offset(theta)` and returns
+   `acc * spacing^2`. No `theta`/`p_wOi`/`grid_p` temporaries — the
+   dominant memory cost disappears. (Optionally `prange` + reduction for
+   multi-threading; start single-thread, add `parallel=True` after it
+   works.)
+
+3. **Hoist the dict/branching out of the jitted code.** numba nopython
+   mode does not handle the `theta_prior` dict or string `PDF`
+   comparisons cleanly. So in `px_Oi_fixedgrid` (plain Python), resolve
+   the prior ONCE into scalars the kernel can take:
+   - `pdf_code` int (0=core, 1=uniform, 2=exp),
+   - `theta_max` cutoff,
+   - `norm` (the per-candidate normalization),
+   - `kparam` (the PDF's scale: `phi` for core, `phi*scale` for exp,
+     unused for uniform).
+   The kernel then branches on the integer `pdf_code`. **Subtlety to
+   preserve:** in `pw_Oi` the cutoff `ok_w = theta < max*phi` uses the
+   ORIGINAL `phi`, while the `exp` decay uses `phi*scale` — these are
+   different, so the kernel must use `theta_max = max*phi_original` for
+   the cutoff and `kparam = phi*scale` for the exponent.
+
+4. **Keep `pw_Oi` as-is.** It is public/tested and used elsewhere
+   (e.g. `px_Oi_local`). The kernel will duplicate the *elementwise*
+   PDF formula (one line per PDF) but reuse `pw_Oi`'s exact norm
+   expressions via a small shared `_offset_norm(pdf, phi, prior)` helper
+   so the normalization stays single-sourced. Flagging the minor
+   duplication of the elementwise formula as a maintenance note.
+
+5. **Fallbacks / optionality.** numba is NOT installed in astro14
+   (confirmed: `import numba` -> ModuleNotFoundError). Since this is
+   "mainly for sandbox analyses", I propose: import numba behind a
+   try/except; if absent (or a `use_numba=False` kwarg), `px_Oi()`
+   falls back to the current pure-numpy path so nothing breaks. Add
+   numba to requirements as optional.
+
+6. **return_grids / return_debug.** The fused kernel returns only the
+   scalar, so it cannot produce per-pixel `grid_p`. Plan: use the
+   jitted kernel only for the common "return p_xOis" case; when
+   `return_grids`/`return_debug` is set, fall back to the numpy path
+   (those are debugging/inspection paths, not the hot loop).
+
+**Validation plan (for the implementation prompt):** reuse
+`tests/test_speed_up.py` — assert the numba `px_Oi_fixedgrid` matches
+the frozen astropy/numpy reference to roundoff, and time numba vs numpy
+across grid sizes (note numba's first call pays JIT-compile time, so
+warm up once before timing).
+
+**Questions for next prompt:**
+1. numba is missing from astro14 — should I (a) make it an optional
+   dependency with a numpy fallback (my recommendation, given "sandbox"
+   use), or (b) require it and add to requirements/setup? If (a), do you
+   want a `use_numba` kwarg on `px_Oi_fixedgrid`, or auto-detect?
+2. OK to single-source the *norm* in a helper while duplicating the
+   one-line elementwise PDF inside the kernel, or would you rather I
+   keep all three PDFs only in `pw_Oi` and have the kernel handle just
+   `exp` first (the PDF used in profiling/most analyses)?
+3. Start single-threaded `@njit`, or go straight to `parallel=True`
+   with `prange`? (Single-thread first is safer for verifying
+   correctness; parallel can be a follow-up.)
+
+### 2026-06-10 (Implemented optional numba kernel for px_Oi_fixedgrid)
+
+Followed the plan above with the user's clarifications: numba optional,
+`use_numba=False` by default, single-source the norm, single-threaded
+`@njit`, validate via `test_speed_up.py`.
+
+**Code changed:** `astropath/bayesian.py`.
+- Optional import: `try: from numba import njit / HAS_NUMBA=True` else
+  `HAS_NUMBA=False` and a no-op `njit` decorator stand-in. numba is not
+  required to import the module.
+- `_resolve_offset_prior(phi, theta_prior)` — new single-source helper
+  returning `(pdf_code, theta_max, kparam, norm)`. Encodes the PDFs as
+  ints (`_PDF_CORE/_PDF_UNIFORM/_PDF_EXP`) and preserves the subtlety
+  that the `exp` cutoff uses the original `phi` (`theta_max=max*phi`)
+  while the decay length is `phi*scale` (`kparam`).
+- `pw_Oi` refactored to call `_resolve_offset_prior` for the norm +
+  params, then apply the elementwise PDF. Behavior is unchanged (all
+  existing `test_bayesian` tests pass); the norm is now single-sourced.
+- `px_Oi(...)` — new single-threaded `@njit(cache=True)` kernel
+  computing p(x|O_i) for ONE candidate in a single fused loop over grid
+  pixels (theta -> PDF -> *L_wx -> sum), with no full-grid temporaries.
+  Kept separate from both `pw_Oi` and `px_Oi_fixedgrid`.
+- `px_Oi_fixedgrid` gained `use_numba=False`. When effective
+  (`use_numba and HAS_NUMBA and not return_grids/return_debug`) the loop
+  resolves the prior to scalars and calls the `px_Oi` kernel per
+  candidate. If `use_numba=True` but numba is absent it `warnings.warn`s
+  and falls back to numpy; `return_grids`/`return_debug` also force the
+  numpy path (the fused kernel produces no per-pixel grids).
+
+**Tests added** to `tests/test_speed_up.py` (skipped if numba absent via
+`pytest.mark.skipif(not bayesian.HAS_NUMBA)`):
+- `test_px_Oi_fixedgrid_numba_matches_numpy[exp|core|uniform]` —
+  numba vs numpy agree to `rtol=1e-10` for all three PDFs.
+- `test_px_Oi_fixedgrid_numba_fallback_without_numba` — monkeypatches
+  `HAS_NUMBA=False`, asserts a `UserWarning` is raised and the result
+  still matches numpy.
+- `test_px_Oi_fixedgrid_numba_speed_up` — warms up the JIT, then times
+  numba vs numpy and prints the speed-up.
+
+**Measured numba vs numpy** (astro14, 20 candidates, JIT warmed up):
+
+| grid        | numpy     | numba     | speed-up |
+|-------------|-----------|-----------|----------|
+| 360x360     | 16.5 ms   | 12.3 ms   | 1.3x     |
+| 720x720     | 92.3 ms   | 62.4 ms   | 1.5x     |
+| 1800x1800   | 879.7 ms  | 446.4 ms  | 2.0x     |
+| 3600x3600   | 7557.0 ms | 2191.3 ms | 3.4x     |
+
+The speed-up grows with grid size, as expected: the numpy path
+allocates ~3-4 full-grid temporaries and makes ~5 passes per candidate,
+while the fused kernel does one pass with no temporaries — so the win is
+largest exactly where memory bandwidth dominates (big grids). For small
+grids the gain is modest (and the first call additionally pays one-time
+JIT compilation, not shown here since it is warmed up). All 25 tests in
+the relevant suites pass.
+
+**Maintenance note:** the elementwise PDF formula now exists in two
+places — `pw_Oi` (numpy) and the `px_Oi` kernel (numba). The
+*normalization* and parameter resolution are single-sourced in
+`_resolve_offset_prior`, but the per-pixel PDF line itself is
+necessarily duplicated for the jitted path; a new PDF must be added to
+both (and `_resolve_offset_prior`).
+
+### 2026-06-10 (Profiling: added numba curve + speed-up report)
+
+**Context:** the user renamed the kernel `px_Oi` -> `px_Oi_numba` in
+`bayesian.py` (call site updated to match). This entry updates
+`astropath/profiling.py` to exercise the `use_numba=True` path.
+
+**Code changed:** `astropath/profiling.py`.
+- `run_profiling()` now warms up the numba JIT once (small grid) before
+  timing, then for each grid size also times
+  `px_Oi_fixedgrid(..., use_numba=True)`. Adds a `px_Oi_numba_s`
+  column (NaN if `bayesian.HAS_NUMBA` is False).
+- `plot_results()` adds a third curve (green triangles) for the numba
+  path, drawn only when numba timings exist; the numpy curve is now
+  labeled "px_Oi_fixedgrid (numpy)". Title -> "numpy vs numba".
+- `main()` table now prints numpy vs numba times side by side plus a
+  `numba_speedup` column.
+
+**Results** (astro14, 50 candidates, box_hwidth=90"):
+
+| step_size | ngrid | calc_LWx (ms) | numpy (ms) | numba (ms) | speed-up |
+|-----------|-------|---------------|------------|------------|----------|
+| 0.500     | 360   | 9.68          | 30.21      | 18.46      | 1.64x    |
+| 0.250     | 720   | 42.58         | 169.26     | 81.11      | 2.09x    |
+| 0.100     | 1800  | 296.46        | 1767.59    | 590.88     | 2.99x    |
+| 0.050     | 3600  | 1507.34       | 15659.78   | 2874.86    | 5.45x    |
+| 0.025     | 7200  | 6092.52       | 65256.18   | 11548.08   | 5.65x    |
+
+**Speed-up report:** numba accelerates the fixed-grid p(x|O_i) by
+~1.6x on small grids up to ~5.7x at 7200x7200 with 50 candidates —
+larger than the 20-candidate run logged earlier (max 3.4x) because more
+candidates mean more passes over the grid, so eliminating the per-pixel
+temporaries pays off more. On the figure the numba curve (green) sits
+between `calc_LWx` (blue) and the numpy `px_Oi_fixedgrid` (red): at the
+largest grid the per-candidate work is no longer dominating — numba
+brings it down toward the cost of the single `calc_LWx` localization
+pass. Figure re-written to `astropath/profiling_timing.png`.

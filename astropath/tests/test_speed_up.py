@@ -304,3 +304,91 @@ def test_px_Oi_fixedgrid_speed_up(capsys):
 
     # numpy path should not be slower
     assert t_np <= t_ap
+
+
+# ---------------------------------------------------------------------------
+# Optional numba kernel (use_numba=True) for px_Oi_fixedgrid.
+# ---------------------------------------------------------------------------
+
+# Skip the numba tests entirely if numba is not installed
+numba_required = pytest.mark.skipif(
+    not bayesian.HAS_NUMBA, reason='numba not installed')
+
+
+@numba_required
+@pytest.mark.parametrize("pdf", ['exp', 'core', 'uniform'])
+def test_px_Oi_fixedgrid_numba_matches_numpy(pdf):
+    """use_numba=True must match the numpy path for every PDF."""
+    cent_ra, cent_dec = 120.0, 32.0
+    localiz = _eellipse_localiz(cent_ra, cent_dec, a=1.0, b=0.6, theta=30.)
+    cand_coords, cand_ang_size = _make_candidates(cent_ra, cent_dec)
+    theta_prior = dict(PDF=pdf, max=6., scale=0.5)
+
+    p_np = bayesian.px_Oi_fixedgrid(
+        10., localiz, cand_coords, cand_ang_size, theta_prior,
+        use_numba=False)
+    p_nb = bayesian.px_Oi_fixedgrid(
+        10., localiz, cand_coords, cand_ang_size, theta_prior,
+        use_numba=True)
+
+    # Same math, just fused in the kernel -> agree to roundoff
+    assert np.allclose(p_np, p_nb, rtol=1e-10, atol=1e-15)
+
+
+def test_px_Oi_fixedgrid_numba_fallback_without_numba(monkeypatch):
+    """use_numba=True falls back to numpy (with a warning) if numba is
+    unavailable, and still returns the correct result."""
+    cent_ra, cent_dec = 120.0, 32.0
+    localiz = _eellipse_localiz(cent_ra, cent_dec, a=1.0, b=0.6, theta=30.)
+    cand_coords, cand_ang_size = _make_candidates(cent_ra, cent_dec)
+    theta_prior = dict(PDF='exp', max=6., scale=0.5)
+
+    # Pretend numba is absent regardless of the environment
+    monkeypatch.setattr(bayesian, 'HAS_NUMBA', False)
+
+    p_ref = bayesian.px_Oi_fixedgrid(
+        10., localiz, cand_coords, cand_ang_size, theta_prior,
+        use_numba=False)
+    with pytest.warns(UserWarning):
+        p_fb = bayesian.px_Oi_fixedgrid(
+            10., localiz, cand_coords, cand_ang_size, theta_prior,
+            use_numba=True)
+    assert np.allclose(p_ref, p_fb, rtol=1e-10, atol=1e-15)
+
+
+@numba_required
+def test_px_Oi_fixedgrid_numba_speed_up(capsys):
+    """Time numba vs numpy px_Oi_fixedgrid and report the speed-up.
+
+    The first numba call pays JIT-compile time, so the kernel is warmed
+    up once before timing.
+    """
+    cent_ra, cent_dec = 120.0, 32.0
+    localiz = _eellipse_localiz(cent_ra, cent_dec, a=1.0, b=0.6, theta=30.)
+    cand_coords, cand_ang_size = _make_candidates(
+        cent_ra, cent_dec, ncand=50)
+    theta_prior = dict(PDF='exp', max=6., scale=0.5)
+
+    def _np(*_):
+        return bayesian.px_Oi_fixedgrid(
+            10., localiz, cand_coords, cand_ang_size, theta_prior,
+            use_numba=False)
+
+    def _nb(*_):
+        return bayesian.px_Oi_fixedgrid(
+            10., localiz, cand_coords, cand_ang_size, theta_prior,
+            use_numba=True)
+
+    # Warm up the JIT (compile) before timing
+    p_nb = _nb()
+    assert np.allclose(_np(), p_nb, rtol=1e-10, atol=1e-15)
+
+    t_np = _time_call(_np, None, None, None)
+    t_nb = _time_call(_nb, None, None, None)
+
+    speedup = t_np / t_nb if t_nb > 0 else np.inf
+    with capsys.disabled():
+        print(
+            "\n  px_Oi_fixedgrid (50 cand, 200x200): "
+            "numpy %8.2f ms  numba %8.2f ms  speed-up %5.1fx"
+            % (t_np * 1e3, t_nb * 1e3, speedup))
