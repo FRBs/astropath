@@ -124,19 +124,15 @@ def run_on_dict(idict: dict,
     #box_hwidth = max(idict['max_box'],  # This should be the survey size
     #    max_sep.value)
     box_hwidth = idict['max_box']  # This should be the survey size
-    cut_catalog = catalog
-    '''
-    # Cut down the catalog based on box_hwidth
-    Ddec_arcsec = np.abs(catalog['dec'].data - coord.dec.deg) * 3600.
-    Dra_arcsec = np.abs(catalog['ra'].data - coord.ra.deg) * 3600. * np.cos(coord.dec.rad)
 
-    # This speeds things up and is required for the P_Ux calculation
-    keep = (Ddec_arcsec < box_hwidth) & (Dra_arcsec < box_hwidth)
+    # Cut down the catalog based on ssize (usually this should do nothing)
+    catalog_coord = SkyCoord(ra=catalog['ra'].data, dec=catalog['dec'].data, unit='deg')
+    sep = coord.separation(catalog_coord).to('arcsec')
+    keep = sep < idict['ssize']*60*units.arcsec
     cut_catalog = catalog[keep]
 
     if len(cut_catalog) == 0:
         return cut_catalog, None, None, None, None, None
-    '''
 
     # Initialize PATH
     Path = path.PATH()
@@ -218,6 +214,9 @@ def run_on_dict(idict: dict,
                                        survey_radius=idict['ssize']*60,
                                        step_size=step_size)
     elif idict['pmode'] == 'fixed':
+        # Memory check
+        if idict['ssize']*60 / step_size > 10000:
+            raise ValueError(f"Fixed grid would be {int(idict['ssize']*60 / step_size)} pixels.  \nYour array will need >100Gb RAM.  Try local or reduce your ssize if you can")
         print(f'Calculating posteriors with fixed and correction: {correction}')
         P_Ox, P_Ux = Path.calc_posteriors('fixed',
                                        box_hwidth=box_hwidth,

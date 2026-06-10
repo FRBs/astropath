@@ -333,6 +333,7 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         elif correction == 'L_wx':
             p_val /= corr_Lwx
 
+        #embed(header='336 of bayesian.py')
         p_xOis.append(p_val)
 
     # Return
@@ -419,7 +420,8 @@ def px_U(radius:float):
             in arcsec
 
     Returns:
-        float: p(x|U) in squarearcsec
+        float: p(x|U) in inverse squarearcsec
+            This is the same convention as p(x|O) as it must
 
     """
     #box_sqarcsec = (2*box_hwidth)**2
@@ -427,7 +429,7 @@ def px_U(radius:float):
     area = np.pi * radius**2
     #
     #return 1./box_sqarcsec  # box_steradians
-    return 1./area  
+    return 1./area
 
 
 
