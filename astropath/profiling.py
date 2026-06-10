@@ -84,27 +84,31 @@ def default_setup(ncand=NCAND):
     return localiz, cand_coords, cand_ang_size, theta_prior
 
 
-def _time_call(func, args, npix):
+def _time_call(func, args, npix, reps=None):
     """Time a single callable, returning the best wall time in seconds.
 
     The number of repetitions is scaled down for large grids to keep
-    the overall sweep fast.
+    the overall sweep fast, unless an explicit ``reps`` is given.
 
     Args:
         func (callable): Function to time.
         args (tuple): Positional arguments passed to ``func``.
         npix (int): Number of grid pixels (used to pick repetitions).
+        reps (int, optional): Force a fixed number of repetitions.
+            Use reps=1 to time a single call (e.g. to *include* the
+            numba JIT compilation cost in the first measurement).
 
     Returns:
         float: Best-of-reps wall-clock time, seconds.
     """
-    # Fewer reps for big grids (they are slow and stable)
-    if npix > 1_000_000:
-        reps = 1
-    elif npix > 100_000:
-        reps = 2
-    else:
-        reps = 3
+    if reps is None:
+        # Fewer reps for big grids (they are slow and stable)
+        if npix > 1_000_000:
+            reps = 1
+        elif npix > 100_000:
+            reps = 2
+        else:
+            reps = 3
     best = np.inf
     for _ in range(reps):
         t0 = time.perf_counter()
@@ -154,16 +158,16 @@ def run_profiling(step_sizes=None, box_hwidth=BOX_HWIDTH):
         step_sizes = DEFAULT_STEP_SIZES
     localiz, cand_coords, cand_ang_size, theta_prior = default_setup()
 
+    # Default correction applied to all px_Oi_fixedgrid timings here
+    correction = 'p_wO'
+
     print("Starting profiling sweep over %d step sizes, %d candidates"
           % (len(step_sizes), len(cand_ang_size)))
-
-    # Warm up the numba JIT once (compile cost is paid on the first call
-    # and must not pollute the timings).  Small grid is enough to compile.
-    if bayesian.HAS_NUMBA:
-        print("  Warming up numba JIT...")
-        bayesian.px_Oi_fixedgrid(
-            box_hwidth, localiz, cand_coords, cand_ang_size,
-            theta_prior, step_size=DEFAULT_STEP_SIZES[0], use_numba=True)
+    print("  using correction=%r" % correction)
+    # NOTE: the numba JIT is intentionally NOT pre-warmed.  Its
+    # compilation cost is included in the first (smallest-grid) numba
+    # timing below, so the reported numba time reflects a realistic
+    # one-off sandbox call.
 
     rows = []
     for step_size in step_sizes:
@@ -180,18 +184,21 @@ def run_profiling(step_sizes=None, box_hwidth=BOX_HWIDTH):
 
         # Time the full fixed-grid p(x|O_i) -- numpy path
         t_pxoi = _time_call(
-            bayesian.px_Oi_fixedgrid,
-            (box_hwidth, localiz, cand_coords, cand_ang_size,
-             theta_prior, step_size), npix)
+            lambda *a: bayesian.px_Oi_fixedgrid(
+                box_hwidth, localiz, cand_coords, cand_ang_size,
+                theta_prior, step_size=step_size, correction=correction),
+            (), npix)
         print("    px_Oi_fixedgrid (numpy): %.1f ms" % (t_pxoi * 1e3))
 
-        # Time the numba path (use_numba=True), if available
+        # Time the numba path (use_numba=True), if available.  reps=1 so
+        # the first call's JIT compilation is counted in the timing.
         if bayesian.HAS_NUMBA:
             t_numba = _time_call(
                 lambda *a: bayesian.px_Oi_fixedgrid(
                     box_hwidth, localiz, cand_coords, cand_ang_size,
-                    theta_prior, step_size=step_size, use_numba=True),
-                (), npix)
+                    theta_prior, step_size=step_size, use_numba=True,
+                    correction=correction),
+                (), npix, reps=1)
             print("    px_Oi_fixedgrid (numba): %.1f ms (%.1fx)"
                   % (t_numba * 1e3, t_pxoi / t_numba))
         else:

@@ -795,3 +795,34 @@ tree (fails on the `p_x` assertion). Left untouched — it is outside the
 scope of this prompt and reflects an intentional user change; the
 `test_PU` expectations (or `px_U` call sites) likely need updating
 separately.
+
+### 2026-06-10 (Profiling: time JIT warm-up + default correction='p_wO')
+
+**Code changed:** `astropath/profiling.py`.
+- **JIT warm-up now timed.** Removed the separate, untimed numba
+  warm-up call. The numba path is now timed with `reps=1` (added a
+  `reps` override to `_time_call`), so the *first* (smallest-grid) numba
+  call pays the JIT compilation and that cost is reflected in its
+  reported time — a realistic one-off sandbox cost.
+- **Default `correction='p_wO'`.** All `px_Oi_fixedgrid` timings in the
+  sweep (both numpy and numba) now pass `correction='p_wO'` (set once at
+  the top of `run_profiling`). The numpy timing call was wrapped in a
+  lambda to thread the kwarg through.
+
+**Results** (astro14, 50 candidates, correction='p_wO'):
+
+| step_size | ngrid | calc_LWx (ms) | numpy (ms) | numba (ms) | speed-up |
+|-----------|-------|---------------|------------|------------|----------|
+| 0.500     | 360   | 8.61          | 30.48      | 223.20     | 0.14x    |
+| 0.250     | 720   | 41.62         | 171.61     | 81.18      | 2.11x    |
+| 0.100     | 1800  | 284.20        | 1875.81    | 605.40     | 3.10x    |
+| 0.050     | 3600  | 1534.47       | 15954.46   | 2938.61    | 5.43x    |
+| 0.025     | 7200  | 6452.22       | 68480.97   | 12018.50   | 5.70x    |
+
+The first numba point is now **slower** than numpy (0.14x, 223 ms) —
+that row absorbs the one-time JIT compilation (~0.2 s). From the second
+grid on, the kernel is compiled and the true 2.1x->5.7x speed-ups
+return. On the figure this shows as the leftmost green point sitting
+*above* the red numpy point, then dropping below — i.e. numba only pays
+off once the per-call work exceeds the compile overhead. Figure
+re-written to `astropath/profiling_timing.png`.

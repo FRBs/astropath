@@ -229,7 +229,7 @@ def run_on_dict(idict: dict,
         raise ValueError(f"Unsupported posterior mode: {idict['pmode']}. "
                         f"Supported: 'local', 'fixed'")
 
-    #embed(header='run.py:231')
+    embed(header='run.py:231')
 
     # Add photo-z columns if available in catalog
     photoz_columns = ['z_phot_median', 'z_phot_l68', 'z_phot_u68',

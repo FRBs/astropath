@@ -278,9 +278,11 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         warnings.warn("use_numba=True but numba is not installed; "
                       "falling back to numpy.")
         use_numba_eff = False
+    if use_numba_eff:
+        print('Using numba for the posterior calculation')
 
     p_xOis, grids = [], []
-    # TODO -- multiprocess this
+    # TODO -- multiprocess this?
     print('Looping on candidates')
     for icand in range(cand_ra.size):
         if icand % 50 == 0:
@@ -299,7 +301,7 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
             # Dividing the grid by a scalar then summing == dividing the
             # sum, so we correct the scalar p(x|O_i) directly.
             if correction == 'p_wO':
-                p_val /= np.sum(pw_sum) * grid_spacing_arcsec**2
+                p_val /= pw_sum * grid_spacing_arcsec**2
             elif correction == 'L_wx':
                 p_val /= corr_Lwx
             p_xOis.append(p_val)
