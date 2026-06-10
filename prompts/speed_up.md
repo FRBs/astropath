@@ -81,7 +81,8 @@ We wish to speed up the calculation of p(x|O_i) for a given localization using t
 2. Modify the profiling.py tests to:
 
 - Run on N=50 candidates instead of only 2.  Have the galaxies have a range of anuglar sizes and locations
-- 
+- Use red, and not orange for px_Oi_fixedgrid 
+- Instead of pixels, label the x-axis in sqrt(pixels)
 
 ## Prompts
 
@@ -90,6 +91,7 @@ We wish to speed up the calculation of p(x|O_i) for a given localization using t
 3. Read this doc.  Proceed with the 1st item under Development/px_Oi_fixedgrid
 4. Read this doc.  Proceed with the 2nd item under Development/px_Oi_fixedgrid
 5. Read this doc.  Proceed with the 1st item under Development/Profiling
+6. Read this doc.  Proceed with the 2nd item under Development/Profiling
 
 
 ## Logging
@@ -429,3 +431,36 @@ the localization step at ~8.5 s for the 7200 grid (separation ~2.9 s +
 PA ~3 s + coord setup/x,y/L_wx); the numpy `calc_LWx` now does the same
 7200 grid in ~6.2 s end-to-end — consistent with the ~2x large-grid
 speed-up measured earlier, and the astropy separation/PA cost is gone.
+
+### 2026-06-09 (Profiling: 50 candidates, plot tweaks)
+
+**Code changed:** `astropath/profiling.py`, per the three requests.
+- `default_setup()` now builds `NCAND=50` candidates (was 2) with a
+  *range* of locations and sizes: position angles spread evenly over
+  0-360 deg, separations `np.linspace(0.5, 10., 50)"`, and angular
+  sizes `np.linspace(0.2, 3.0, 50)"`. Built deterministically (no RNG)
+  via `frb_coord.directional_offset_by(pa, sep)` with array arguments.
+  `ncand` is a keyword arg so the count is easy to vary.
+- `plot_results()`: `px_Oi_fixedgrid` is now drawn in **red**
+  (`color='red'`); `calc_LWx` keeps the default color.
+- x-axis now plots `sqrt(n_pixels)` (the grid side length) and is
+  labeled `sqrt(grid pixels)` instead of raw pixel count.
+
+**Results** (astro14 env, 50 candidates):
+
+| step_size | ngrid | n_pixels   | calc_LWx (ms) | px_Oi_fixedgrid (ms) |
+|-----------|-------|------------|---------------|----------------------|
+| 0.500     | 360   | 129,600    | 8.45          | 29.35                |
+| 0.250     | 720   | 518,400    | 39.64         | 159.12               |
+| 0.100     | 1800  | 3,240,000  | 289.45        | 1810.51              |
+| 0.050     | 3600  | 12,960,000 | 1524.50       | 15594.88             |
+| 0.025     | 7200  | 51,840,000 | 6130.72       | 65407.29             |
+
+With 50 candidates the two curves separate clearly (the 2-candidate run
+had them nearly on top of each other): `px_Oi_fixedgrid` is now ~3-10x
+`calc_LWx` because the per-candidate theta/pw_Oi/product/sum loop runs
+50x while `calc_LWx` runs once. This confirms that for many candidates
+the per-candidate grid loop — not the localization term — is the
+dominant cost, making it the prime target for the next optimization
+(numba / vectorization with a memory guard). Figure re-written to
+`astropath/profiling_timing.png`.

@@ -43,14 +43,19 @@ BOX_HWIDTH = 90.  # arcsec; half-width of the analysis box
 DEFAULT_STEP_SIZES = [0.5, 0.25, 0.1, 0.05, 0.025]
 
 
-def default_setup():
+NCAND = 50  # number of candidate galaxies in the profiling scenario
+
+
+def default_setup(ncand=NCAND):
     """Build the faux-FRB profiling scenario.
 
-    Mirrors calculations/step_size/Profiling.ipynb: a circular 5"
-    error ellipse and two candidate galaxies 1" from the transient.
+    Mirrors calculations/step_size/Profiling.ipynb (circular 5" error
+    ellipse), but scatters ``ncand`` candidate galaxies over a range of
+    locations and angular sizes so the per-candidate loop in
+    ``px_Oi_fixedgrid`` is exercised realistically.
 
     Args:
-        None
+        ncand (int, optional): Number of candidate galaxies.
 
     Returns:
         tuple: (localiz, cand_coords, cand_ang_size, theta_prior)
@@ -65,13 +70,16 @@ def default_setup():
     localiz = dict(type='eellipse',
                    center_coord=frb_coord,
                    eellipse=eellipse)
-    # Two candidates: 1" North and 1" East of the transient
-    gal1 = frb_coord.directional_offset_by(0. * units.deg,
-                                           1.0 * units.arcsec)
-    gal2 = frb_coord.directional_offset_by(90. * units.deg,
-                                           1.0 * units.arcsec)
-    cand_coords = SkyCoord([gal1.ra, gal2.ra], [gal1.dec, gal2.dec])
-    cand_ang_size = np.array([1.0, 0.2])  # arcsec
+    # Scatter the candidates deterministically (no RNG) over a range of
+    # position angles and separations from the transient.  Separations
+    # span 0.5"-10" so some fall well inside the localization and some
+    # near its edge.
+    idx = np.arange(ncand)
+    pa = (idx * 360. / ncand) * units.deg          # spread in PA
+    sep = np.linspace(0.5, 10., ncand) * units.arcsec  # spread in offset
+    cand_coords = frb_coord.directional_offset_by(pa, sep)
+    # Range of angular sizes, 0.2"-3.0"
+    cand_ang_size = np.linspace(0.2, 3.0, ncand)  # arcsec
     theta_prior = dict(max=6., PDF='exp', scale=1.)
     return localiz, cand_coords, cand_ang_size, theta_prior
 
@@ -178,14 +186,16 @@ def plot_results(df, outfile):
     Returns:
         str: The path the figure was written to.
     """
+    # x-axis in sqrt(pixels) = grid side length
+    sqrt_pix = np.sqrt(df['n_pixels'])
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.plot(df['n_pixels'], df['calc_LWx_s'], 'o-',
+    ax.plot(sqrt_pix, df['calc_LWx_s'], 'o-',
             label='calc_LWx')
-    ax.plot(df['n_pixels'], df['px_Oi_fixedgrid_s'], 's-',
+    ax.plot(sqrt_pix, df['px_Oi_fixedgrid_s'], 's-', color='red',
             label='px_Oi_fixedgrid')
     ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.set_xlabel('Grid size (pixels)')
+    ax.set_xlabel('sqrt(grid pixels)')
     ax.set_ylabel('Time (s)')
     ax.set_title('PATH profiling: numpy implementations')
     ax.grid(True, which='both', alpha=0.3)
