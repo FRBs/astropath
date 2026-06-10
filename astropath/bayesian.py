@@ -101,9 +101,6 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         # 
         raise IOError("To use this method, you need to specfic a center for the fixed grid via center_coord in localiz")
 
-    # Set Equinox (for spherical offsets)
-    localiz['center_coord'].equinox = cand_coords[0].equinox
-
     # Build the fixed grid around the transient
     ngrid = int(np.round(2*box_hwidth / step_size))
     x = np.linspace(-box_hwidth, box_hwidth, ngrid)
@@ -112,22 +109,38 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     # Grid spacing
     grid_spacing_arcsec = x[1]-x[0]
 
+    # Extract the center coordinate once as plain numpy floats.  Avoids
+    # repeated astropy attribute/Quantity access.  The previous
+    # equinox-setting line was dropped: it is a no-op for the numpy
+    # paths (offsets here are flat-sky; calc_LWx ignores equinox).
+    center_ra = localiz['center_coord'].ra.deg     # deg
+    center_dec = localiz['center_coord'].dec.deg   # deg
+    cos_center_dec = np.cos(np.radians(center_dec))  # flat-sky scaling
+
     # #####################
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
     # Approximate as flat sky
     #  Warning:  RA increases in x for these grids!!
-    ra = localiz['center_coord'].ra.deg + \
-        xcoord/3600. / np.cos(localiz['center_coord'].dec).value
-    dec = localiz['center_coord'].dec.deg + ycoord/3600.
+    ra = center_ra + xcoord/3600. / cos_center_dec
+    dec = center_dec + ycoord/3600.
     L_wx = localization.calc_LWx(ra, dec, localiz)
+
+    # Pre-extract candidate coordinates to numpy arrays ONCE (numpy
+    # only).  Iterating a SkyCoord array and reading .ra/.dec per
+    # candidate is the dominant astropy overhead in this loop; pulling
+    # them out here removes it.  Working with plain arrays/floats also
+    # keeps the inner loop numba-friendly for a future @njit speed-up.
+    cand_ra = cand_coords.ra.deg      # deg, shape (N,)
+    cand_dec = cand_coords.dec.deg    # deg, shape (N,)
+    cos_cand_dec = np.cos(np.radians(cand_dec))  # flat-sky scaling
 
     p_xOis, grids = [], []
     # TODO -- multiprocess this
-    for icand, cand_coord in enumerate(cand_coords):
+    for icand in range(cand_ra.size):
 
         # Offsets from the transient (approximate + flat sky)
-        theta = 3600*np.sqrt(np.cos(cand_coord.dec).value**2 * (
-            ra-cand_coord.ra.deg)**2 + (dec-cand_coord.dec.deg)**2)  # arc sec
+        theta = 3600*np.sqrt(cos_cand_dec[icand]**2 * (
+            ra-cand_ra[icand])**2 + (dec-cand_dec[icand])**2)  # arc sec
 
         # p(w|O_i)
         p_wOi = pw_Oi(theta,

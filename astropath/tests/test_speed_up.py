@@ -20,6 +20,7 @@ from astropy.coordinates import SkyCoord
 from astropy import units
 
 from astropath import localization
+from astropath import bayesian
 
 import pytest
 
@@ -179,4 +180,127 @@ def test_eellipse_speed_up(ngrid, capsys):
                t_ap * 1e3, t_np * 1e3, speedup))
 
     # The numpy path should never be slower than astropy
+    assert t_np <= t_ap
+
+
+# ---------------------------------------------------------------------------
+# px_Oi_fixedgrid: replaced per-candidate / center astropy access with numpy
+# (pre-extracted arrays).  Reference below freezes the original astropy
+# implementation for regression + speed comparison.
+# ---------------------------------------------------------------------------
+
+
+def _px_Oi_fixedgrid_astropy(box_hwidth, localiz, cand_coords,
+                             cand_ang_size, theta_prior, step_size=0.1):
+    """Original (astropy-based) px_Oi_fixedgrid implementation.
+
+    Verbatim copy of the loop/grid logic as it existed before the numpy
+    rewrite (iterates the SkyCoord array, reads .ra/.dec per candidate,
+    sets equinox).  Kept here as the reference for the tests.  Returns
+    only the p(x|O_i) array (the only output the tests need).
+
+    Args:
+        box_hwidth (float): Half-width of the analysis box, arcsec.
+        localiz (dict): Localization dict (must have center_coord).
+        cand_coords (SkyCoord): Candidate host coordinates.
+        cand_ang_size (np.ndarray): Candidate angular sizes, arcsec.
+        theta_prior (dict): Offset-prior parameters.
+        step_size (float): Grid step size, arcsec.
+
+    Returns:
+        np.ndarray: p(x|O_i) for each candidate.
+    """
+    # Set Equinox (for spherical offsets)
+    localiz['center_coord'].equinox = cand_coords[0].equinox
+    # Build the fixed grid around the transient
+    ngrid = int(np.round(2 * box_hwidth / step_size))
+    x = np.linspace(-box_hwidth, box_hwidth, ngrid)
+    xcoord, ycoord = np.meshgrid(x, x)
+    grid_spacing_arcsec = x[1] - x[0]
+    # L(w-x); RA increases in x (flat-sky)
+    ra = localiz['center_coord'].ra.deg + \
+        xcoord / 3600. / np.cos(localiz['center_coord'].dec).value
+    dec = localiz['center_coord'].dec.deg + ycoord / 3600.
+    L_wx = localization.calc_LWx(ra, dec, localiz)
+    p_xOis = []
+    for icand, cand_coord in enumerate(cand_coords):
+        # Offsets from the transient (flat sky)
+        theta = 3600 * np.sqrt(np.cos(cand_coord.dec).value**2 * (
+            ra - cand_coord.ra.deg)**2
+            + (dec - cand_coord.dec.deg)**2)  # arcsec
+        p_wOi = bayesian.pw_Oi(theta, cand_ang_size[icand], theta_prior)
+        grid_p = L_wx * p_wOi
+        p_xOis.append(np.sum(grid_p) * grid_spacing_arcsec**2)
+    return np.array(p_xOis)
+
+
+def _make_candidates(cent_ra, cent_dec, ncand=10, spread=8.):
+    """Build a SkyCoord of candidates scattered around a center.
+
+    Args:
+        cent_ra (float): Central RA, deg.
+        cent_dec (float): Central Dec, deg.
+        ncand (int): Number of candidates.
+        spread (float): Half-spread of the scatter, arcsec.
+
+    Returns:
+        tuple: (cand_coords SkyCoord, cand_ang_size ndarray arcsec).
+    """
+    # Deterministic offsets (no RNG) spanning +/- spread arcsec
+    off = np.linspace(-spread, spread, ncand)
+    cand_ra = cent_ra + off / 3600. / np.cos(np.radians(cent_dec))
+    cand_dec = cent_dec + off[::-1] / 3600.
+    cand_coords = SkyCoord(ra=cand_ra, dec=cand_dec, unit='deg')
+    # Angular sizes 0.5-2.0 arcsec
+    cand_ang_size = np.linspace(0.5, 2.0, ncand)
+    return cand_coords, cand_ang_size
+
+
+def test_px_Oi_fixedgrid_matches_astropy():
+    """numpy px_Oi_fixedgrid must match the frozen astropy version."""
+    cent_ra, cent_dec = 120.0, 32.0
+    localiz = _eellipse_localiz(cent_ra, cent_dec, a=1.0, b=0.6, theta=30.)
+    cand_coords, cand_ang_size = _make_candidates(cent_ra, cent_dec)
+    theta_prior = dict(PDF='exp', max=6., scale=0.5)
+
+    p_new = bayesian.px_Oi_fixedgrid(
+        10., localiz, cand_coords, cand_ang_size, theta_prior)
+    p_ref = _px_Oi_fixedgrid_astropy(
+        10., localiz, cand_coords, cand_ang_size, theta_prior)
+
+    # Same math, only coordinate extraction changed -> agree to roundoff
+    assert np.allclose(p_new, p_ref, rtol=1e-10, atol=1e-15)
+
+
+def test_px_Oi_fixedgrid_speed_up(capsys):
+    """Time numpy vs astropy px_Oi_fixedgrid and report the speed-up."""
+    cent_ra, cent_dec = 120.0, 32.0
+    localiz = _eellipse_localiz(cent_ra, cent_dec, a=1.0, b=0.6, theta=30.)
+    # Many candidates: the per-candidate astropy overhead is the target
+    cand_coords, cand_ang_size = _make_candidates(
+        cent_ra, cent_dec, ncand=50)
+    theta_prior = dict(PDF='exp', max=6., scale=0.5)
+
+    def _np(*_):
+        return bayesian.px_Oi_fixedgrid(
+            10., localiz, cand_coords, cand_ang_size, theta_prior)
+
+    def _ap(*_):
+        return _px_Oi_fixedgrid_astropy(
+            10., localiz, cand_coords, cand_ang_size, theta_prior)
+
+    # _time_call signature is (func, ra, dec, localiz); pass dummies
+    t_np = _time_call(_np, None, None, None)
+    t_ap = _time_call(_ap, None, None, None)
+
+    assert np.allclose(_np(), _ap(), rtol=1e-10, atol=1e-15)
+
+    speedup = t_ap / t_np if t_np > 0 else np.inf
+    with capsys.disabled():
+        print(
+            "\n  px_Oi_fixedgrid (50 cand, 200x200): "
+            "astropy %8.2f ms  numpy %8.2f ms  speed-up %5.1fx"
+            % (t_ap * 1e3, t_np * 1e3, speedup))
+
+    # numpy path should not be slower
     assert t_np <= t_ap
