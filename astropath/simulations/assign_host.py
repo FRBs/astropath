@@ -366,12 +366,6 @@ def _generate_galaxy_positions(
         unit='deg'
     )
 
-    # Generate offsets from galaxy centers
-    # Use truncated normal distribution (within 6 sigma)
-    #theta_max = galaxy_sample.half_light.values / scale
-    #randn = np.random.normal(size=10 * n_frbs)
-    #good = np.abs(randn) < (6. * scale)
-    #randn = randn[good][:n_frbs]
 
     if function == 'exponential':
         # Gamma(2, scale) gives p(r) ∝ r·exp(-r/scale), matching the
