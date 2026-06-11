@@ -36,6 +36,11 @@ As we will be making a number of significant changes to the code, we will need t
   * A small galaxy (0.5") with an ellipse localization (a=10", b=0.2")
 - Log your work in the "Logs" section below.
 
+2. The test_run.py tests are failing in CI on GitHub Actions.  But they are working fine locally.  Can you investigate?  Log your work and findings in the Logs section below.
+
+3. Proceed with the change to the test_run.py tests that you proposed (pmode="local").  Log your work and findings in the Logs section below.
+ 
+
 ## Development
 
 We wish to speed up the calculations in bayesian.py:px_Oi_local.  
@@ -125,6 +130,7 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 - Include the 2 profiling figures (re-generate them first)
 - Include tables summarizing the accuracy and profiling results
 
+
 ## Prompts
 
 1. Read this doc.  Proceed with the 1st item under Testing.
@@ -138,6 +144,8 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 9. Read this doc.  Proceed with the 2nd item under Profiling
 10. Read this doc.  Proceed with the 3rd item under Profiling
 11. Read this doc.  Proceed with the 2nd item under Docs
+12. Read this doc.  Proceed with the 2nd item under Testing.
+13. Read this doc.  Proceed with the 3rd item under Testing.
 
 ## Logging
 
@@ -881,3 +889,87 @@ references `performance.rst`; both figures are copied into
 `_build/html/_images/`; all five tables render.  (The 14 remaining
 warnings are the pre-existing unrelated ones: missing `nb/*` notebooks,
 `_static`, `language=None`, the `run.py` docstring, `chime.rst`.)
+
+### 2026-06-11 (Investigated test_run.py CI failures: OOM from huge fixed grid)
+
+**Done** (Testing item 2).  Investigated why `test_run.py` fails in CI
+(GitHub Actions) but passes locally.
+
+**Symptom.**  Locally all 7 `test_run.py` tests pass (in ~2 min).  In CI
+they fail.  (Separately, the old `run.py:231` `embed()` that hung pytest
+is now commented out, so that earlier local failure is gone.)
+
+**Root cause: out-of-memory in CI.**  Two tests --
+`test_run_on_dict_eellipse` and `test_run_on_dict_with_PU` -- use a very
+small localization, `a=b=0.1"`, with the `pmode='fixed'` default and the
+frb180924 example catalog.  `run_on_dict` then sets, for `eellipse`:
+`step_size = min_ang/20` (since `b=0.1" < min ang_size=0.459"`) =
+`0.0229"`, with `ssize=3'` so `max_box=180"`.  The fixed grid is
+
+    ngrid = 2*max_box/step_size = 2*180/0.0229 = 15691
+
+i.e. **15691 x 15691 ~ 2.46e8 pixels (~2 GB per float64 array)**.
+`px_Oi_fixedgrid` -> `calc_LWx` allocates ~10+ full-grid temporaries on
+that grid (meshgrid, ra/dec, the eellipse trig intermediates, then
+per-candidate theta/p_wOi/grid_p), so the transient peak is well over
+**~10-20 GB**.  That fits on the local 64 GB box (hence it passes,
+slowly), but exceeds the GitHub-hosted runner's RAM (16 GB, formerly
+7 GB) -> the process is OOM-killed -> the tests fail only in CI.  Both
+failing tests use `a=b=0.1"`; the cheap `test_run.py` tests
+(`test_set_anly_sizes`, `test_build_idict`, `test_empty_catalog`,
+`test_missing_*`) do not allocate big grids and are unaffected.
+
+**Why the existing memory guard misses it.**  `run.py:218` raises only
+when `ssize*60/step_size > 10000`; here that value is `180/0.0229 =
+7845`, just under the threshold.  Two problems: (a) it compares
+`ssize*60/step_size`, which is HALF the true `ngrid`
+(`ngrid = 2*max_box/step_size`), so it under-reports the grid by 2x;
+(b) the threshold/message are miscalibrated -- it warns of ">100Gb RAM"
+at 10000, but 10000^2 is only ~0.8 GB/array (~few GB peak), while the
+real OOM here happens at ngrid=15691 (guard value 7845).
+
+**Validated fix options** (not applied -- investigation only):
+1. **Best / aligned with this work:** run these two tests with
+   `pmode='local'`.  I verified `run_on_dict(..., pmode='local')` on the
+   same inputs gives `P_Ox.max() = 0.98895114` -- identical to the
+   hardcoded fixed value `0.9889513366` to **2e-7** (rtol=1e-3 passes) --
+   in **0.04 s with 35 MB** peak (vs ~2 min and ~10-20 GB for fixed).
+   The tiny-localization regime is exactly what the new local method +
+   `_Lwx_correction` handle well.
+2. Or keep `fixed` but pass an explicit coarser `step_size` / smaller
+   `ssize`/`max_box` so the grid stays small (e.g. cap ngrid ~ few
+   thousand).
+3. Or tighten the `run.py` memory guard: compare the true
+   `ngrid = 2*max_box/step_size` against a CI-realistic cap (~5000-7000
+   px/side) and fix the message.  (This alone would convert the OOM into
+   a raised ValueError -- still needs the test to change to pass.)
+
+**Secondary finding (separate from the failure).**  CI runs
+`pytest --pyargs astropath`, whose default discovery only collects
+`test_*.py`.  The new accuracy module is named `tests_local.py`
+(per the prompt), so it is **not collected in CI**.  If those accuracy
+tests should run in CI, rename to `test_local.py` (or add a discovery
+glob).
+
+### 2026-06-11 (Applied pmode='local' fix to test_run.py)
+
+**Done** (Testing item 3).  Applied the fix proposed in the previous
+investigation: the two `run_on_dict` tests that used the tiny
+`a=b=0.1"` localization now pass `pmode='local'` to `build_idict`
+(`test_run_on_dict_eellipse` and `test_run_on_dict_with_PU`), with a
+short comment explaining why (the fixed grid would be ~15700x15700,
+~20 GB peak, OOM-killing the CI runner).
+
+**No assertion changes needed.**  The hardcoded expected value in
+`test_run_on_dict_eellipse`
+(`P_Ox.max() == 0.9889513366416152`, rtol=1e-3) still passes: the local
+method agrees with the fixed value to ~2e-7, far inside the tolerance.
+
+**Result.**  `pytest astropath/tests/test_run.py` -> **7 passed in
+0.95 s** (was ~118 s, and OOM in CI).  The peak memory for these tests
+drops from ~10-20 GB to ~tens of MB, so they will run comfortably on the
+GitHub Actions runners.
+
+I left the `run.py` memory guard and the `tests_local.py` naming
+(secondary findings from the investigation) unchanged, as they were not
+part of this task.
