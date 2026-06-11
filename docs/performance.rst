@@ -169,6 +169,106 @@ You can also import and call the pieces directly::
     df_local = profiling.run_profiling_local()   # local-grid method
     profiling.plot_local_results(df_local, 'local.png')
 
+Benchmark results
+=================
+
+Accuracy
+--------
+
+``px_Oi_local`` is validated against ``px_Oi_fixedgrid`` run on a fine
+grid (the ``astropath/tests/tests_local.py`` module).  Both evaluate the
+same integral :math:`p(x|O_i)=\int L(w-x)\,p(w|O_i)\,dw`; the fine fixed
+grid is taken as truth.  Across the size regimes the local method
+reproduces it to a fraction of a percent (run at ``step_size=0.02``):
+
+.. csv-table:: px_Oi_local vs fine fixed grid (step_size = 0.02)
+   :header: "Case", "localization", "galaxy", "rel. diff"
+   :widths: 30, 18, 10, 12
+
+   "large galaxy / small loc", "a=b=1″", "10″", "+7.0e-5"
+   "large galaxy / large loc", "a=b=10″", "10″", "-3.3e-3"
+   "small galaxy / small loc", "a=b=1″", "1″", "-3.3e-3"
+   "small galaxy / large loc", "a=b=10″", "1″", "-3.3e-3"
+   "small galaxy / ellipse", "a=10″, b=0.2″", "0.5″", "-3.3e-3"
+
+When the localization minor axis is smaller than the galaxy
+(:math:`b<\phi`) the ``_Lwx_correction`` removes the O(step) bias, so the
+result stays accurate even at coarse (galaxy-relative) step sizes where
+the uncorrected sum would be off by ~1-2 %:
+
+.. csv-table:: L_wx correction (b < phi), corrected rel. diff vs raw
+   :header: "Case", "step", "raw (no corr.)", "corrected"
+   :widths: 26, 8, 16, 12
+
+   "gal 10″ / loc a=b=1″", "0.05", "-0.85 %", "-1.7e-4"
+   "gal 10″ / loc a=b=1″", "0.10", "-1.85 %", "-1.9e-3"
+   "ellipse a=10″, b=0.2″", "0.05", "-0.84 %", "-7.1e-6"
+   "ellipse a=10″, b=0.2″", "0.10", "-1.66 %", "+3.4e-5"
+
+Even for a very small (sub-arcsec) localization, where the galaxy grid
+badly under-resolves the localization, the correction recovers the fine
+fixed-grid value (``step_size=0.05``):
+
+.. csv-table:: Very small localization (a=b=0.1")
+   :header: "galaxy", "rel. diff"
+   :widths: 12, 12
+
+   "0.3″", "+6.9e-5"
+   "0.6″", "+2.5e-5"
+   "1.0″", "+4.8e-5"
+
+Profiling
+---------
+
+Timings below were produced by ``python -m astropath.profiling`` (50
+candidate galaxies; absolute times are machine-dependent, the trends and
+ratios are the point).
+
+**Fixed-grid posterior** (``px_Oi_fixedgrid``): the numba path overtakes
+numpy beyond small grids, reaching ~5-6x on the largest grids; the
+one-off JIT cost makes it slower than numpy only on the smallest grid.
+
+.. csv-table:: px_Oi_fixedgrid timing (50 candidates)
+   :header: "step", "grid", "calc_LWx", "numpy", "numba", "numba speed-up"
+   :widths: 8, 12, 10, 12, 10, 14
+
+   "0.50", "360²", "9 ms", "30 ms", "145 ms", "0.2x"
+   "0.25", "720²", "42 ms", "173 ms", "91 ms", "1.9x"
+   "0.10", "1800²", "344 ms", "2.06 s", "670 ms", "3.1x"
+   "0.05", "3600²", "1.67 s", "16.4 s", "2.96 s", "5.6x"
+   "0.025", "7200²", "6.49 s", "68.5 s", "12.4 s", "5.5x"
+
+.. figure:: figures/profiling_timing.png
+   :width: 90 %
+   :align: center
+
+   Fixed-grid timing vs grid side length (sqrt of pixels).  The dashed
+   line marks 10 s.
+
+**Local-grid posterior** (``px_Oi_local``): the cost depends on the
+localization.  With no correction (circular, :math:`b\ge\phi`) or a tiny
+localization (a=b=0.1", small correction grid) the per-candidate cost is
+modest; a long thin ellipse (a=12.5", b=0.2") drives the correction grid
+to ~1000² and dominates the run time -- i.e. the correction cost scales
+with the localization major axis.
+
+.. csv-table:: px_Oi_local timing (50 candidates), milliseconds
+   :header: "step", "galaxy grid", "ellipse corr grid", "circular", "ellipse", "small loc"
+   :widths: 7, 12, 16, 10, 10, 10
+
+   "0.50", "24²", "97²", "0.9", "6.8", "2.3"
+   "0.25", "48²", "197²", "1.8", "22", "3.3"
+   "0.10", "120²", "497²", "7.9", "146", "11"
+   "0.05", "240²", "997²", "31", "1553", "41"
+   "0.025", "480²", "1997²", "155", "9037", "185"
+
+.. figure:: figures/profiling_local_timing.png
+   :width: 90 %
+   :align: center
+
+   Local-grid timing vs per-candidate galaxy-grid side length, for the
+   three localization scenarios.  The dashed line marks 10 s.
+
 API Reference
 =============
 

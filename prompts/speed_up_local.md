@@ -123,7 +123,7 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 2. Please add the results on accuracy and profiling to the docs/performance.rst file.  And:
 
 - Include the 2 profiling figures (re-generate them first)
-- Tables summarizing the accuracy and profiling results
+- Include tables summarizing the accuracy and profiling results
 
 ## Prompts
 
@@ -845,3 +845,39 @@ the method.)  Full suite: `tests_local.py` 14 passed; with
 small-loc correction grids are tiny (small a), the ellipse tops out at
 ~2000 (step 0.025), and the NaN guard removed the only pathological
 divide.
+
+### 2026-06-11 (Docs: accuracy + profiling results in performance.rst)
+
+**Done** (Docs item 2).  Added the accuracy and profiling results to
+`docs/performance.rst`, with both figures and summary tables.
+
+**Figures.**  Re-generated both via `python -m astropath.profiling`
+(fixed-grid sweep up to 7200²; local sweep with the three scenarios).
+Since `*.png` is globally gitignored, I added a `.gitignore` negation
+`!docs/figures/*.png` and copied both PNGs into a new `docs/figures/`
+so they are tracked and available to the (readthedocs) build:
+`docs/figures/profiling_timing.png` and
+`docs/figures/profiling_local_timing.png`, embedded with `.. figure::`.
+
+**New "Benchmark results" section** in performance.rst (before the API
+Reference), using `csv-table` directives:
+- *Accuracy*: three tables -- (1) px_Oi_local vs the fine fixed grid
+  across the five size regimes (rel. diff +7e-5 ... -3.3e-3 at
+  step 0.02); (2) the `b<phi` L_wx correction at coarse steps, showing
+  raw -0.8%/-1.7% reduced to ~1e-4/1e-3; (3) the very-small-localization
+  cases (a=b=0.1", rel. diff ~few e-5).
+- *Profiling*: the fixed-grid timing table (calc_LWx / numpy / numba /
+  speed-up, 360² -> 7200², numba ~5-6x on large grids) + its figure;
+  and the local-grid timing table (circular / ellipse / small-loc with
+  the ellipse correction grid growing 97² -> 1997²) + its figure.  Noted
+  that absolute times are machine-dependent.
+
+**Build verification:** installed Sphinx earlier; rebuilt with
+`python -m sphinx -b html . _build/html`.  First pass surfaced CSV parse
+errors from `\"`-escaped arcsec marks in the accuracy tables; fixed by
+using the unicode arcsec symbol (″), which renders cleanly (as the ²
+already did in the profiling tables).  Final build: no error or warning
+references `performance.rst`; both figures are copied into
+`_build/html/_images/`; all five tables render.  (The 14 remaining
+warnings are the pre-existing unrelated ones: missing `nb/*` notebooks,
+`_static`, `language=None`, the `run.py` docstring, `chime.rst`.)
