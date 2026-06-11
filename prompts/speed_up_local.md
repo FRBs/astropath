@@ -120,6 +120,11 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 - Comment on the profiling.py module too
 - Log your work in the "Logs" section below.
 
+2. Please add the results on accuracy and profiling to the docs/performance.rst file.  And:
+
+- Include the 2 profiling figures (re-generate them first)
+- Tables summarizing the accuracy and profiling results
+
 ## Prompts
 
 1. Read this doc.  Proceed with the 1st item under Testing.
@@ -132,6 +137,7 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 8. Read this doc.  Proceed with the 1st item under Profiling
 9. Read this doc.  Proceed with the 2nd item under Profiling
 10. Read this doc.  Proceed with the 3rd item under Profiling
+11. Read this doc.  Proceed with the 2nd item under Docs
 
 ## Logging
 
@@ -780,3 +786,62 @@ condition explicitly, so the figure is self-documenting:
 and added comments in `plot_local_results` noting the circular case has
 `b >= phi` (0 invocations, verified) while the ellipse case fires the
 correction on a ~1000x1000 grid.
+
+### 2026-06-11 (Profiling: tiny-localization scenario + NaN fix)
+
+**Done** (Profiling item 3).  Added a third local-method profiling
+scenario and an accuracy test; the scenario also surfaced (and I fixed)
+a 0/0 NaN in `px_Oi_local`.
+
+**`ellipse_setup` companion -> new `small_loc_setup()`:** a very small
+circular localization (a=b=0.1") with galaxy sizes 0.1"-20".  For every
+galaxy `> b` the `_Lwx_correction` fires, but because the major axis is
+tiny the correction grid stays small (the opposite of `ellipse_setup`'s
+~1000-cell grid).  This stresses the deeply under-resolved regime
+(galaxy spacing `phi*step` can be many times `b`).
+
+**`run_profiling_local` now times THREE scenarios** against the same
+per-candidate galaxy grid (figure x-axis): circular (no correction),
+ellipse (large correction grid), and small-loc (tiny correction grid).
+Added column `px_Oi_local_smallloc_s`; `plot_local_results` plots the
+new curve (green triangles) and `main()`'s table gains `smallloc_ms`.
+Full sweep (50 candidates):
+
+| step  | galaxy grid | ellipse corr | circular | ellipse | small-loc |
+|-------|-------------|--------------|----------|---------|-----------|
+| 0.50  | 24x24       | 97           | 1.0 ms   | 6.8 ms  | 2.3 ms    |
+| 0.25  | 48x48       | 197          | 1.8 ms   | 32 ms   | 3.3 ms    |
+| 0.10  | 120x120     | 497          | 7.9 ms   | 354 ms  | 11 ms     |
+| 0.05  | 240x240     | 997          | 32 ms    | 1822 ms | 40 ms     |
+| 0.025 | 480x480     | 1997         | 156 ms   | 9721 ms | 184 ms    |
+
+So the correction cost scales with the localization MAJOR axis (a): a
+long thin ellipse (a=12.5") is ~50x the no-correction cost, while a tiny
+round localization (a=0.1") adds only a small overhead.
+
+**Bug found + fixed (0/0 -> NaN).**  The small-loc scenario at coarse
+steps produced NaN: when the grid spacing `phi*step` is many times
+`b` (e.g. step 0.5, phi up to 20", spacing up to 10" vs b=0.1"), the
+0.1" localization falls entirely between grid cells -- the aligned
+`_Lwx_correction` grid catches no flux (factor underflows to 0) and the
+raw sum is 0 too, so `raw/factor` was `0/0`.  This is a real pipeline
+risk (tiny localization + coarse step), so I guarded `px_Oi_local`: when
+the correction factor is not `> 0`, it falls back to the exact
+delta-function limit `p(x|O_i) = pw_Oi(theta_offset)` (correct as
+`b -> 0`, since L integrates to 1).  After the fix the small-loc
+scenario is finite at every step (verified 0.5 -> 0.025, no warnings).
+
+**Accuracy test added** to `tests_local.py`
+(`test_local_small_localization`, 3 cases): a=b=0.1", phi in
+{0.3, 0.6, 1.0}", offset 0.3", compared to the fine fixed grid at the
+default step 0.05.  phi is kept <= 1" so the reference stays well under
+5000 cells per side.  Result: reldiff ~2e-5 to 7e-5 -- the correction
+is essentially exact for very small localizations.  (The earlier ~-2%
+seen against a delta-limit reference was that reference's own bias, not
+the method.)  Full suite: `tests_local.py` 14 passed; with
+`test_bayesian`/`test_path`, 19 passed.
+
+**Note:** the largest array anywhere stays under 5000x5000 -- the
+small-loc correction grids are tiny (small a), the ellipse tops out at
+~2000 (step 0.025), and the NaN guard removed the only pathological
+divide.

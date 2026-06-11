@@ -565,6 +565,19 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
                 L_wx_correction = _Lwx_correction(
                     E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
                     ngrid, step_size_phi)
+                # Degenerate case: the localization is so much smaller
+                # than the grid spacing that even the aligned correction
+                # grid catches no flux -- the factor underflows to 0 and
+                # the raw sum is 0 too (0/0).  Fall back to the
+                # delta-function limit p(x|O_i) = p(w=x|O_i), which is
+                # exact as b -> 0 since L integrates to 1.
+                if not (L_wx_correction > 0.):
+                    theta0 = np.sqrt(E0 ** 2 + N0 ** 2)  # offset, arcsec
+                    p_xOis.append(pw_Oi(
+                        np.array([theta0]), phi_cand, theta_prior)[0])
+                    if debug:
+                        embed(header='px_Oi_local delta-limit')
+                    continue
             else:
                 L_wx_correction = 1.0
 

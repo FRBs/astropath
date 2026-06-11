@@ -210,6 +210,46 @@ def test_local_correction_coarse_step(
     assert np.isclose(p_loc, p_ref, rtol=5.0e-3, atol=0.0)
 
 
+# Very small (sub-arcsec) circular localizations -- the deeply
+# under-resolved regime (grid spacing phi*step >> b).  phi is kept <= 1"
+# so the fine fixed-grid reference stays well under 5000 cells per side.
+SMALL_LOC_CASES = [
+    ("small_loc_gal0p3", 0.3, 0.1, 0.1, 0., 0.3, 0.),
+    ("small_loc_gal0p6", 0.6, 0.1, 0.1, 0., 0.3, 0.),
+    ("small_loc_gal1",   1.0, 0.1, 0.1, 0., 0.3, 0.),
+]
+
+
+@pytest.mark.parametrize(
+    "label,phi,a,b,pa_ee,offset,gal_pa", SMALL_LOC_CASES,
+    ids=[c[0] for c in SMALL_LOC_CASES])
+def test_local_small_localization(
+        label, phi, a, b, pa_ee, offset, gal_pa, capsys):
+    """px_Oi_local stays accurate for a very small localization (0.1").
+
+    Here ``b < phi`` so the _Lwx_correction fires, and the galaxy grid
+    badly under-resolves the 0.1" localization (spacing phi*step can be
+    many times b).  The correction must still recover the fine fixed-grid
+    value.  Run at the default step (0.05).
+    """
+    localiz = _eellipse_localiz(a, b, pa_ee)
+    cand = _galaxy(offset, gal_pa)
+    cand_ang_size = np.array([phi])
+
+    p_ref = _fine_fixedgrid_reference(
+        phi, a, b, pa_ee, offset, gal_pa)
+    p_loc = bayesian.px_Oi_local(
+        localiz, cand, cand_ang_size, THETA_PRIOR, step_size=0.05)[0]
+
+    rel = (p_loc - p_ref) / p_ref
+    with capsys.disabled():
+        print("\n  %-18s local=%11.5e  fixed(fine)=%11.5e  "
+              "reldiff=%+.3e" % (label, p_loc, p_ref, rel))
+
+    assert np.isfinite(p_loc) and p_loc > 0
+    assert np.isclose(p_loc, p_ref, rtol=RTOL, atol=0.0)
+
+
 def test_local_multi_candidate_matches_fixedgrid(capsys):
     """All cases at once: px_Oi_local on a multi-candidate input.
 
