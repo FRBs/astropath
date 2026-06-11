@@ -111,8 +111,8 @@ def run_on_dict(idict: dict,
 
     # Handle empty catalog
     if len(catalog) == 0:
-        return catalog, None, None, None, None, None
-
+        return None, None, None, None, None, None
+    
     # Set boxsize according to the largest galaxy (arcsec)
     #  or the survey size, whichever is larger
     # TODO -- X decided this is not worth the extra compute
@@ -132,7 +132,7 @@ def run_on_dict(idict: dict,
     cut_catalog = catalog[keep]
 
     if len(cut_catalog) == 0:
-        return cut_catalog, None, None, None, None, None
+        return None, None, None, None, None, None
 
     # Initialize PATH
     Path = path.PATH()
@@ -165,9 +165,6 @@ def run_on_dict(idict: dict,
     ccand = SkyCoord(ra=Path.candidates['ra'], dec=Path.candidates['dec'], unit='deg')
     sep = ccand.separation(coord)
     Path.candidates['sep'] = sep.arcsec
-
-    # Set up priors from idict
-    priors_dict = idict['priors']
 
     # Candidate prior
     P_O_method = priors_dict.get('P_O_method', 'inverse')

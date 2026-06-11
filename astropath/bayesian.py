@@ -109,7 +109,6 @@ def pw_Oi(theta, phi, theta_prior):
     # by the numba kernel).  kparam = phi (core) or phi*scale (exp).
     pdf_code, theta_max, kparam, norm = _resolve_offset_prior(
         phi, theta_prior)
-    #
     if norm == 0:
         raise ValueError("You forgot to normalize!")
     p = np.zeros_like(theta)

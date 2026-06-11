@@ -8,6 +8,7 @@
 ### Clancy James (Curtin U.)
 
 ## Additional contributors include:
+### Bridget Andersen (UC Santa Cruz)
 
 ## Docs
 
@@ -16,6 +17,8 @@
 
 ### The main manuscript -- [PATH](https://ui.adsabs.harvard.edu/abs/2021arXiv210210627A/abstract)
 
+### The PATH Simulations manuscript -- Illuminating the PATH: Exploring Biases in the PATH Host Galaxy Association Framework (Coming Soon)
+
 ## DOI
 
-[![DOI](https://zenodo.org/badge/321771335.svg)](https://doi.org/10.5281/zenodo.19629852)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19629852.svg)](https://doi.org/10.5281/zenodo.19629852)

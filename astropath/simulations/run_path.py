@@ -12,6 +12,8 @@ from astropath.run import run_on_dict, set_anly_sizes
 
 from IPython import embed
 
+import gc
+
     
 
 def run_dict_wrapper(idx:int, idict:dict,
@@ -36,6 +38,9 @@ def run_dict_wrapper(idx:int, idict:dict,
     # Run me
     candidates, P_Ux, Path, mag_key, cut_catalog, stars = \
         run_on_dict(idict, catalog=catalog, mag_key='mag')
+
+    if candidates is None or len(candidates) == 0:
+        return None, idx, None
 
     # Return
     sv_tbl = candidates.sort_values(
@@ -144,38 +149,47 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         # Extras
         close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
         close_galaxies['coords'] = galaxy_coords[gd_gal]
-        #
         list_candidates.append(close_galaxies)
 
-    # RUn it!
+    # Slicing done — the full catalog and coords are no longer needed
+    # Delete them BEFORE creating the pool so workers don't inherit 31.5G
+    del catalog
+    del galaxy_coords
+    del idx1, idx2, sep2d
+    gc.collect()
+
+    # Now create the pool - workers will fork from a much smaller parent
+    # Run PATH
     print("PATH time")
+    print("Will take a while, ~1 hr for 10,000 FRBs, depending on your computing setup and ncpu.")
     if multi:
         pool = multiprocessing.Pool(processes=ncpu)
         results = [pool.apply_async(run_dict_wrapper,
             args=(idx_FRB, FRB_dicts[idx_FRB], 
                   list_candidates[idx_FRB]))
             for idx_FRB in range(nFRB)]
-        # Run
-        output = [p.get() for p in results]
-        idx = [item[1] for item in output]
-        # Unpack
-        all_tbls = np.array([item[0] for item in output], dtype=object)
-        all_tbls = all_tbls[idx]
-        # Expunge the None's
-        gd_tbl = np.array([False if item is None else True for item in all_tbls])
-        gd_idx = np.arange(all_tbls.size)[gd_tbl]
-        all_tbls = all_tbls[gd_tbl]
-        for kk in range(all_tbls.size):
-            all_tbls[kk]['iFRB'] = gd_idx[kk]
-
+        pool.close()
+        
+        # Collect incrementally instead of all at once
+        print('Processing done, combine results')
+        all_tbls = []
+        for ii, p in enumerate(results):
+            if (ii % 1000) == 0:
+                print(f'Collecting result {ii}/{nFRB}...')
+            sv_tbl, idx, Path = p.get() # blocks until this one result is ready
+            if sv_tbl is not None:
+                sv_tbl['iFRB'] = idx
+                all_tbls.append(sv_tbl)
+            del p # free result memory immediately
+        # Finish
+        final_tbl = pandas.concat(all_tbls)
     else:
         idx_FRB = 0
         results = run_dict_wrapper(
             idx_FRB, FRB_dicts[idx_FRB],
             list_candidates[idx_FRB])
-
+        final_tbl = sv_tbl
     # Finish
-    final_tbl = pandas.concat(all_tbls)
     final_tbl.reset_index(inplace=True, drop=True)
 
     # Return
