@@ -94,6 +94,14 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 
 ## Docs
 
+
+1. Examine the docs in the astropath/docs directory.  We need to update the documentation to reflect the new code.  Please:
+
+- Update the documentation to reflect the new code for the local method
+- Note that it does not require numba (for now)
+- Comment on the profiling.py module too
+- Log your work in the "Logs" section below.
+
 ## Prompts
 
 1. Read this doc.  Proceed with the 1st item under Testing.
@@ -102,6 +110,7 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 4. Read this doc.  Proceed with the 3rd item under Development.
 5. Read this doc.  Proceed with the 4th item under Development.
 6. Read this doc.  Proceed with the 5th item under Development.
+7. Read this doc.  Proceed with the 1st item under Docs
 
 ## Logging
 
@@ -629,3 +638,48 @@ side even for gal10"/loc1" and 2400 for the ellipse).
 **numba note.**  `_Lwx_correction` is a small Gaussian sum on a coarse
 aligned grid (scalars + arrays, no astropy) -- ready for an `@njit`
 kernel in the numba step.
+
+### 2026-06-11 (Docs: documented the local method in performance.rst)
+
+**Done** (Docs item 1).  The docs live in the top-level `docs/`
+directory (not `astropath/docs`).  `docs/performance.rst` already
+documented the numpy-accelerated core, the optional numba path, and the
+`profiling` module (from the earlier fixed-grid work), so it was the
+natural home for the local-method update.
+
+**Edits to `docs/performance.rst`:**
+- Added a third bullet to *numpy-accelerated core* noting that
+  `px_Oi_local` was rewritten in pure numpy for the `eellipse` type
+  (coords pre-extracted once, `L(w-x)` evaluated flat-sky in the tangent
+  plane, no astropy in the per-candidate loop; healpix/wcs still use
+  `calc_LWx`), with a cross-reference to the new section.
+- New *Local-grid posterior* section: what `px_Oi_local` is for (large
+  localizations / healpix), the once-built normalized grid
+  (`ngrid = 2*max/step_size`), the flat-sky `L(w-x)` matching `calc_LWx`
+  to ~1e-5, and that `step_size` is *relative* to the galaxy (default
+  0.05).  Includes a prominent **note that it is pure numpy and does
+  NOT require/use numba** ("for now"); numba remains fixed-grid only.
+- New *Small-localization correction* subsection describing the
+  `b < phi` case and `_Lwx_correction`: the localization-centered,
+  galaxy-aligned "total L_wx" factor, why the aliasing cancels (~1%),
+  the analogy to `px_Oi_fixedgrid`'s `correction='L_wx'`, and that the
+  correction grid is bounded (skipped above ~5000 cells/side, which only
+  happens when no correction is needed) so it never allocates a large
+  array.
+- Updated the *Profiling module* section to say the sweep now profiles
+  BOTH methods: the existing fixed-grid (+numba) curve
+  (`profiling_timing.png`) and the new `run_profiling_local` /
+  `plot_local_results` local-grid curve (`profiling_local_timing.png`),
+  with both tables printed.  Added the import-and-call example for the
+  local profiling.
+
+**Verification:** installed `sphinx`/`sphinx_rtd_theme`/`nbsphinx` in
+astro14 and ran `python -m sphinx -b html . _build/html`.  Build
+succeeded; the 11 warnings are all pre-existing and unrelated (missing
+`nb/*` notebooks, `_static`, `language=None`, the `run.py` docstring
+list, `chime.rst` not in a toctree).  No warning references
+`performance.rst`.  Confirmed in the generated `performance.html` that
+the new *Local-grid posterior* / *Small-localization correction*
+sections, the no-numba note, the profiling mentions, and the
+`Local-grid posterior`_ cross-reference (-> `#local-grid-posterior`) all
+render.

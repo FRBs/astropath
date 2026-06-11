@@ -406,6 +406,7 @@ def _Lwx_correction(E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
     # Skip if the window would be huge: that happens when h << a at fine
     # step, i.e. L is already well resolved on the galaxy grid and the
     # raw value needs no correction.  Avoids allocating a huge array.
+    # TODO -- consider still making a correction but with a smaller window
     if (2 * m + 1) > max_side:
         return 1.0
     # Snap the localization onto the galaxy lattice (integer cell shift).

@@ -25,6 +25,15 @@ re-implemented in pure numpy:
   once, rather than reading ``astropy`` attributes inside the
   per-candidate loop.
 
+- ``bayesian.px_Oi_local`` (the local-grid :math:`p(x|O_i)`, which
+  builds one grid per candidate) has likewise been rewritten in pure
+  numpy for the ``eellipse`` localization: it pre-extracts the
+  coordinates once and evaluates :math:`L(w-x)` directly in a flat-sky
+  tangent plane, removing every ``astropy`` call from the per-candidate
+  loop. Other localization types (``healpix``, ``wcs``) fall back to
+  ``localization.calc_LWx`` as before. See `Local-grid posterior`_
+  below for details.
+
 These changes are transparent: you do not need to do anything to
 benefit from them, and the public APIs are unchanged.
 
@@ -76,6 +85,54 @@ Key points:
    forward ``use_numba``; call ``bayesian.px_Oi_fixedgrid`` directly to
    use it.
 
+Local-grid posterior
+====================
+
+``bayesian.px_Oi_local`` evaluates :math:`p(x|O_i)` on a separate grid
+per candidate, centered on the galaxy and sized to the offset prior
+(``box_hwidth = phi*max``). It is the method of choice for
+localizations that span a large area of sky, where
+a single fixed grid would be prohibitively large.
+
+For the ``eellipse`` localization the calculation is pure numpy and
+flat-sky:
+
+- The per-candidate grid is built once in normalized units and merely
+  rescaled per galaxy — the pixel count ``ngrid = 2*max/step_size`` is
+  the same for every candidate.
+
+- :math:`L(w-x)` is evaluated directly in the tangent plane (offsets
+  rotated into the ellipse frame), matching the spherical ``calc_LWx``
+  to ~1e-5 fractionally at arcsec scales.
+
+Here ``step_size`` is *relative* to the galaxy size (default ``0.05``),
+so the grid spacing is ``phi*step_size``.
+
+.. note::
+
+   ``px_Oi_local`` is **pure numpy and does not require (or use)
+   numba** — for now. The optional numba acceleration described above
+   applies only to ``px_Oi_fixedgrid``. ``px_Oi_local`` is fast on its
+   own because each per-candidate grid is small.
+
+Small-localization correction
+------------------------------
+
+When the localization minor axis :math:`b` is smaller than the galaxy
+angular size :math:`\phi`, the galaxy-centered grid under-resolves the
+sharp localization and the raw sum is biased low. In that case
+``px_Oi_local`` divides the result by a correction factor computed by
+``bayesian._Lwx_correction``: the discrete "total :math:`L(w-x)`" on a
+small grid that is centered on the localization and *aligned to the
+galaxy grid* (same spacing, shifted by an integer number of cells).
+Because the localization is sampled at the same sub-cell phase in the
+raw sum and in this factor, the under-resolution bias cancels in the
+ratio (accurate to ~1%). This is the local analogue of
+``px_Oi_fixedgrid``'s ``correction='L_wx'``. The correction grid is
+bounded (it is skipped when it would exceed ~5000 cells per side, which
+only happens when the localization is already well resolved and no
+correction is needed), so it never allocates a large array.
+
 Profiling module
 ================
 
@@ -89,18 +146,28 @@ Run it from the command line::
 
     python -m astropath.profiling
 
-This sweeps a range of ``step_size`` values (hence grid sizes), prints
-a timing table comparing ``calc_LWx``, the numpy ``px_Oi_fixedgrid``,
-and (if ``numba`` is installed) the numba path with its speed-up
-factor, and writes a figure (``profiling_timing.png``) of the timings
-versus grid size.
+This sweeps a range of ``step_size`` values (hence grid sizes) and
+profiles both posterior methods:
 
-You can also import and call it directly::
+- ``calc_LWx``, the numpy ``px_Oi_fixedgrid``, and (if ``numba`` is
+  installed) the numba path with its speed-up factor — written to
+  ``profiling_timing.png``;
+
+- ``px_Oi_local`` (via ``run_profiling_local``), whose per-candidate
+  grid size is ``2*max/step_size`` — written to
+  ``profiling_local_timing.png``.
+
+Both timing tables are printed to the screen.
+
+You can also import and call the pieces directly::
 
     from astropath import profiling
 
-    df = profiling.run_profiling()      # returns a pandas DataFrame
+    df = profiling.run_profiling()            # fixed-grid (+ numba)
     profiling.plot_results(df, 'timing.png')
+
+    df_local = profiling.run_profiling_local()   # local-grid method
+    profiling.plot_local_results(df_local, 'local.png')
 
 API Reference
 =============
