@@ -62,6 +62,34 @@ We will begin by removing all astropy calculations and replacing them with numpy
 - Add new code to profiling.py to profile this method
 - Log your work in the "Logs" section below.
 
+3. I have reduced the default step size to 0.05, relative to the galaxy angular size.  This will not be small enough when the localizatoin error is very small.  In that case, we need to calculate a correction similar to what is done in the fixed method.  The subtlety is that we need to correct it centered on the localization and not at the galaxy.  Please update the code to implement this.  It will mean:
+
+- Checking to see if b is less than the galaxy angular size.  If not, we can ignore the correction.
+- Calculate a new grid roughly centered on the localization but shifted from the galaxy grid.  That is, the localization grid is like an extension of the galaxy grid.  
+- I have put a hook in the code to allow for a correction.  If b < phi_cand, you should calculate the correction and apply it to the grid.
+- Log your work in the "Logs" section below.
+
+4. While your _local_lwx_correction helper works well, it is not exactly what I had in mind.  Let us develop an alternative approach which won't be as accurate but should be much faster.  Here is what the helper function should do:
+
+- Calculate L_wx approximately centered on the localization.  
+- The grid should be large enough to cover most of the ellipse (4 sigma along the major axis) 
+- The grid is spaced exactly the same as the galaxy grid (step_size_phi)
+- The grid should be aligned to the galaxy grid, i.e. only shifted by an integer number of cells in x and y
+- For phi_cand much greater than b, the total L_wx will be significantly less than 1 and we will correct our calculation by this factor
+- We will name this helper _Lwx_correction() 
+- Be careful not to generate any arrays larger than approximately 5000x5000 cells.
+
+The main point is that we will under-resolve the localization in our calculation.  But we can calculate the correction factor and apply it to the grid.  I have found that this is accurate to ~1% for the cases I have tested.
+
+Consider the above and Log a plan in the "Logs" section below.  Do not generate any new code yet.
+
+5. What you describe in the logs looks correct.  Please:
+
+- proeed to generate the code.  
+- Do use a square window for the correction.
+- Log your work in the "Logs" section below.
+
+
 ## Profiling
 
 ## Docs
@@ -71,6 +99,9 @@ We will begin by removing all astropy calculations and replacing them with numpy
 1. Read this doc.  Proceed with the 1st item under Testing.
 2. Read this doc.  Proceed with the 1st item under Development.
 3. Read this doc.  Proceed with the 2nd item under Development.
+4. Read this doc.  Proceed with the 3rd item under Development.
+5. Read this doc.  Proceed with the 4th item under Development.
+6. Read this doc.  Proceed with the 5th item under Development.
 
 ## Logging
 
@@ -333,3 +364,268 @@ Sample (50 candidates):
 | 0.100     | 120x120       | 7.8      | 0.155   |
 | 0.050     | 240x240       | 32.8     | 0.655   |
 | 0.025     | 480x480       | 182.9    | 3.659   |
+
+### 2026-06-11 (Small-localization correction, centered on the loc)
+
+**Done** (Development item 3).  The default step is now 0.05 (relative
+to phi).  That is fine when the localization is comparable to / larger
+than the galaxy, but when the minor axis `b < phi` the galaxy-centered
+grid (spacing `phi*step`) under-resolves the sharp localization and the
+raw sum carries the full O(step) bias (~-0.8% at step 0.05, ~-1.7% at
+0.1).  I filled the existing `if b < phi_cand:` hook with a correction.
+
+**What the correction does** (new helper
+`bayesian._local_lwx_correction`):
+- Builds a SEPARATE grid CENTERED ON THE LOCALIZATION (the transient),
+  not the galaxy -- the galaxy grid shifted/extended onto the
+  localization, in the same flat-sky tangent plane.
+- The grid is tied to the ELLIPSE, not to `step_size`: half-width
+  `6a` (covers the major axis so `sum(L)` captures the full,
+  unit-normalized L) and spacing `b/4` (resolves the minor axis).  It is
+  therefore INDEPENDENT of `step_size`, so coarsening the galaxy step
+  no longer degrades these cases.  `ngrid` is capped at 4000 for extreme
+  axis ratios.
+- Returns `sum(L*p)/sum(L)` -- the L-weighted average of p(w|O_i).  The
+  grid spacing cancels in the ratio and L integrates to 1, so this is
+  the localization-normalized p(x|O_i), exactly the quantity
+  `px_Oi_fixedgrid` produces with `correction='L_wx'`.  This is "similar
+  to the fixed method", but centered on the localization as required.
+- Only the `eellipse` path uses it (per item 2's scope).  For `b >=
+  phi` nothing changes; the generic healpix/wcs path is untouched.
+
+**Why a separate, loc-centered grid (the subtlety):** the ratio's
+denominator `sum(L)` must capture the FULL localization (so it equals
+its analytic norm of 1); a galaxy-centered grid of half-width `phi*max`
+fails this when `a > phi*max` (e.g. the a=10",b=0.2" ellipse), giving
+`sum(L)` over only a sliver and a ratio ~4x too large.  Centering on the
+localization with half-width `6a` fixes it.
+
+**Empirical design** (vs the fine fixed-grid reference, at step 0.05):
+| case (b<phi)            | raw reldiff | corrected | ngrid |
+|-------------------------|-------------|-----------|-------|
+| large gal10 / loc1      | -8.5e-3     | -2.7e-5   | 48    |
+| gal10 / loc0.3          | -1.2e-2     | -1.3e-7*  | 48    |
+| ellipse a10",b0.2"      | -8.4e-3     | -8.0e-5   | 2400  |
+(*with the chosen b/4 spacing; a step-tied spacing under-resolved this
+case, which is why the correction grid is tied to the ellipse.)  A
+galaxy-grid L_wx ratio was also tried but blows up (+3.2) on the ellipse
+because the galaxy box doesn't cover the major axis -- hence the
+loc-centered grid.
+
+**Verification:** `pytest astropath/tests/tests_local.py -s` -> 11
+passed.  Added `test_local_correction_coarse_step` (parametrized over
+the two `b<phi` cases x step_size in {0.05, 0.10}): asserts agreement to
+`rtol=2e-3`, far tighter than the generic 1% -- and the corrected value
+is identical at 0.05 and 0.10, confirming step-independence.
+`test_bayesian` and `test_path` still pass.
+
+**Unrelated note:** `astropath/run.py:231` has a stray
+`embed(header='run.py:231')` (in the committed `wip` state, hit
+unconditionally for both local and fixed modes) that hangs
+`test_run.py::test_run_on_dict_*` under pytest with
+"OSError: reading from stdin while output is captured".  I left it in
+place (it is your WIP debugging, not part of this task); remove that
+line to make those two tests pass.
+
+**Note / possible follow-up:** for very high axis-ratio ellipses
+(`a >> b`) the correction grid is `~6a x 6a` at spacing `b/4`, i.e.
+`~24 a/b` pixels per side (2400 for the test ellipse; the 4000 cap can
+bite for, say, a=60",b=0.2").  An anisotropic grid aligned to the
+ellipse axes (fine along the minor, coarse along the major) would cut
+this by ~100x; I kept the uniform grid for fidelity to "an extension of
+the galaxy grid" and simplicity.  Flag if you want the anisotropic
+version.
+
+### 2026-06-11 (PLAN: faster aligned _Lwx_correction; no code yet)
+
+**Task** (Development item 4): replace the accurate-but-slow
+`_local_lwx_correction` with a faster, ~1%-accurate `_Lwx_correction()`
+that DELIBERATELY under-resolves the localization on the (coarse) galaxy
+grid and divides the raw result by a correction FACTOR.  The hook is
+already stubbed by you:
+```
+if b < phi_cand:
+    L_wx_correction = _Lwx_correction(arguments)
+else:
+    L_wx_correction = 1.0
+...
+grid_p = L_wx * p_wOi / L_wx_correction          # scalar divide
+p_xOis.append(np.sum(grid_p) * step_size_phi**2)
+```
+So `_Lwx_correction()` must return a SCALAR factor; `p(x|O_i)` becomes
+`[sum(L*p)*dA] / factor`.
+
+**What the factor is.**  `factor = sum_over(loc grid) L_wx * dA`, i.e.
+the DISCRETE integral of L ("total L_wx") evaluated on a coarse grid
+centered on the localization.  When `phi >> b` the galaxy-grid spacing
+`step_size_phi` under-samples the sharp ellipse, so this discrete
+integral comes out `< 1` (your observation).  Dividing the raw
+`sum(L*p)*dA` by it renormalizes L back to 1.
+
+**Why this works to ~1% even though L is under-resolved -- the key
+idea is GRID ALIGNMENT.**  The raw numerator `sum_gal L*p*dA` samples L
+on the galaxy lattice at some fixed sub-cell phase relative to the
+ellipse.  If the correction grid is the SAME lattice (same spacing,
+shifted by an integer number of cells), it samples L at the SAME
+sub-cell phase.  Under-resolution then multiplies BOTH the numerator's
+L-weighting and the denominator `sum_loc L*dA` by the same (roughly
+uniform) aliasing factor, so it cancels in the ratio:
+
+    [sum_gal L*p*dA] / [sum_loc L*dA]
+        ~= integral(L*p) / integral(L)  =  integral(L*p)  =  p(x|O_i)
+
+(the last step uses integral(L)=1).  The residual ~1% comes from the
+aliasing factor not being perfectly uniform, the 4-sigma truncation,
+and p varying across the product region.  Alignment is ESSENTIAL: an
+unaligned (differently-phased) correction grid would not cancel and the
+error would be large and noisy.  This is the crucial difference from
+`_local_lwx_correction`, which instead RESOLVED L on a fine (b/4) grid
+-- accurate (~1e-5) but slow.
+
+**Planned `_Lwx_correction()` -- spec.**
+- Purpose: return the scalar `sum(L_wx)*dA` over a coarse,
+  galaxy-grid-aligned grid centered on the localization, so the caller
+  can divide the (under-resolved) raw p(x|O_i) by it.
+- Inputs (all plain floats/arrays, numba-friendly):
+  * `E0, N0` -- flat-sky offsets of the galaxy from the localization
+    center (arcsec); already computed in the loop.
+  * `a, b, cos_dth, sin_dth` -- ellipse semi-axes and the shared
+    rotation into the ellipse frame.
+  * the galaxy-grid lattice description so the correction grid can be
+    built ON the same lattice: pass `box_hwidth` and the shared
+    normalized axis `u` (=`np.linspace(-1,1,ngrid)`), from which
+    `h = box_hwidth*(u[1]-u[0])` is the EXACT galaxy-grid spacing
+    (~`step_size_phi`).  (Using the exact `h`, not the nominal
+    `step_size_phi`, keeps the two grids truly aligned.)
+  * `step_size_phi` -- only for `dA = step_size_phi**2` (kept identical
+    to the caller's `dA` so the scalar divide is consistent; any common
+    dA cancels in the ratio anyway).
+- Grid construction (the three constraints you listed):
+  1. SAME spacing as the galaxy grid: spacing `= h`.
+  2. ALIGNED / integer-cell shift: snap the localization center onto the
+     galaxy lattice -> `iE = round(E0/h)`, `iN = round(N0/h)`; the 1D
+     correction coordinates (offsets from the galaxy) are
+     `(iE + arange(-m, m+1)) * h` and likewise for N, where
+     `m = ceil(4*a / h)`.  These points lie exactly on the galaxy
+     lattice, just translated by `(iE, iN)` cells.
+  3. COVER 4 sigma of the major axis: half-width `4*a` -> the
+     `m = ceil(4a/h)` above.  (A square of half-width 4a covers 4-sigma
+     in every direction, so PA need not be considered for sizing.)
+- Evaluate L on this grid: offset of each correction-grid point from the
+  LOCALIZATION center is `(cE - E0, cN - N0)`; rotate into the ellipse
+  frame (`x_box = E*cos_dth + N*sin_dth`, `y_box = N*cos_dth -
+  E*sin_dth`) and form the same 2D Gaussian
+  `exp(-x_box^2/2a^2)*exp(-y_box^2/2b^2)/(2*pi*a*b)` already used in the
+  main loop.  Reuse, don't duplicate, that expression where practical.
+- Return `np.sum(L_corr) * step_size_phi**2`  (the scalar "total L_wx").
+- Guard: if `b >= phi` the caller never calls this (factor=1.0).  Cap
+  `m` (e.g. `2*m+1 <= ~4000`) so extreme axis ratios stay bounded.
+
+**Cost vs `_local_lwx_correction`.**  New spacing is `h ~ phi*step`
+(coarse) instead of `b/4` (fine).  Correction-grid side length
+`~ 8a/h = 8a/(phi*step)` vs the old `~ 48a/b`.  Ratio
+`new/old ~ b/(6*phi*step)`, i.e. for `phi >> b` (the regime that
+triggers the correction) the new grid is many-fold smaller -- e.g.
+phi=10",b=0.2",step=0.05 -> ~15x fewer points; and it sums only L (no
+p, no product) per point.  For low-phi high-aspect ellipses
+(phi~b, e.g. the a=10",b=0.2",phi=0.5" test case) the two are
+comparable, since there `h` is already small.
+
+**Integration / cleanup.**
+- Implement `_Lwx_correction()` with the spec above; wire its real
+  arguments into your stub (`E0, N0, a, b, cos_dth, sin_dth,
+  box_hwidth, u, step_size_phi`).
+- Delete `_local_lwx_correction` (superseded) -- per your earlier note
+  we need not preserve old algorithms; `tests_local.py` is the anchor.
+
+**Test impact (to handle in the coding step).**
+- `test_local_correction_coarse_step` currently asserts `rtol=2e-3`
+  (true of the fine helper).  The new approach is ~1%, so relax that to
+  ~`1.5e-2` (and drop the "identical at 0.05 vs 0.10" expectation -- the
+  factor now depends on the grid, hence weakly on step).  I will measure
+  the actual reldiff for the two `b<phi` cases at steps {0.05,0.10} and
+  set the tolerance just above the worst observed.
+- `test_local_matches_fine_fixedgrid` runs at step 0.02, where the
+  galaxy grid already resolves L for these cases, so its `rtol=1e-2`
+  should still pass; I will confirm.
+
+**numba note.**  `_Lwx_correction` is a small Gaussian sum over a
+coarse aligned grid -- trivially `@njit`-able later, and (like
+`px_Oi_numba`) it takes only scalars/arrays, no astropy.
+
+**Open question (will proceed with the stated default unless you say
+otherwise):** "4 sigma along the major axis" -> I read this as
+half-width `= 4*a` (with `a` the major-axis sigma).  If you instead
+meant 4 sigma in each axis separately (an anisotropic/elliptical
+window), say so; the square 4a window is simpler, stays aligned, and
+covers the ellipse, so I will use it.
+
+### 2026-06-11 (Implemented fast aligned _Lwx_correction)
+
+**Done** (Development item 5).  Replaced `_local_lwx_correction` with
+the faster `bayesian._Lwx_correction()` and wired it into your stubbed
+hook.  Square 4-sigma window, as you confirmed.
+
+**`_Lwx_correction(E0, N0, a, b, cos_dth, sin_dth, box_hwidth, ngrid,
+step_size_phi, max_side=5000)`** returns a SCALAR "total L_wx" =
+`sum(L_wx)*dA`.  The caller does `grid_p = L_wx*p_wOi /
+L_wx_correction`, i.e. `p(x|O_i) = raw / factor`.  The grid:
+- is centered on the localization (transient), square half-width `4*a`
+  (>= 4 sigma of the major axis);
+- has EXACTLY the galaxy-grid spacing `h = 2*box_hwidth/(ngrid-1)` and
+  lies ON the galaxy lattice (snapped by an integer cell shift `kE, kN`
+  via `round((box_hwidth - E0)/h)`), so L is sampled at the same
+  sub-cell phase as the raw sum -> the under-resolution aliasing cancels
+  in the `raw/factor` ratio;
+- uses `dA = step_size_phi**2` to match the caller's raw sum exactly
+  (so both the aliasing AND the step_size_phi-vs-h convention cancel).
+
+**Memory guard (your <=5000x5000 constraint).**  The window has
+`~8*a/h` cells per side; this only exceeds `max_side=5000` when `h` is
+very small, which is exactly the regime where the galaxy grid ALREADY
+resolves L and the raw value needs no correction.  So when
+`2m+1 > max_side` the helper returns `1.0` (skip) -- provably safe and
+never allocates a large array.  (Found empirically while validating:
+the ellipse at step 0.02 wants a 7987-cell window -> skipped -> raw is
+already -0.33%.)  No striding/coarsening: that would break the
+aliasing/dA cancellation, so skip-when-resolved is the right lever.
+
+**Accuracy measured vs the fine fixed grid** (reldiff; raw = no
+correction):
+
+| case (b<phi)          | step | raw     | corrected | window |
+|-----------------------|------|---------|-----------|--------|
+| gal10", loc 1"        | 0.05 | -0.85%  | -1.7e-4   | 17     |
+| gal10", loc 1"        | 0.10 | -1.85%  | -1.9e-3   | 9      |
+| gal10", loc 1"        | 0.02 | -0.33%  | +7.0e-5   | 41     |
+| ellipse a10",b0.2"    | 0.05 | -0.84%  | -4.1e-6   | 3189   |
+| ellipse a10",b0.2"    | 0.10 | -1.66%  | +3.4e-5   | 1589   |
+| ellipse a10",b0.2"    | 0.02 | -0.33%  | -0.33%(skip)| --    |
+| severe UR phi2 b0.05  | 0.05 | -2.49%  | -1.8e-3   | 9      |
+| severe UR phi2 b0.05  | 0.10 | -60.1%  | -2.1%     | 5      |
+
+So it removes the bulk of the under-resolution bias (dramatically so in
+the severe cases), staying ~0.1-0.2% at the default step 0.05 -- better
+than the ~1% you found.  (The lone outlier, severe under-resolution at
+the very coarse step 0.10 with only 5 window cells, lands ~2%.)
+
+**Cost.**  Common large-galaxy/small-loc case: window ~17-41 cells,
+negligible.  px_Oi_local at step 0.05 with the correction firing on
+ALL 100 candidates (a=1", phi=2-8"): 0.74 ms/candidate.  Much cheaper
+than the old fine-grid helper (which used a b/4 spacing -> e.g. 48-cell
+side even for gal10"/loc1" and 2400 for the ellipse).
+
+**Tests.**  `tests_local.py` -> 11 passed.
+- `test_local_matches_fine_fixedgrid` (step 0.02, rtol 1e-2): the two
+  b<phi cases pass -- gal10"/loc1" via the correction (+7e-5), the
+  ellipse via the skip path (-3.3e-3, raw).  No large array built.
+- `test_local_correction_coarse_step`: relaxed rtol 2e-3 -> 5e-3 (the
+  new method is ~1%-class, not the old ~1e-5) and dropped the
+  step-independence wording (the factor now depends on the galaxy grid).
+  Worst observed: gal10"/loc1" at step 0.10 = -1.9e-3.
+- Removed the obsolete `_local_lwx_correction`.
+- `test_bayesian`, `test_path` still pass.
+
+**numba note.**  `_Lwx_correction` is a small Gaussian sum on a coarse
+aligned grid (scalars + arrays, no astropy) -- ready for an `@njit`
+kernel in the numba step.

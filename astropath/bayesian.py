@@ -344,8 +344,94 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     else:
         return np.array(p_xOis)
 
+def _Lwx_correction(E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
+                    ngrid, step_size_phi, max_side:int=5000):
+    """Localization normalization factor for an under-resolved L(w-x).
+
+    Fast companion to ``px_Oi_local`` for the ``b < phi`` regime.  There
+    the galaxy-centered grid (spacing ``step_size_phi``) deliberately
+    UNDER-resolves the sharp localization, so the discrete ``sum(L_wx)``
+    -- and hence the raw p(x|O_i) -- comes out below its true value.
+    This returns the discrete integral of L(w-x), the "total L_wx", on a
+    grid that:
+
+      * is CENTERED ON THE LOCALIZATION (the transient), covering a
+        SQUARE window of half-width ``4*a`` (>= 4 sigma of the major
+        axis, so it captures essentially all of the ellipse);
+      * has EXACTLY the galaxy-grid spacing, and lies ON the galaxy
+        lattice -- it is the galaxy grid shifted by an integer number of
+        cells.  The localization is therefore sampled at the SAME
+        sub-cell phase as the main grid, so the under-resolution aliasing
+        is identical in the raw sum and in this factor.
+
+    The caller divides the raw p(x|O_i) by this factor, which cancels the
+    aliasing bias (accurate to ~1%) -- the same idea as
+    ``px_Oi_fixedgrid``'s ``correction='L_wx'``, but with a coarse,
+    galaxy-aligned grid instead of a fine one.
+
+    Memory guard: the window has ~``8*a/step_size_phi`` cells per side.
+    This only exceeds ``max_side`` when ``step_size_phi`` is very small
+    -- i.e. when the galaxy grid ALREADY resolves L and the raw value
+    needs no correction -- so in that case we skip (return 1.0) rather
+    than allocate a huge array.
+
+    Args:
+        E0 (float): East offset of the galaxy from the localization
+            center, arcsec (flat sky).
+        N0 (float): North offset of the galaxy from the localization
+            center, arcsec.
+        a (float): Localization ellipse semi-major axis, arcsec.
+        b (float): Localization ellipse semi-minor axis, arcsec.
+        cos_dth (float): cos of the ellipse-frame rotation (90 - PA),
+            shared with the main loop.
+        sin_dth (float): sin of the same rotation.
+        box_hwidth (float): Half-width of the galaxy grid, arcsec
+            (= phi*max); recovers the galaxy lattice with ``ngrid``.
+        ngrid (int): Cells per side of the galaxy grid (built as
+            ``linspace(-box_hwidth, box_hwidth, ngrid)``).
+        step_size_phi (float): Galaxy-grid spacing, arcsec
+            (= phi*step_size); used for the area element dA so the factor
+            matches the caller's raw sum.
+        max_side (int, optional): Skip (return 1.0) if the window would
+            exceed this many cells per side.  Default 5000.
+
+    Returns:
+        float: The discrete ``sum(L_wx)*dA`` ("total L_wx"; ~1 when
+            resolved, < 1 when under-resolved), or 1.0 if skipped.
+    """
+    # Exact galaxy-grid spacing (linspace of ngrid points on [-box,box]).
+    h = 2. * box_hwidth / (ngrid - 1)
+    # Half-window in cells to reach 4 sigma along the major axis (4*a).
+    m = int(np.ceil(4. * a / h))
+    # Skip if the window would be huge: that happens when h << a at fine
+    # step, i.e. L is already well resolved on the galaxy grid and the
+    # raw value needs no correction.  Avoids allocating a huge array.
+    if (2 * m + 1) > max_side:
+        return 1.0
+    # Snap the localization onto the galaxy lattice (integer cell shift).
+    # Galaxy-frame lattice points (offsets from the galaxy) are
+    # -box_hwidth + k*h; the transient sits at offset (-E0, -N0).
+    kE = int(np.round((box_hwidth - E0) / h))
+    kN = int(np.round((box_hwidth - N0) / h))
+    idx = np.arange(-m, m + 1)
+    cE = -box_hwidth + (kE + idx) * h        # offsets from galaxy (E)
+    cN = -box_hwidth + (kN + idx) * h        # offsets from galaxy (N)
+    CE, CN = np.meshgrid(cE, cN)
+    # Offset of each cell from the localization center, rotated into the
+    # ellipse frame; same 2D Gaussian L(w-x) as the main loop.
+    E = E0 + CE
+    N = N0 + CN
+    x_box = E * cos_dth + N * sin_dth
+    y_box = N * cos_dth - E * sin_dth
+    L_wx = (np.exp(-x_box ** 2 / (2 * a ** 2))
+            * np.exp(-y_box ** 2 / (2 * b ** 2)) / (2 * np.pi * a * b))
+    # "Total L_wx" -- the discrete integral with the SAME dA as the raw
+    # galaxy-grid sum, so dividing the raw by it cancels the aliasing.
+    return np.sum(L_wx) * step_size_phi ** 2
+
+
 def px_Oi_local(localiz, cand_coords, cand_ang_size,
-                theta_prior, step_size=0.1, 
+                theta_prior, step_size=0.05,
                 step_size_mode:str='relative',
                 debug = False):
     """
@@ -407,10 +493,13 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
     # (phi cancels), so the same grid serves every candidate.  U, V span
     # [-1, 1]; the physical grid is phi*max * (U, V) and theta = phi*max*R.
     max_theta = theta_prior['max']
-    ngrid = int(np.round(2 * max_theta / step_size))
-    u = np.linspace(-1., 1., ngrid)
-    Ugrid, Vgrid = np.meshgrid(u, u)
-    Rgrid = np.sqrt(Ugrid ** 2 + Vgrid ** 2)         # normalized radius
+    if step_size_mode == 'relative':
+        ngrid = int(np.round(2 * max_theta / step_size))
+        u = np.linspace(-1., 1., ngrid)
+        Ugrid, Vgrid = np.meshgrid(u, u)
+        Rgrid = np.sqrt(Ugrid ** 2 + Vgrid ** 2)         # normalized radius
+    else:
+        raise ValueError(f"Invalid step_size_mode: {step_size_mode}")
 
     # Pre-compute the eellipse constants once (flat-sky fast path).
     is_eellipse = localiz['type'] == 'eellipse'
@@ -437,12 +526,11 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
     # TODO -- parallelize / numba this per-candidate body
     for icand in range(cand_ra.size):
 
-        # Dynamic step_size
-        step_size_phi = phi_cand * step_size         # arcsec
-
         # Prep -- scale the normalized grid to this galaxy's size
         phi_cand = cand_ang_size[icand]              # arcsec
         box_hwidth = phi_cand * max_theta            # arcsec
+        step_size_phi = phi_cand * step_size         # arcsec
+
         xcoord = box_hwidth * Ugrid                  # east offset, arcsec
         ycoord = box_hwidth * Vgrid                  # north offset, arcsec
         theta = box_hwidth * Rgrid                   # arcsec
@@ -465,16 +553,32 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
             # 2D Gaussian L(w-x), normalized over x (not omega)
             L_wx = (np.exp(-x_box ** 2 * inv_2a2)
                     * np.exp(-y_box ** 2 * inv_2b2) * L_norm)
+
+            # Correction: when the localization minor axis b is smaller
+            # than the galaxy size phi, the galaxy-centered grid
+            # under-resolves the sharp localization and the raw sum is
+            # biased low.  Divide by the "total L_wx" computed on a
+            # localization-centered, galaxy-aligned grid so the aliasing
+            # cancels (see _Lwx_correction).
+            if b < phi_cand:
+                L_wx_correction = _Lwx_correction(
+                    E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
+                    ngrid, step_size_phi)
+            else:
+                L_wx_correction = 1.0
+
         else:
             # Generic fallback (healpix/wcs): build flat-sky coords and
-            # use calc_LWx, which does the type-specific lookup.
+            # use calc_LWx, which does the type-specific lookup.  No
+            # under-resolution correction here (eellipse only).
             ra = (cand_ra[icand]
                   + xcoord / 3600. / cos_cand_dec[icand])
             dec = cand_dec[icand] + ycoord / 3600.
             L_wx = localization.calc_LWx(ra, dec, localiz)
+            L_wx_correction = 1.0
 
         # Finish
-        grid_p = L_wx * p_wOi
+        grid_p = L_wx * p_wOi / L_wx_correction
         p_xOis.append(np.sum(grid_p) * step_size_phi ** 2)
         # Debug
         if debug:

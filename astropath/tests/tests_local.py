@@ -169,6 +169,47 @@ def test_local_matches_fine_fixedgrid(
     assert np.isclose(p_loc, p_ref, rtol=RTOL, atol=0.0)
 
 
+# Cases where the localization minor axis is smaller than the galaxy
+# (b < phi) -- these trigger the localization-centered L_wx correction.
+CORR_CASES = [c for c in CASES if c[3] < c[1]]  # b (idx 3) < phi (idx 1)
+
+
+@pytest.mark.parametrize(
+    "label,phi,a,b,pa_ee,offset,gal_pa", CORR_CASES,
+    ids=[c[0] for c in CORR_CASES])
+@pytest.mark.parametrize("coarse_step", [0.05, 0.1])
+def test_local_correction_coarse_step(
+        label, phi, a, b, pa_ee, offset, gal_pa, coarse_step, capsys):
+    """When b < phi, the _Lwx_correction keeps px_Oi_local accurate even
+    at coarse (galaxy-relative) step sizes.
+
+    The fast aligned-grid correction divides the under-resolved raw sum
+    by the discrete "total L_wx"; the aliasing cancels, recovering ~0.1-
+    0.2% accuracy where the UNcorrected raw sum is biased by ~1-2% (the
+    O(step) error).  Tolerance is well below that raw bias but looser
+    than the old fine-grid helper (the new method is ~1%-class by
+    design).
+    """
+    localiz = _eellipse_localiz(a, b, pa_ee)
+    cand = _galaxy(offset, gal_pa)
+    cand_ang_size = np.array([phi])
+
+    p_ref = _fine_fixedgrid_reference(
+        phi, a, b, pa_ee, offset, gal_pa)
+    p_loc = bayesian.px_Oi_local(
+        localiz, cand, cand_ang_size, THETA_PRIOR,
+        step_size=coarse_step)[0]
+
+    rel = (p_loc - p_ref) / p_ref
+    with capsys.disabled():
+        print("\n  %-24s step=%.2f local=%11.5e fixed(fine)=%11.5e "
+              "reldiff=%+.3e" % (label, coarse_step, p_loc, p_ref, rel))
+
+    # Much tighter than the generic RTOL: the correction removes the
+    # bulk of the step-size bias for these cases.
+    assert np.isclose(p_loc, p_ref, rtol=5.0e-3, atol=0.0)
+
+
 def test_local_multi_candidate_matches_fixedgrid(capsys):
     """All cases at once: px_Oi_local on a multi-candidate input.
 
