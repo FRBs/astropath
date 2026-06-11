@@ -92,6 +92,24 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 
 ## Profiling
 
+1. Please make the following modification to profiling.py:
+
+- Add an additional test for the local method which uses an ellipse localization with a relatively large axis ratio.  Large enough to require an approximately 1000x1000 grid for the L_wx correction.
+- Include this curve in the figure for the local method.
+
+2. The purple curve in the local figure says circular but no correction.  Please:
+
+- check whether there is a correction.  
+- update the figure as needed
+- Log your work in the "Logs" section below.
+
+3. Add one more test to profiling.py for the local method:
+
+- Use a very small localization in both dimenstions (a=0.1", b=0.1")
+- Include galaxy sizes from 0.1" to 20"
+- If necessary, have the test_local.py module include an accuracy test for a small localization too
+- Log your work in the "Logs" section below.
+
 ## Docs
 
 
@@ -111,6 +129,9 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 5. Read this doc.  Proceed with the 4th item under Development.
 6. Read this doc.  Proceed with the 5th item under Development.
 7. Read this doc.  Proceed with the 1st item under Docs
+8. Read this doc.  Proceed with the 1st item under Profiling
+9. Read this doc.  Proceed with the 2nd item under Profiling
+10. Read this doc.  Proceed with the 3rd item under Profiling
 
 ## Logging
 
@@ -683,3 +704,79 @@ the new *Local-grid posterior* / *Small-localization correction*
 sections, the no-numba note, the profiling mentions, and the
 `Local-grid posterior`_ cross-reference (-> `#local-grid-posterior`) all
 render.
+
+### 2026-06-11 (Profiling: ellipse scenario exercising _Lwx_correction)
+
+**Done** (Profiling item 1).  Added a high-axis-ratio ellipse scenario
+to the local-method profiling so the `_Lwx_correction` path is timed on
+a ~1000x1000 grid, and plotted its curve alongside the existing one.
+
+**Edits to `astropath/profiling.py`:**
+- New `ellipse_setup()`: a long thin error ellipse (a=12.5", b=0.2",
+  axis ratio ~62) with 50 candidate galaxies of size 1.5"-2.5" (all
+  `> b`, so the correction fires for every candidate).  The galaxy
+  sizes are tuned so the correction grid is ~1000 cells per side at the
+  default step 0.05, and stays under the ~5000-cell skip threshold
+  across the whole step sweep (so it never short-circuits).
+- `run_profiling_local()` now times BOTH scenarios against the same
+  per-candidate galaxy grid (the figure x-axis): the existing circular
+  case (`b >= phi`, no correction) and the new ellipse case
+  (`b < phi`, correction fires).  Added columns
+  `px_Oi_local_ellipse_s` and `corr_ngrid` (a representative
+  correction-grid side, ~`8a/h`, printed per step), so the table shows
+  the correction grid growing 97 -> 1777 across the sweep
+  (997 at the default 0.05).
+- `plot_local_results()` plots the ellipse curve (orange squares,
+  "ellipse + L_wx corr.") on top of the circular curve (purple
+  diamonds), keeping the 10 s reference line.
+- `main()`'s local table now reports `corr_ngrid`, `circular_ms`, and
+  `ellipse_ms`.
+
+**Measured** (50 candidates; circular vs ellipse+correction):
+
+| step  | galaxy grid | corr grid | circular | ellipse(+corr) |
+|-------|-------------|-----------|----------|----------------|
+| 0.50  | 24x24       | 97        | 1.0 ms   | 6.7 ms         |
+| 0.25  | 48x48       | 197       | 1.9 ms   | 32 ms          |
+| 0.10  | 120x120     | 497       | 7.9 ms   | 361 ms         |
+| 0.05  | 240x240     | 997       | 32 ms    | 1763 ms        |
+| 0.025 | 480x480     | 1777      | 157 ms   | 7059 ms        |
+
+So the L_wx correction dominates the cost for high-axis-ratio ellipses
+(the correction grid `~8a/h` grows faster than the galaxy grid
+`2*max/step`): at step 0.05 the per-candidate correction is a ~1000x1000
+Gaussian sum, ~35 ms/candidate vs ~0.6 ms for the un-corrected circular
+case.  This is the intended demonstration that the cheap-but-not-free
+correction is the bottleneck precisely for long thin localizations --
+useful context for a future numba kernel.
+
+**Verification:** ran `run_profiling_local` and `plot_local_results`;
+confirmed `corr_ngrid=997` at step 0.05, that both data curves render
+(labels "px_Oi_local (circular, no corr.)" and "px_Oi_local (ellipse +
+L_wx corr.)"), and that the largest correction array stays well under
+5000x5000 (max ~2663 per side at step 0.025).
+
+### 2026-06-11 (Profiling: verified the circular curve has no correction)
+
+**Done** (Profiling item 2).  Checked whether the purple (circular)
+curve in the local figure actually applies the `_Lwx_correction`.
+
+**Verification:** wrapped `bayesian._Lwx_correction` with a call
+counter and ran both profiling scenarios at step 0.05:
+- circular (`default_setup`, a=b=5"): the correction fired **0 times**
+  -- `b < phi` is False for every candidate (b=5" vs phi 0.2"-2.5"), so
+  the `else: L_wx_correction = 1.0` branch is always taken.  The
+  "no correction" label is therefore correct.
+- ellipse (`ellipse_setup`, b=0.2"): the correction fired **50 times**
+  (every candidate), with factor ~0.9916.
+
+So the purple curve genuinely has no correction; the difference between
+the two curves IS the correction overhead.
+
+**Figure update:** sharpened both legend labels to state the governing
+condition explicitly, so the figure is self-documenting:
+- ``px_Oi_local (circular, b>=phi: no correction)``
+- ``px_Oi_local (ellipse, b<phi: L_wx correction)``
+and added comments in `plot_local_results` noting the circular case has
+`b >= phi` (0 invocations, verified) while the ellipse case fires the
+correction on a ~1000x1000 grid.

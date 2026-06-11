@@ -84,6 +84,44 @@ def default_setup(ncand=NCAND):
     return localiz, cand_coords, cand_ang_size, theta_prior
 
 
+def ellipse_setup(ncand=NCAND):
+    """High-axis-ratio ellipse scenario that exercises _Lwx_correction.
+
+    Unlike :func:`default_setup` (circular localization, where
+    ``b >= phi`` so no correction fires), this uses a long thin error
+    ellipse (a=12.5", b=0.2", axis ratio ~60) with candidate galaxies
+    LARGER than ``b``.  ``px_Oi_local`` therefore triggers the
+    ``_Lwx_correction`` for every candidate.  The galaxy sizes
+    (1.5"-2.5") are chosen so the correction grid is ~1000x1000 cells at
+    the default step (0.05) -- and stays below the ~5000-cell skip
+    threshold across the whole step sweep.
+
+    Args:
+        ncand (int, optional): Number of candidate galaxies.
+
+    Returns:
+        tuple: (localiz, cand_coords, cand_ang_size, theta_prior), same
+            shape as :func:`default_setup`.
+    """
+    frb_coord = SkyCoord(FRB_RADEC, frame='icrs')
+    # Long, thin error ellipse (large axis ratio) -> b < phi below.
+    eellipse = dict(a=12.5, b=0.2, theta=0.)
+    localiz = dict(type='eellipse',
+                   center_coord=frb_coord,
+                   eellipse=eellipse)
+    # Scatter candidates around the transient (some land off the thin
+    # ellipse; that is fine -- we are timing, not validating values).
+    idx = np.arange(ncand)
+    pa = (idx * 360. / ncand) * units.deg
+    sep = np.linspace(0.5, 8., ncand) * units.arcsec
+    cand_coords = frb_coord.directional_offset_by(pa, sep)
+    # Galaxy sizes 1.5"-2.5": all > b=0.2" (correction fires), and sized
+    # so the correction grid is ~1000 cells per side at step 0.05.
+    cand_ang_size = np.linspace(1.5, 2.5, ncand)  # arcsec
+    theta_prior = dict(max=6., PDF='exp', scale=1.)
+    return localiz, cand_coords, cand_ang_size, theta_prior
+
+
 def _time_call(func, args, npix, reps=None):
     """Time a single callable, returning the best wall time in seconds.
 
@@ -222,6 +260,16 @@ def run_profiling_local(step_sizes=None):
     (independent of phi), so sweeping ``step_size`` sweeps the
     per-candidate grid size.  The whole multi-candidate call is timed.
 
+    Two scenarios are timed against this SAME per-candidate galaxy grid
+    (the x-axis of the figure):
+
+    * ``circular`` (:func:`default_setup`) -- ``b >= phi``, so the
+      ``_Lwx_correction`` never fires: pure galaxy-grid cost.
+    * ``ellipse`` (:func:`ellipse_setup`) -- a long thin localization
+      (a=12.5", b=0.2") with ``b < phi``, so the correction fires every
+      candidate on a ~1000x1000 grid (at the default step).  Comparing
+      the two isolates the cost of the L_wx correction.
+
     Args:
         step_sizes (list, optional): Relative step sizes to sweep.
             Defaults to :data:`DEFAULT_STEP_SIZES`.
@@ -229,38 +277,54 @@ def run_profiling_local(step_sizes=None):
     Returns:
         pandas.DataFrame: One row per step size with columns
             ``step_size``, ``ngrid`` (per candidate), ``n_pixels``
-            (per candidate), ``ncand``, and ``px_Oi_local_s``.
+            (per candidate), ``ncand``, ``px_Oi_local_s`` (circular),
+            ``px_Oi_local_ellipse_s`` (ellipse + correction), and
+            ``corr_ngrid`` (representative correction-grid side).
     """
     if step_sizes is None:
         step_sizes = DEFAULT_STEP_SIZES
-    localiz, cand_coords, cand_ang_size, theta_prior = default_setup()
-    ncand = len(cand_ang_size)
+    loc_c, cc_c, sz_c, theta_prior = default_setup()
+    loc_e, cc_e, sz_e, _ = ellipse_setup()
+    ncand = len(sz_c)
     max_theta = theta_prior['max']
+    # Representative correction-grid size uses the ellipse major axis and
+    # a typical galaxy size (mirrors _Lwx_correction's window: ~8a/h).
+    a_e = loc_e['eellipse']['a']
+    phi_mid = float(np.median(sz_e))
 
-    print("Starting px_Oi_local profiling over %d step sizes, "
-          "%d candidates" % (len(step_sizes), ncand))
+    print("Starting px_Oi_local profiling (circular + ellipse) over "
+          "%d step sizes, %d candidates" % (len(step_sizes), ncand))
 
     rows = []
     for step_size in step_sizes:
-        # Per-candidate grid size (phi cancels out of ngrid)
+        # Per-candidate galaxy grid size (phi cancels out of ngrid)
         ngrid = int(np.round(2 * max_theta / step_size))
         npix = ngrid * ngrid
-        print("  step_size=%.4f  per-cand grid=%dx%d (%d pix) ..."
-              % (step_size, ngrid, ngrid, npix))
+        # Representative correction-grid side for the ellipse scenario.
+        h = 2. * (phi_mid * max_theta) / (ngrid - 1)
+        corr_ngrid = 2 * int(np.ceil(4. * a_e / h)) + 1
+        print("  step_size=%.4f  galaxy grid=%dx%d  "
+              "corr grid~%dx%d ..."
+              % (step_size, ngrid, ngrid, corr_ngrid, corr_ngrid))
 
-        # Time the full multi-candidate px_Oi_local call.  Use the total
+        # Time both full multi-candidate calls.  Use the total galaxy
         # pixel budget (ncand * npix) to choose the repetition count.
-        t_local = _time_call(
+        t_circ = _time_call(
             lambda *a: bayesian.px_Oi_local(
-                localiz, cand_coords, cand_ang_size, theta_prior,
-                step_size=step_size),
+                loc_c, cc_c, sz_c, theta_prior, step_size=step_size),
             (), ncand * npix)
-        print("    px_Oi_local: %.1f ms (%.3f ms/cand)"
-              % (t_local * 1e3, t_local / ncand * 1e3))
+        t_ell = _time_call(
+            lambda *a: bayesian.px_Oi_local(
+                loc_e, cc_e, sz_e, theta_prior, step_size=step_size),
+            (), ncand * npix)
+        print("    circular: %.1f ms   ellipse(+corr): %.1f ms"
+              % (t_circ * 1e3, t_ell * 1e3))
 
         rows.append(dict(step_size=step_size, ngrid=ngrid,
                          n_pixels=npix, ncand=ncand,
-                         px_Oi_local_s=t_local))
+                         px_Oi_local_s=t_circ,
+                         px_Oi_local_ellipse_s=t_ell,
+                         corr_ngrid=corr_ngrid))
 
     print("px_Oi_local profiling complete.")
     return pandas.DataFrame(rows)
@@ -278,8 +342,16 @@ def plot_local_results(df, outfile):
     """
     sqrt_pix = np.sqrt(df['n_pixels'])  # per-candidate grid side length
     fig, ax = plt.subplots(figsize=(7, 5))
+    # Circular localization (a=b=5"): b >= phi for every candidate, so
+    # the _Lwx_correction never fires (verified: 0 invocations).
     ax.plot(sqrt_pix, df['px_Oi_local_s'], 'D-', color='purple',
-            label='px_Oi_local (numpy)')
+            label='px_Oi_local (circular, b>=phi: no correction)')
+    # Ellipse scenario (b=0.2" < phi): the _Lwx_correction fires for
+    # every candidate on a ~1000x1000 grid.
+    if 'px_Oi_local_ellipse_s' in df:
+        ax.plot(sqrt_pix, df['px_Oi_local_ellipse_s'], 's-',
+                color='darkorange',
+                label='px_Oi_local (ellipse, b<phi: L_wx correction)')
     # Reference line at 10 s
     ax.axhline(10., color='dimgray', linestyle='--', linewidth=1.5)
     ax.set_xscale('log')
@@ -367,11 +439,10 @@ def main():
     # ---- px_Oi_local (the local-grid method) ----
     df_local = run_profiling_local()
     show_l = df_local.copy()
-    show_l['px_Oi_local_ms'] = show_l['px_Oi_local_s'] * 1e3
-    show_l['ms_per_cand'] = (show_l['px_Oi_local_s']
-                             / show_l['ncand'] * 1e3)
-    cols_l = ['step_size', 'ngrid', 'n_pixels', 'ncand',
-              'px_Oi_local_ms', 'ms_per_cand']
+    show_l['circular_ms'] = show_l['px_Oi_local_s'] * 1e3
+    show_l['ellipse_ms'] = show_l['px_Oi_local_ellipse_s'] * 1e3
+    cols_l = ['step_size', 'ngrid', 'ncand', 'corr_ngrid',
+              'circular_ms', 'ellipse_ms']
     print('\npx_Oi_local profiling results (best-of-reps):')
     print(show_l[cols_l].to_string(
         index=False, float_format=lambda v: '%.3f' % v))
