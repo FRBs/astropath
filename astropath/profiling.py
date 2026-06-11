@@ -213,6 +213,89 @@ def run_profiling(step_sizes=None, box_hwidth=BOX_HWIDTH):
     return pandas.DataFrame(rows)
 
 
+def run_profiling_local(step_sizes=None):
+    """Profile px_Oi_local over a range of (relative) step sizes.
+
+    ``px_Oi_local`` builds one grid per candidate, sized to the offset
+    prior (box_hwidth = phi*max) with spacing phi*step_size.  The
+    per-candidate pixel count is therefore ``ngrid = 2*max/step_size``
+    (independent of phi), so sweeping ``step_size`` sweeps the
+    per-candidate grid size.  The whole multi-candidate call is timed.
+
+    Args:
+        step_sizes (list, optional): Relative step sizes to sweep.
+            Defaults to :data:`DEFAULT_STEP_SIZES`.
+
+    Returns:
+        pandas.DataFrame: One row per step size with columns
+            ``step_size``, ``ngrid`` (per candidate), ``n_pixels``
+            (per candidate), ``ncand``, and ``px_Oi_local_s``.
+    """
+    if step_sizes is None:
+        step_sizes = DEFAULT_STEP_SIZES
+    localiz, cand_coords, cand_ang_size, theta_prior = default_setup()
+    ncand = len(cand_ang_size)
+    max_theta = theta_prior['max']
+
+    print("Starting px_Oi_local profiling over %d step sizes, "
+          "%d candidates" % (len(step_sizes), ncand))
+
+    rows = []
+    for step_size in step_sizes:
+        # Per-candidate grid size (phi cancels out of ngrid)
+        ngrid = int(np.round(2 * max_theta / step_size))
+        npix = ngrid * ngrid
+        print("  step_size=%.4f  per-cand grid=%dx%d (%d pix) ..."
+              % (step_size, ngrid, ngrid, npix))
+
+        # Time the full multi-candidate px_Oi_local call.  Use the total
+        # pixel budget (ncand * npix) to choose the repetition count.
+        t_local = _time_call(
+            lambda *a: bayesian.px_Oi_local(
+                localiz, cand_coords, cand_ang_size, theta_prior,
+                step_size=step_size),
+            (), ncand * npix)
+        print("    px_Oi_local: %.1f ms (%.3f ms/cand)"
+              % (t_local * 1e3, t_local / ncand * 1e3))
+
+        rows.append(dict(step_size=step_size, ngrid=ngrid,
+                         n_pixels=npix, ncand=ncand,
+                         px_Oi_local_s=t_local))
+
+    print("px_Oi_local profiling complete.")
+    return pandas.DataFrame(rows)
+
+
+def plot_local_results(df, outfile):
+    """Plot px_Oi_local timing vs per-candidate grid size (log-log).
+
+    Args:
+        df (pandas.DataFrame): Output of :func:`run_profiling_local`.
+        outfile (str): Path to write the PNG figure.
+
+    Returns:
+        str: The path the figure was written to.
+    """
+    sqrt_pix = np.sqrt(df['n_pixels'])  # per-candidate grid side length
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.plot(sqrt_pix, df['px_Oi_local_s'], 'D-', color='purple',
+            label='px_Oi_local (numpy)')
+    # Reference line at 10 s
+    ax.axhline(10., color='dimgray', linestyle='--', linewidth=1.5)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('sqrt(per-candidate grid pixels)')
+    ax.set_ylabel('Time (s)')
+    ax.set_title('px_Oi_local profiling (%d candidates)'
+                 % int(df['ncand'].iloc[0]))
+    ax.grid(True, which='both', alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(outfile, dpi=120)
+    plt.close(fig)
+    return outfile
+
+
 def plot_results(df, outfile):
     """Plot the timing results vs grid size on log-log axes.
 
@@ -280,6 +363,22 @@ def main():
                            'profiling_timing.png')
     plot_results(df, outfile)
     print('\nFigure written to: %s' % outfile)
+
+    # ---- px_Oi_local (the local-grid method) ----
+    df_local = run_profiling_local()
+    show_l = df_local.copy()
+    show_l['px_Oi_local_ms'] = show_l['px_Oi_local_s'] * 1e3
+    show_l['ms_per_cand'] = (show_l['px_Oi_local_s']
+                             / show_l['ncand'] * 1e3)
+    cols_l = ['step_size', 'ngrid', 'n_pixels', 'ncand',
+              'px_Oi_local_ms', 'ms_per_cand']
+    print('\npx_Oi_local profiling results (best-of-reps):')
+    print(show_l[cols_l].to_string(
+        index=False, float_format=lambda v: '%.3f' % v))
+    outfile_local = os.path.join(os.path.dirname(__file__),
+                                 'profiling_local_timing.png')
+    plot_local_results(df_local, outfile_local)
+    print('\nFigure written to: %s' % outfile_local)
     return df
 
 

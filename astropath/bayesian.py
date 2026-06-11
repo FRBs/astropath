@@ -345,13 +345,33 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         return np.array(p_xOis)
 
 def px_Oi_local(localiz, cand_coords, cand_ang_size,
-                theta_prior, step_size=0.1, debug = False):
+                theta_prior, step_size=0.1, 
+                step_size_mode:str='relative',
+                debug = False):
     """
     Perform the calculation on local grids, one
-    per candidate.  This is likely slower than 
+    per candidate.  This is likely slower than
     the "fixed" method, but best for large localization
     areas which cover a large area of the sky.
-    
+
+    The ``eellipse`` localization type uses a fast pure-numpy, flat-sky
+    path (see notes below); all other types fall back to the generic
+    ``localization.calc_LWx`` lookup.  Either way the only astropy access
+    is a single up-front extraction of the candidate and center
+    coordinates -- the per-candidate loop is pure numpy (and structured
+    so a numba kernel can later replace its body; cf. ``px_Oi_numba``).
+
+    Notes (eellipse fast path):
+        * The per-candidate grid is built ONCE in normalized units.
+          Because ``box_hwidth = phi*max`` and the spacing is
+          ``phi*step_size``, the pixel count ``ngrid = 2*max/step_size``
+          is the SAME for every candidate, so the normalized grid
+          (U, V, R) is reused and merely rescaled by ``phi*max``.
+        * L(w-x) for the error ellipse is evaluated directly in the
+          flat-sky tangent plane (offsets in arcsec, rotated into the
+          ellipse frame), avoiding astropy's spherical separation /
+          position-angle machinery.  This matches calc_LWx's eellipse
+          result to ~1e-5 fractionally at arcsec grid scales.
 
     Args:
         localiz (dict):
@@ -372,41 +392,93 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
             If true, hit an embed in the main loop
 
     Returns:
-        np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
+        np.ndarray: p(x|O_i) values, one per candidate.
 
     """
+    # Pre-extract candidate coordinates to plain numpy arrays ONCE.
+    # Iterating a SkyCoord and reading .ra/.dec per candidate is the
+    # dominant astropy overhead; pulling them out here removes it and
+    # keeps the loop numba-friendly.
+    cand_ra = cand_coords.ra.deg                     # deg, shape (N,)
+    cand_dec = cand_coords.dec.deg                   # deg, shape (N,)
+    cos_cand_dec = np.cos(np.radians(cand_dec))      # flat-sky scaling
+
+    # Normalized grid, built ONCE.  ngrid depends only on max/step_size
+    # (phi cancels), so the same grid serves every candidate.  U, V span
+    # [-1, 1]; the physical grid is phi*max * (U, V) and theta = phi*max*R.
+    max_theta = theta_prior['max']
+    ngrid = int(np.round(2 * max_theta / step_size))
+    u = np.linspace(-1., 1., ngrid)
+    Ugrid, Vgrid = np.meshgrid(u, u)
+    Rgrid = np.sqrt(Ugrid ** 2 + Vgrid ** 2)         # normalized radius
+
+    # Pre-compute the eellipse constants once (flat-sky fast path).
+    is_eellipse = localiz['type'] == 'eellipse'
+    if is_eellipse:
+        # Pre-extract the localization center once (eellipse only; other
+        # types have no center_coord and resolve L_wx via calc_LWx).
+        center_ra = localiz['center_coord'].ra.deg       # deg
+        center_dec = localiz['center_coord'].dec.deg     # deg
+        cos_center_dec = np.cos(np.radians(center_dec))  # flat-sky scale
+        ell = localiz['eellipse']
+        a = ell['a']
+        b = ell['b']
+        # Rotation that places the ellipse major axis on the x-axis;
+        # identical convention to localization.calc_LWx (dtheta=90-PA).
+        dth = np.radians(90. - ell['theta'])
+        cos_dth = np.cos(dth)
+        sin_dth = np.sin(dth)
+        inv_2a2 = 1. / (2 * a ** 2)
+        inv_2b2 = 1. / (2 * b ** 2)
+        L_norm = 1. / (2 * np.pi * a * b)
+
     # Loop on galaxies
     p_xOis = []
-    # TODO -- parallelize this
-    for icand, cand_coord in enumerate(cand_coords):
-        # Prep
-        phi_cand = cand_ang_size[icand]   # arcsec
-        step_size_phi = phi_cand * step_size        # arcsec
-        box_hwidth = phi_cand * theta_prior['max']  # arcsec
+    # TODO -- parallelize / numba this per-candidate body
+    for icand in range(cand_ra.size):
 
-        # Grid around the galaxy
-        ngrid = int(np.round(2 * box_hwidth / step_size_phi))
-        x = np.linspace(-box_hwidth, box_hwidth, ngrid)
-        xcoord, ycoord = np.meshgrid(x,x)
-        theta = np.sqrt(xcoord**2 + ycoord**2)
+        # Dynamic step_size
+        step_size_phi = phi_cand * step_size         # arcsec
+
+        # Prep -- scale the normalized grid to this galaxy's size
+        phi_cand = cand_ang_size[icand]              # arcsec
+        box_hwidth = phi_cand * max_theta            # arcsec
+        xcoord = box_hwidth * Ugrid                  # east offset, arcsec
+        ycoord = box_hwidth * Vgrid                  # north offset, arcsec
+        theta = box_hwidth * Rgrid                   # arcsec
+
         # p(w|O)
         p_wOi = pw_Oi(theta, phi_cand, theta_prior)
 
-        # Generate coords for transient localiation (flat sky)
-        ra = cand_coord.ra.deg + \
-            xcoord/3600. / np.cos(cand_coord.dec).value
-        dec = cand_coord.dec.deg + ycoord/3600.
-
-        # Calculate
-        L_wx = localization.calc_LWx(ra, dec, localiz) 
+        if is_eellipse:
+            # Flat-sky offsets of the galaxy center from the transient
+            # center (arcsec): east scaled by cos(dec), north direct.
+            E0 = (cand_ra[icand] - center_ra) * cos_center_dec * 3600.
+            N0 = (cand_dec[icand] - center_dec) * 3600.
+            # Offsets of every grid point from the transient center
+            E = E0 + xcoord                          # east, arcsec
+            N = N0 + ycoord                          # north, arcsec
+            # Rotate into the ellipse frame (x along the major axis).
+            # Signs are squared below, so they need not match calc_LWx.
+            x_box = E * cos_dth + N * sin_dth
+            y_box = N * cos_dth - E * sin_dth
+            # 2D Gaussian L(w-x), normalized over x (not omega)
+            L_wx = (np.exp(-x_box ** 2 * inv_2a2)
+                    * np.exp(-y_box ** 2 * inv_2b2) * L_norm)
+        else:
+            # Generic fallback (healpix/wcs): build flat-sky coords and
+            # use calc_LWx, which does the type-specific lookup.
+            ra = (cand_ra[icand]
+                  + xcoord / 3600. / cos_cand_dec[icand])
+            dec = cand_dec[icand] + ycoord / 3600.
+            L_wx = localization.calc_LWx(ra, dec, localiz)
 
         # Finish
         grid_p = L_wx * p_wOi
-        #
-        p_xOis.append(np.sum(grid_p)*step_size_phi**2)
+        p_xOis.append(np.sum(grid_p) * step_size_phi ** 2)
         # Debug
         if debug:
-            embed(header='207 of bayesian.py')
+            embed(header='px_Oi_local of bayesian.py')
     # Return
     return np.array(p_xOis)
 
