@@ -16,8 +16,7 @@ import gc
 
     
 
-def run_dict_wrapper(idx:int, idict:dict,
-                     catalog:pandas.DataFrame):
+def run_dict_wrapper(args):
     """
     Run the simulation on a dictionary of parameters.
 
@@ -33,22 +32,20 @@ def run_dict_wrapper(idx:int, idict:dict,
         int: The index of the simulationl for book-keeping.
         Path: The Path object
     """
-    # Convert to astropy table
+    idx, idict, catalog = args
     catalog = Table.from_pandas(catalog)
-    # Run me
     candidates, P_Ux, Path, mag_key, cut_catalog, stars = \
         run_on_dict(idict, catalog=catalog, mag_key='mag')
 
     if candidates is None or len(candidates) == 0:
-        return None, idx, None
+        return idx, None
 
-    # Return
-    sv_tbl = candidates.sort_values(
-        'P_Ox', ascending=False)
+    sv_tbl = candidates.sort_values('P_Ox', ascending=False)
     sv_tbl['gal_ID'] = sv_tbl.index.values
-
-    # Return
-    return sv_tbl, idx, Path
+    # Return ONLY what full() consumes; no Path, no object/SkyCoord columns
+    keep = [c for c in ['ra', 'dec', 'ang_size', 'mag', 'ID', 'sep',
+                        'P_O', 'P_Ox', 'P_Ux', 'gal_ID'] if c in sv_tbl.columns]
+    return idx, sv_tbl[keep].copy()
     
 
 def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame, 
@@ -102,7 +99,6 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
     FRB_dicts = []
     maxx_box = 0.
     for index, row in frbs.iterrows():
-        # 
         idict = {}
         # Localization
         idict['ra'] = row.ra
@@ -112,6 +108,11 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
                 'b': row.b, 'theta': row.PA}
         # Prior
         idict['priors'] = prior_dict
+        idict['index'] = index
+
+        # Choose "local" or "fixed" grid likelihood calculations
+        # (most of the time "local" will be the right answer here)
+        idict['pmode'] = 'local'
 
         # Box sizes
         ssize, max_box = set_anly_sizes(idict['ltype'], 
@@ -141,14 +142,11 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
     for kk in range(nFRB):
         if (kk % 1000) == 0:
             print('kk: ', kk)
-        # Grab em
         in_idx2 = np.where(idx2 == kk)[0]
         gd_gal = idx1[in_idx2]
         close_galaxies = catalog.iloc[gd_gal][
-            ['ang_size', 'mag', 'ra', 'dec', 'ID']]
-        # Extras
-        close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
-        close_galaxies['coords'] = galaxy_coords[gd_gal]
+            ['ang_size', 'mag', 'ra', 'dec', 'ID']].copy()
+        # close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
         list_candidates.append(close_galaxies)
 
     # Slicing done — the full catalog and coords are no longer needed
@@ -163,32 +161,26 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
     print("PATH time")
     print("Will take a while, ~1 hr for 10,000 FRBs, depending on your computing setup and ncpu.")
     if multi:
-        pool = multiprocessing.Pool(processes=ncpu)
-        results = [pool.apply_async(run_dict_wrapper,
-            args=(idx_FRB, FRB_dicts[idx_FRB], 
-                  list_candidates[idx_FRB]))
-            for idx_FRB in range(nFRB)]
-        pool.close()
-        
-        # Collect incrementally instead of all at once
-        print('Processing done, combine results')
+        chunksize = max(1, nFRB // (ncpu * 8))
+        args_iter = ((i, FRB_dicts[i], list_candidates[i]) for i in range(nFRB))
         all_tbls = []
-        for ii, p in enumerate(results):
-            if (ii % 1000) == 0:
-                print(f'Collecting result {ii}/{nFRB}...')
-            sv_tbl, idx, Path = p.get() # blocks until this one result is ready
+        with multiprocessing.Pool(processes=ncpu) as pool:
+            for ii, (idx, sv_tbl) in enumerate(
+                    pool.imap_unordered(run_dict_wrapper, args_iter, chunksize=chunksize)):
+                if (ii % 1000) == 0:
+                    print(f'Collecting result {ii}/{nFRB}...')
+                if sv_tbl is not None:
+                    sv_tbl['iFRB'] = idx
+                    all_tbls.append(sv_tbl)
+        final_tbl = pandas.concat(all_tbls)
+    else:
+        all_tbls = []
+        for ii in range(nFRB):
+            idx, sv_tbl = run_dict_wrapper((ii, FRB_dicts[ii], list_candidates[ii]))
             if sv_tbl is not None:
                 sv_tbl['iFRB'] = idx
                 all_tbls.append(sv_tbl)
-            del p # free result memory immediately
-        # Finish
         final_tbl = pandas.concat(all_tbls)
-    else:
-        idx_FRB = 0
-        results = run_dict_wrapper(
-            idx_FRB, FRB_dicts[idx_FRB],
-            list_candidates[idx_FRB])
-        final_tbl = sv_tbl
     # Finish
     final_tbl.reset_index(inplace=True, drop=True)
 
