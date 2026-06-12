@@ -14,6 +14,7 @@ from astropath import catalogs
 from astropath import path
 
 from IPython import embed
+import time
 
 
 def run_on_dict(idict: dict,
@@ -23,7 +24,8 @@ def run_on_dict(idict: dict,
                 skip_NGC: bool = False,
                 dust_correct: bool = True,
                 use_local: bool = False,
-                star_galaxy_sep: dict = None):
+                star_galaxy_sep: dict = None,
+                sep_cull: bool = False):
     """Run PATH on a single FRB, given a dictionary of inputs.
 
     The idict must have the following keys:
@@ -125,9 +127,11 @@ def run_on_dict(idict: dict,
     #    max_sep.value)
     box_hwidth = idict['max_box']  # This should be the survey size
 
-    # Cut down the catalog based on ssize (usually this should do nothing)
+    # Calculate separation from localization center
     catalog_coord = SkyCoord(ra=catalog['ra'].data, dec=catalog['dec'].data, unit='deg')
     sep = coord.separation(catalog_coord).to('arcsec')
+    catalog['sep'] = sep.arcsec
+    # Cut down the catalog based on ssize (usually this should do nothing)
     keep = sep < idict['ssize']*60*units.arcsec
     cut_catalog = catalog[keep]
 
@@ -155,7 +159,8 @@ def run_on_dict(idict: dict,
     Path.init_candidates(cut_catalog['ra'],
                          cut_catalog['dec'],
                          cut_catalog['ang_size'],
-                         mag=cut_catalog[mag_key])
+                         mag=cut_catalog[mag_key],
+                        )
 
     # Add ID if available
     if 'ID' in cut_catalog.colnames:
@@ -165,6 +170,9 @@ def run_on_dict(idict: dict,
     ccand = SkyCoord(ra=Path.candidates['ra'], dec=Path.candidates['dec'], unit='deg')
     sep = ccand.separation(coord)
     Path.candidates['sep'] = sep.arcsec
+
+    # Set up priors from idict
+    priors_dict = idict['priors']
 
     # Candidate prior
     P_O_method = priors_dict.get('P_O_method', 'inverse')
@@ -202,19 +210,26 @@ def run_on_dict(idict: dict,
 
     # Add to dict
     idict['step_size'] = step_size
+    index = idict['index']
 
     # Calculate posteriors
+    start_time = time.perf_counter()
     if idict['pmode'] == 'local':
-        print(f'Calculating posteriors with local') 
+        if verbose:
+            max_ang = np.nanmax(cut_catalog['ang_size'].data)
+            print(f'FRB {index}: local, ssize={box_hwidth}, max_box_hwidth={max_ang*6.}, step_size={step_size}')
         P_Ox, P_Ux = Path.calc_posteriors('local',
                                        box_hwidth=box_hwidth,
                                        survey_radius=idict['ssize']*60,
-                                       step_size=step_size)
+                                       step_size=step_size,
+                                       sep_cull=sep_cull)
     elif idict['pmode'] == 'fixed':
         # Memory check
         if idict['ssize']*60 / step_size > 10000:
             raise ValueError(f"Fixed grid would be {int(idict['ssize']*60 / step_size)} pixels.  \nYour array will need >100Gb RAM.  Try local or reduce your ssize if you can")
-        print(f'Calculating posteriors with fixed and correction: {correction}')
+        if verbose:
+            max_ang = np.nanmax(cut_catalog['ang_size'].data)
+            print(f'FRB {index}: fixed, correction: {correction}, ssize={box_hwidth}, max_box_hwidth={max_ang*6.}, step_size={step_size}')
         P_Ox, P_Ux = Path.calc_posteriors('fixed',
                                        box_hwidth=box_hwidth,
                                        survey_radius=idict['ssize']*60,
@@ -224,6 +239,10 @@ def run_on_dict(idict: dict,
     else:
         raise ValueError(f"Unsupported posterior mode: {idict['pmode']}. "
                         f"Supported: 'local', 'fixed'")
+
+    end_time = time.perf_counter()
+    if verbose:
+        print(f'FRB {index}: execution time: {end_time - start_time:.4f} seconds')
 
     #embed(header='run.py:231')
 
@@ -237,6 +256,8 @@ def run_on_dict(idict: dict,
 
     # Sort by posterior probability
     Path.candidates.sort_values(by='P_Ox', ascending=False, inplace=True)
+    top_cand_POx = Path.candidates.iloc[0]['P_Ox']
+    print(f'FRB {index}: P(O1|x)={top_cand_POx:.5f}, P(U|x)={P_Ux:.5f}')
 
     # Print results if verbose
     if verbose:

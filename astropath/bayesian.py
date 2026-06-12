@@ -433,7 +433,7 @@ def _Lwx_correction(E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
 
 def px_Oi_local(localiz, cand_coords, cand_ang_size,
                 theta_prior, step_size=0.05,
-                step_size_mode:str='relative',
+                step_size_mode:str='relative', sep_cull=None,
                 debug = False):
     """
     Perform the calculation on local grids, one
@@ -522,10 +522,27 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
         inv_2b2 = 1. / (2 * b ** 2)
         L_norm = 1. / (2 * np.pi * a * b)
 
+
+    # Calculate mask to cull galaxies that will have p(x|O)~0, for speedup
+    if is_eellipse and (sep_cull is not None):
+        N_sigma = 3.
+        sigma_loc = np.nanmax([a, b])
+        sep_thresh = max_theta * cand_ang_size + N_sigma * sigma_loc
+        cull_mask = sep_cull > (sep_thresh)
+    
     # Loop on galaxies
     p_xOis = []
     # TODO -- parallelize / numba this per-candidate body
+    N_cull = 0
     for icand in range(cand_ra.size):
+
+        # If galaxies will have p(x|O)~0, set p_xOi=0 and skip the calculation
+        # Mostly just for speeding up calculation during simulations
+        if is_eellipse and (sep_cull is not None):
+            if cull_mask[icand]:
+                p_xOis.append(0.)
+                N_cull += 1
+                continue
 
         # Prep -- scale the normalized grid to this galaxy's size
         phi_cand = cand_ang_size[icand]              # arcsec
@@ -590,13 +607,16 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
             dec = cand_dec[icand] + ycoord / 3600.
             L_wx = localization.calc_LWx(ra, dec, localiz)
             L_wx_correction = 1.0
-
+        
         # Finish
         grid_p = L_wx * p_wOi / L_wx_correction
         p_xOis.append(np.sum(grid_p) * step_size_phi ** 2)
         # Debug
         if debug:
             embed(header='px_Oi_local of bayesian.py')
+    if is_eellipse and (sep_cull is not None):
+        print(f"{N_cull}/{cand_ra.size} possible candidates skipped since p(x|O)~0")
+    
     # Return
     return np.array(p_xOis)
 

@@ -35,7 +35,7 @@ def run_dict_wrapper(args):
     idx, idict, catalog = args
     catalog = Table.from_pandas(catalog)
     candidates, P_Ux, Path, mag_key, cut_catalog, stars = \
-        run_on_dict(idict, catalog=catalog, mag_key='mag')
+        run_on_dict(idict, catalog=catalog, mag_key='mag', sep_cull=True)
 
     if candidates is None or len(candidates) == 0:
         return idx, None

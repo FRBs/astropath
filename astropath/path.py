@@ -62,6 +62,12 @@ class PATH(object):
         self.candidates = pandas.DataFrame(dict(ra=ra, dec=dec, ang_size=ang_size))
         if mag is not None:
             self.candidates['mag'] = mag
+        else:
+            self.candidates['mag'] = None
+        # if sep is not None:
+        #     self.candidates['sep'] = sep
+        # else:
+        #     self.candidates['sep'] = None
         # Vet
         assert candidates.vet_candidates(self.candidates), 'Bad candidate input'
         # 
@@ -168,7 +174,8 @@ class PATH(object):
                         survey_radius:float=None, 
                         use_numba:bool=False, 
                         debug:bool=False, 
-                        correction:str=None):
+                        correction:str=None,
+                        sep_cull:bool=False):
         """Calculate the posteriors
 
         Args:
@@ -217,12 +224,19 @@ class PATH(object):
                         use_numba=use_numba,
                         correction=correction)
         elif method == 'local':
+            # Check if separations are given for culling p(x|O)~0
+            # candidates to speed up calculation
+            # BCA: only recommended for simulations -- it's a bit spooky
+            sep = None
+            if sep_cull and (candidates['sep'] is not None):
+                sep = candidates['sep'].values
             self.p_xOi = bayesian.px_Oi_local(
                         self.localiz, 
                         self.cand_coords,
                         self.candidates['ang_size'].values, 
                         self.theta_prior, 
                         step_size=step_size,
+                        sep_cull=sep, 
                         debug=debug)
         self.candidates['p_xO'] = self.p_xOi
 
