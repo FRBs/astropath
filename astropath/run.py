@@ -184,7 +184,6 @@ def run_on_dict(idict: dict,
     p_O = Path.calc_priors()
 
     # Calculate step size based on localization and galaxy sizes
-    step_size = None
     if idict['ltype'] == 'eellipse':
         if idict['pmode'] == 'fixed':
             min_ang = np.nanmin(cut_catalog['ang_size'].data)
@@ -194,6 +193,7 @@ def run_on_dict(idict: dict,
             else:
                 correction = 'L_wx'
                 step_size = min_ang / 20.
+            idict['step_size'] = step_size
         elif idict['pmode'] == 'local':
             assert 'step_size' in idict, "step_size is required for local mode"
             assert 'step_size_mode' in idict, "step_size_mode is required for local mode"
@@ -202,17 +202,15 @@ def run_on_dict(idict: dict,
         # For healpix, use default step size
         raise ValueError("Healpix localization is not supported yet.")
 
-    # Add to dict
-    idict['step_size'] = step_size
 
     # Calculate posteriors
     if idict['pmode'] == 'local':
-        print(f'Calculating posteriors with local and step_size: {step_size}') 
-        P_Ox, P_Ux = Path.calc_posteriors('local',
-                                       box_hwidth=box_hwidth,
-                                       survey_radius=idict['ssize']*60,
-                                       step_size=step_size,
-                                       step_size_mode=step_size_mode)
+        print(f'Calculating posteriors with local and step_size: {idict["step_size"]}') 
+        P_Ox, P_Ux = Path.calc_posteriors(
+            'local',
+            survey_radius=idict['ssize']*60,
+            step_size=idict['step_size'],
+            step_size_mode=idict['step_size_mode'])
     elif idict['pmode'] == 'fixed':
         # Memory check
         if idict['ssize']*60 / step_size > 10000:
