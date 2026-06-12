@@ -190,44 +190,45 @@ def run_on_dict(idict: dict,
 
     # Calculate step size based on localization and galaxy sizes
     if idict['ltype'] == 'eellipse':
-        # OLD
-        #a = eellipse['a']
-        #b = eellipse['b']
-        #step_size_max = 2 * 3 * np.nanmin([a, b]) / np.nanmax(cut_catalog['ang_size'])
-        #step_size = np.nanmin([0.1, step_size_max])
-        # New
-        min_ang = np.nanmin(cut_catalog['ang_size'].data)
-        if eellipse['b'] > min_ang:
-            correction = 'p_wO'
-            step_size = eellipse['b'] / 20.
-        else:
-            correction = 'L_wx'
-            step_size = min_ang / 20.
+        if idict['pmode'] == 'fixed':
+            min_ang = np.nanmin(cut_catalog['ang_size'].data)
+            if eellipse['b'] > min_ang:
+                correction = 'p_wO'
+                step_size = eellipse['b'] / 20.
+            else:
+                correction = 'L_wx'
+                step_size = min_ang / 20.
+            idict['step_size'] = step_size
+        elif idict['pmode'] == 'local':
+            assert 'step_size' in idict, "step_size is required for local mode"
+            assert 'step_size_mode' in idict, "step_size_mode is required for local mode"
+            correction = None
     else:
         # For healpix, use default step size
         raise ValueError("Healpix localization is not supported yet.")
-        step_size = 0.1
 
     # Add to dict
     idict['step_size'] = step_size
-    index = idict['index']
+    if 'index' in idict:
+        index = idict['index']
 
     # Calculate posteriors
     start_time = time.perf_counter()
     if idict['pmode'] == 'local':
-        if verbose:
+        if verbose and ('index' in idict):
             max_ang = np.nanmax(cut_catalog['ang_size'].data)
             print(f'FRB {index}: local, ssize={box_hwidth}, max_box_hwidth={max_ang*6.}, step_size={step_size}')
-        P_Ox, P_Ux = Path.calc_posteriors('local',
-                                       box_hwidth=box_hwidth,
-                                       survey_radius=idict['ssize']*60,
-                                       step_size=step_size,
-                                       sep_cull=sep_cull)
+        P_Ox, P_Ux = Path.calc_posteriors(
+            'local',
+            survey_radius=idict['ssize']*60,
+            step_size=idict['step_size'],
+            step_size_mode=idict['step_size_mode'],
+            sep_cull=sep_cull)
     elif idict['pmode'] == 'fixed':
         # Memory check
         if idict['ssize']*60 / step_size > 10000:
             raise ValueError(f"Fixed grid would be {int(idict['ssize']*60 / step_size)} pixels.  \nYour array will need >100Gb RAM.  Try local or reduce your ssize if you can")
-        if verbose:
+        if verbose and ('index' in idict):
             max_ang = np.nanmax(cut_catalog['ang_size'].data)
             print(f'FRB {index}: fixed, correction: {correction}, ssize={box_hwidth}, max_box_hwidth={max_ang*6.}, step_size={step_size}')
         P_Ox, P_Ux = Path.calc_posteriors('fixed',
@@ -241,7 +242,7 @@ def run_on_dict(idict: dict,
                         f"Supported: 'local', 'fixed'")
 
     end_time = time.perf_counter()
-    if verbose:
+    if verbose and ('index' in idict):
         print(f'FRB {index}: execution time: {end_time - start_time:.4f} seconds')
 
     #embed(header='run.py:231')
@@ -257,7 +258,8 @@ def run_on_dict(idict: dict,
     # Sort by posterior probability
     Path.candidates.sort_values(by='P_Ox', ascending=False, inplace=True)
     top_cand_POx = Path.candidates.iloc[0]['P_Ox']
-    print(f'FRB {index}: P(O1|x)={top_cand_POx:.5f}, P(U|x)={P_Ux:.5f}')
+    if verbose and ('index' in idict):
+        print(f'FRB {index}: P(O1|x)={top_cand_POx:.5f}, P(U|x)={P_Ux:.5f}')
 
     # Print results if verbose
     if verbose:
@@ -329,7 +331,9 @@ def build_idict(ra: float, dec: float,
                 theta_PDF: str = 'exp',
                 theta_max: float = 6.0,
                 use_numba: bool = False,
-                pmode: str = 'fixed',
+                pmode: str = 'local',
+                step_size_mode: str = 'relative',
+                step_size: float = 0.05,
                 survey: str = None,
                 ssize: float = None,
                 max_box: float = None):
@@ -393,6 +397,8 @@ def build_idict(ra: float, dec: float,
         'lparam': lparam,
         'use_numba': use_numba,
         'pmode': pmode,
+        'step_size_mode': step_size_mode,
+        'step_size': step_size,
         'priors': priors,
         'max_box': max_box, # arcsec
     }

@@ -64,10 +64,6 @@ class PATH(object):
             self.candidates['mag'] = mag
         else:
             self.candidates['mag'] = None
-        # if sep is not None:
-        #     self.candidates['sep'] = sep
-        # else:
-        #     self.candidates['sep'] = None
         # Vet
         assert candidates.vet_candidates(self.candidates), 'Bad candidate input'
         # 
@@ -169,9 +165,11 @@ class PATH(object):
         # Return them too
         return self.prior_Oi
 
-    def calc_posteriors(self, method:str, step_size:float=0.1, 
+    def calc_posteriors(self, method:str, 
+                        step_size:float=0.05, 
                         box_hwidth=None,
                         survey_radius:float=None, 
+                        step_size_mode:str=None,
                         use_numba:bool=False, 
                         debug:bool=False, 
                         correction:str=None,
@@ -192,6 +190,9 @@ class PATH(object):
             correction (str, optional): Correction to apply to the posteriors
                 'p_wO' -- Correct p(w|O)
                 'L_wx' -- Correct L(w-x)
+            step_size_mode (str, optional): Mode for step size
+                'relative' -- Step size is relative to the galaxy size
+                'absolute' -- Step size is absolute in arcsec [not recommended]
 
         Raises:
             IOError: [description]
@@ -210,6 +211,7 @@ class PATH(object):
         if 'P_O' not in self.candidates.keys():
             raise ValueError("You need to calculate the candidate priors first!!")
 
+        #embed(header='path.py:211')
         # P(x|O)
         logging.info("Calculating p(x|O)")
         if method == 'fixed':
@@ -237,6 +239,7 @@ class PATH(object):
                         self.theta_prior, 
                         step_size=step_size,
                         sep_cull=sep, 
+                        step_size_mode=step_size_mode,
                         debug=debug)
         self.candidates['p_xO'] = self.p_xOi
 

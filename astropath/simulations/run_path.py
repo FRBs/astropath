@@ -35,7 +35,7 @@ def run_dict_wrapper(args):
     idx, idict, catalog = args
     catalog = Table.from_pandas(catalog)
     candidates, P_Ux, Path, mag_key, cut_catalog, stars = \
-        run_on_dict(idict, catalog=catalog, mag_key='mag', sep_cull=True)
+        run_on_dict(idict, catalog=catalog, mag_key='mag', sep_cull=True, verbose=True)
 
     if candidates is None or len(candidates) == 0:
         return idx, None
@@ -113,6 +113,10 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         # Choose "local" or "fixed" grid likelihood calculations
         # (most of the time "local" will be the right answer here)
         idict['pmode'] = 'local'
+        # Set the step_size method: 
+        # 'relative' -- Step size is relative to the galaxy size
+        # 'absolute' -- Step size is absolute in arcsec [not recommended]
+        idict['step_size_mode'] = 'relative'
 
         # Box sizes
         ssize, max_box = set_anly_sizes(idict['ltype'], 
