@@ -195,7 +195,8 @@ def run_on_dict(idict: dict,
                 correction = 'L_wx'
                 step_size = min_ang / 20.
         elif idict['pmode'] == 'local':
-            step_size = 0.05
+            assert 'step_size' in idict, "step_size is required for local mode"
+            assert 'step_size_mode' in idict, "step_size_mode is required for local mode"
             correction = None
     else:
         # For healpix, use default step size
@@ -210,7 +211,8 @@ def run_on_dict(idict: dict,
         P_Ox, P_Ux = Path.calc_posteriors('local',
                                        box_hwidth=box_hwidth,
                                        survey_radius=idict['ssize']*60,
-                                       step_size=step_size)
+                                       step_size=step_size,
+                                       step_size_mode=step_size_mode)
     elif idict['pmode'] == 'fixed':
         # Memory check
         if idict['ssize']*60 / step_size > 10000:
@@ -309,7 +311,9 @@ def build_idict(ra: float, dec: float,
                 theta_PDF: str = 'exp',
                 theta_max: float = 6.0,
                 use_numba: bool = False,
-                pmode: str = 'fixed',
+                pmode: str = 'local',
+                step_size_mode: str = 'relative',
+                step_size: float = 0.05,
                 survey: str = None,
                 ssize: float = None,
                 max_box: float = None):
@@ -373,6 +377,8 @@ def build_idict(ra: float, dec: float,
         'lparam': lparam,
         'use_numba': use_numba,
         'pmode': pmode,
+        'step_size_mode': step_size_mode,
+        'step_size': step_size,
         'priors': priors,
         'max_box': max_box, # arcsec
     }
