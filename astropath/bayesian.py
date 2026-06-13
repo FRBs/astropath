@@ -77,9 +77,10 @@ def _resolve_offset_prior(phi, theta_prior):
         pdf_code = _PDF_EXP
         # exp decay length is phi*scale; cutoff stays at max*phi above
         kparam = phi * theta_prior['scale']
-        # Wolfram; updated by JXP on 14-Feb-2023
-        norm = 2 * np.pi * kparam**2 * (1 - (1+theta_prior['max'])*np.exp(
-            -theta_prior['max']))
+        # Need to also adjust to max/scale for correct normalization
+        max_eff = theta_prior['max'] / theta_prior['scale']
+        norm = 2 * np.pi * kparam**2 * (1 - (1+max_eff)*np.exp(
+            -max_eff))
     else:
         raise IOError("Bad theta PDF")
     return pdf_code, theta_max, kparam, norm
