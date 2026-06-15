@@ -148,9 +148,9 @@ def test_PU():
     p_xU = bayesian.px_U(box_radius)
     # p(x)
     p_x = np.sum(candidates.P_O * candidates.p_xO) + p_xU * cand_prior['P_U']
-    assert np.isclose(p_x, 0.010006174202053927)
+    assert np.isclose(p_x, 0.010013764189863593)
 
     # P(U|x)
     P_Ux = cand_prior['P_U'] * p_xU / p_x
-    assert np.isclose(P_Ux, 0.0027760637799086035)
+    assert np.isclose(P_Ux, 0.003531915118126432)
 

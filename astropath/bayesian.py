@@ -5,11 +5,85 @@ import numpy as np
 
 from astropy import units
 
-from astropath import localization 
+from astropath import localization
 
 from IPython import embed
 
+# Optional numba acceleration.  numba need not be installed; when it is
+# absent HAS_NUMBA is False and njit is a no-op decorator (the jitted
+# kernel is simply never called -- callers fall back to numpy).
+try:
+    from numba import njit
+    HAS_NUMBA = True
+except ImportError:  # numba not installed
+    HAS_NUMBA = False
+
+    def njit(*args, **kwargs):
+        """No-op stand-in for numba.njit when numba is unavailable."""
+        # Support both @njit and @njit(...) usage
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+
+        def _wrap(func):
+            return func
+        return _wrap
+
 sqarcsec_steradians = 4 * np.pi * (1 / 3600 / 3600) / (180. / np.pi) ** 2
+
+
+# PDF integer codes shared by pw_Oi and the numba kernel
+_PDF_CORE = 0
+_PDF_UNIFORM = 1
+_PDF_EXP = 2
+
+
+def _resolve_offset_prior(phi, theta_prior):
+    """Resolve the offset prior to plain scalars (single source).
+
+    Centralizes the offset-PDF normalization and parameters so that the
+    pure-numpy ``pw_Oi`` and the numba kernel share one definition.
+
+    Args:
+        phi (float):
+            Angular size of the galaxy in arcsec.
+        theta_prior (dict):
+            Offset-prior parameters (keys: PDF, max, and scale for exp).
+
+    Returns:
+        tuple: (pdf_code, theta_max, kparam, norm)
+            pdf_code (int): One of _PDF_CORE/_PDF_UNIFORM/_PDF_EXP.
+            theta_max (float): Cutoff offset (arcsec); p=0 beyond it.
+            kparam (float): PDF scale param -- phi for core, phi*scale
+                for exp, unused (=phi) for uniform.
+            norm (float): Normalization so the PDF integrates to 1.
+    """
+    pdf = theta_prior['PDF']
+    # Cutoff always uses the ORIGINAL phi (matches the legacy pw_Oi,
+    # where ok_w is computed before phi is rescaled for the exp PDF).
+    theta_max = theta_prior['max'] * phi
+    if pdf == 'core':
+        pdf_code = _PDF_CORE
+        kparam = phi
+        # Wolfram; updated by JXP on 14-Feb-2023
+        term0 = -1 * phi**2 * np.log(phi)
+        term_max = phi * (theta_prior['max']*phi
+                          - phi*np.log(phi+theta_prior['max']*phi))
+        norm = 2*np.pi*(term_max - term0)
+    elif pdf == 'uniform':
+        pdf_code = _PDF_UNIFORM
+        kparam = phi  # unused by the uniform PDF
+        norm = np.pi * (phi*theta_prior['max'])**2
+    elif pdf == 'exp':
+        pdf_code = _PDF_EXP
+        # exp decay length is phi*scale; cutoff stays at max*phi above
+        kparam = phi * theta_prior['scale']
+        # Need to also adjust to max/scale for correct normalization
+        max_eff = theta_prior['max'] / theta_prior['scale']
+        norm = 2 * np.pi * kparam**2 * (1 - (1+max_eff)*np.exp(
+            -max_eff))
+    else:
+        raise IOError("Bad theta PDF")
+    return pdf_code, theta_max, kparam, norm
 
 
 def pw_Oi(theta, phi, theta_prior):
@@ -32,41 +106,88 @@ def pw_Oi(theta, phi, theta_prior):
         np.ndarray: Probability values without grid-size normalization
 
     """
-    p = np.zeros_like(theta)
-    ok_w = theta < theta_prior['max']*phi
-    if theta_prior['PDF'] == 'core':
-        # Wolfram
-        # Updated by JXP on 14-Feb-2023
-        term0 = -1 * phi**2 * np.log(phi)
-        term_max = phi * (theta_prior['max']*phi - phi*np.log(phi+theta_prior['max']*phi))
-        norm = 2*np.pi*(term_max - term0)
-        #
-        if np.any(ok_w):
-            p[ok_w] = phi / (theta[ok_w] + phi) / norm
-    elif theta_prior['PDF'] == 'uniform':
-        norm = np.pi * (phi*theta_prior['max'])**2
-        if np.any(ok_w):
-            p[ok_w] = 1. / norm
-    elif theta_prior['PDF'] == 'exp':
-        # Wolfram
-        phi = phi * theta_prior['scale']
-        # Updated by JXP on 14-Feb-2023
-        norm = 2 * np.pi * phi**2 * (1 - (1+theta_prior['max'])*np.exp(
-            -theta_prior['max']))
-        if np.any(ok_w):
-            p[ok_w] = np.exp(-theta[ok_w]/phi) / norm
-    else:
-        raise IOError("Bad theta PDF")
+    # Resolve PDF code + normalization once (single-sourced, also used
+    # by the numba kernel).  kparam = phi (core) or phi*scale (exp).
+    pdf_code, theta_max, kparam, norm = _resolve_offset_prior(
+        phi, theta_prior)
     #
     if norm == 0:
         raise ValueError("You forgot to normalize!")
+    p = np.zeros_like(theta)
+    ok_w = theta < theta_max
+    if np.any(ok_w):
+        if pdf_code == _PDF_CORE:
+            p[ok_w] = kparam / (theta[ok_w] + kparam) / norm
+        elif pdf_code == _PDF_UNIFORM:
+            p[ok_w] = 1. / norm
+        else:  # _PDF_EXP
+            p[ok_w] = np.exp(-theta[ok_w]/kparam) / norm
     # Return
     return p
 
 
-def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords, 
-                    cand_ang_size, theta_prior, step_size=0.1, 
-                    return_grids=False):
+@njit(cache=True)
+def px_Oi_numba(ra, dec, L_wx, cand_ra, cand_dec, cos_dec,
+          pdf_code, theta_max, kparam, norm, spacing):
+    """Numba kernel: p(x|O_i) for a SINGLE candidate (fused, 1 pass).
+
+    Computes the flat-sky offset theta, the offset PDF p(w|O_i), the
+    product with L(w-x), and the grid sum in one loop over pixels --
+    avoiding the full-grid temporaries (theta, p_wOi, grid_p) that the
+    numpy path allocates per candidate.  Single-threaded @njit.
+
+    Kept separate from ``px_Oi_fixedgrid`` (which orchestrates the grid,
+    L_wx, and the candidate loop) and from ``pw_Oi`` (pure-numpy PDF).
+
+    Args:
+        ra (np.ndarray): 2D grid of RA (deg).
+        dec (np.ndarray): 2D grid of Dec (deg).
+        L_wx (np.ndarray): 2D localization term on the same grid.
+        cand_ra (float): Candidate RA (deg).
+        cand_dec (float): Candidate Dec (deg).
+        cos_dec (float): cos(candidate Dec) for flat-sky scaling.
+        pdf_code (int): Offset-PDF code (see _resolve_offset_prior).
+        theta_max (float): Cutoff offset (arcsec).
+        kparam (float): PDF scale param (phi or phi*scale).
+        norm (float): PDF normalization.
+        spacing (float): Grid spacing (arcsec); result scales by its
+            square.
+
+    Returns:
+        tuple: (p_xOi, pw_sum)
+            p_xOi (float): UNcorrected p(x|O_i) for the candidate
+                (= sum of L_wx*p(w|O_i) over the grid, times spacing^2).
+            pw_sum (float): Sum of p(w|O_i) over the grid.  Returned so
+                ``px_Oi_fixedgrid`` can apply the optional 'p_wO'
+                correction with the same formula as the numpy path.
+    """
+    nrow, ncol = ra.shape
+    acc = 0.0
+    pw_sum = 0.0  # sum of p(w|O_i) over the grid, for the p_wO correction
+    for i in range(nrow):
+        for j in range(ncol):
+            dra = ra[i, j] - cand_ra
+            ddec = dec[i, j] - cand_dec
+            # flat-sky offset in arcsec
+            theta = 3600.0 * np.sqrt(
+                cos_dec * cos_dec * dra * dra + ddec * ddec)
+            if theta < theta_max:
+                if pdf_code == _PDF_CORE:
+                    pw = kparam / (theta + kparam) / norm
+                elif pdf_code == _PDF_UNIFORM:
+                    pw = 1.0 / norm
+                else:  # _PDF_EXP
+                    pw = np.exp(-theta / kparam) / norm
+                acc += L_wx[i, j] * pw
+                pw_sum += pw  # p(w|O_i)=0 outside support, so this is
+                #               the full-grid sum
+    return acc * spacing * spacing, pw_sum
+
+
+def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
+                    cand_ang_size, theta_prior, step_size=0.1,
+                    return_grids=False, return_debug:bool=False,
+                    use_numba:bool=False, correction:str=None):
     """
     Calculate p(x|O_i), the primary piece of the analysis
 
@@ -91,6 +212,18 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
             Step size for grid, in arcsec
         return_grids (bool, optional):
             if True, return the calculation grid
+        return_debug (bool, optional):
+            if True, return intermediate grids for debugging
+        use_numba (bool, optional):
+            if True, evaluate the per-candidate loop with the numba
+            ``px_Oi`` kernel (single-threaded @njit).  Defaults to
+            False.  Silently falls back to the numpy path if numba is
+            not installed, or if return_grids/return_debug is set (the
+            fused kernel does not build per-pixel grids).
+        correction (str, optional): Correction to apply to the posteriors
+            'p_wO' -- Correct p(w|O)
+            'L_wx' -- Correct L(w-x)
+            None -- No correction
 
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
@@ -101,9 +234,6 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         # 
         raise IOError("To use this method, you need to specfic a center for the fixed grid via center_coord in localiz")
 
-    # Set Equinox (for spherical offsets)
-    localiz['center_coord'].equinox = cand_coords[0].equinox
-
     # Build the fixed grid around the transient
     ngrid = int(np.round(2*box_hwidth / step_size))
     x = np.linspace(-box_hwidth, box_hwidth, ngrid)
@@ -112,22 +242,75 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     # Grid spacing
     grid_spacing_arcsec = x[1]-x[0]
 
+    # Extract the center coordinate once as plain numpy floats.  Avoids
+    # repeated astropy attribute/Quantity access.  The previous
+    # equinox-setting line was dropped: it is a no-op for the numpy
+    # paths (offsets here are flat-sky; calc_LWx ignores equinox).
+    center_ra = localiz['center_coord'].ra.deg     # deg
+    center_dec = localiz['center_coord'].dec.deg   # deg
+    cos_center_dec = np.cos(np.radians(center_dec))  # flat-sky scaling
+
     # #####################
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
     # Approximate as flat sky
     #  Warning:  RA increases in x for these grids!!
-    ra = localiz['center_coord'].ra.deg + \
-        xcoord/3600. / np.cos(localiz['center_coord'].dec).value
-    dec = localiz['center_coord'].dec.deg + ycoord/3600.
-    L_wx = localization.calc_LWx(ra, dec, localiz) 
+    print('Calculating L(w-x)')
+    ra = center_ra + xcoord/3600. / cos_center_dec
+    dec = center_dec + ycoord/3600.
+    L_wx = localization.calc_LWx(ra, dec, localiz)
+    # Prep for correction
+    if correction == 'L_wx':
+        corr_Lwx = np.sum(L_wx) * grid_spacing_arcsec**2
+
+    # Pre-extract candidate coordinates to numpy arrays ONCE (numpy
+    # only).  Iterating a SkyCoord array and reading .ra/.dec per
+    # candidate is the dominant astropy overhead in this loop; pulling
+    # them out here removes it.  Working with plain arrays/floats also
+    # keeps the inner loop numba-friendly for a future @njit speed-up.
+    cand_ra = cand_coords.ra.deg      # deg, shape (N,)
+    cand_dec = cand_coords.dec.deg    # deg, shape (N,)
+    cos_cand_dec = np.cos(np.radians(cand_dec))  # flat-sky scaling
+
+    # The fused numba kernel returns only the scalar p(x|O_i); it cannot
+    # build per-pixel grids, so disable it when those are requested.
+    # Warn (don't error) if numba was asked for but isn't installed.
+    use_numba_eff = use_numba and not return_grids and not return_debug
+    if use_numba and not HAS_NUMBA:
+        warnings.warn("use_numba=True but numba is not installed; "
+                      "falling back to numpy.")
+        use_numba_eff = False
+    if use_numba_eff:
+        print('Using numba for the posterior calculation')
 
     p_xOis, grids = [], []
-    # TODO -- multiprocess this
-    for icand, cand_coord in enumerate(cand_coords):
+    # TODO -- multiprocess this?
+    print('Looping on candidates')
+    for icand in range(cand_ra.size):
+        if icand % 50 == 0:
+            print(f'icand: {icand}')
+
+        if use_numba_eff:
+            # Resolve the prior to scalars, then fuse theta/PDF/product/
+            # sum in one numba pass (no full-grid temporaries).
+            pdf_code, theta_max, kparam, norm = _resolve_offset_prior(
+                cand_ang_size[icand], theta_prior)
+            p_val, pw_sum = px_Oi_numba(
+                ra, dec, L_wx, cand_ra[icand], cand_dec[icand],
+                cos_cand_dec[icand], pdf_code, theta_max, kparam, norm,
+                grid_spacing_arcsec)
+            # Apply the SAME optional correction as the numpy path.
+            # Dividing the grid by a scalar then summing == dividing the
+            # sum, so we correct the scalar p(x|O_i) directly.
+            if correction == 'p_wO':
+                p_val /= pw_sum * grid_spacing_arcsec**2
+            elif correction == 'L_wx':
+                p_val /= corr_Lwx
+            p_xOis.append(p_val)
+            continue
 
         # Offsets from the transient (approximate + flat sky)
-        theta = 3600*np.sqrt(np.cos(cand_coord.dec).value**2 * (
-            ra-cand_coord.ra.deg)**2 + (dec-cand_coord.dec.deg)**2)  # arc sec
+        theta = 3600*np.sqrt(cos_cand_dec[icand]**2 * (
+            ra-cand_ra[icand])**2 + (dec-cand_dec[icand])**2)  # arc sec
 
         # p(w|O_i)
         p_wOi = pw_Oi(theta,
@@ -137,27 +320,146 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
         # Product
         grid_p = L_wx * p_wOi
 
+
         # Save grids if returning
         if return_grids:
             grids.append(grid_p.copy())
 
         # Sum
-        p_xOis.append(np.sum(grid_p)*grid_spacing_arcsec**2)
+        p_val = np.sum(grid_p)*grid_spacing_arcsec**2
+
+        # Correction
+        if correction == 'p_wO':
+            p_val /= np.sum(p_wOi) * grid_spacing_arcsec**2
+        elif correction == 'L_wx':
+            p_val /= corr_Lwx
+
+        #embed(header='336 of bayesian.py')
+        p_xOis.append(p_val)
 
     # Return
     if return_grids:
         return np.array(p_xOis), grids
+    elif return_debug:
+        return L_wx, p_wOi, grid_p, p_xOis[0]
     else:
         return np.array(p_xOis)
 
+def _Lwx_correction(E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
+                    ngrid, step_size_phi, max_side:int=5000):
+    """Localization normalization factor for an under-resolved L(w-x).
+
+    Fast companion to ``px_Oi_local`` for the ``b < phi`` regime.  There
+    the galaxy-centered grid (spacing ``step_size_phi``) deliberately
+    UNDER-resolves the sharp localization, so the discrete ``sum(L_wx)``
+    -- and hence the raw p(x|O_i) -- comes out below its true value.
+    This returns the discrete integral of L(w-x), the "total L_wx", on a
+    grid that:
+
+      * is CENTERED ON THE LOCALIZATION (the transient), covering a
+        SQUARE window of half-width ``4*a`` (>= 4 sigma of the major
+        axis, so it captures essentially all of the ellipse);
+      * has EXACTLY the galaxy-grid spacing, and lies ON the galaxy
+        lattice -- it is the galaxy grid shifted by an integer number of
+        cells.  The localization is therefore sampled at the SAME
+        sub-cell phase as the main grid, so the under-resolution aliasing
+        is identical in the raw sum and in this factor.
+
+    The caller divides the raw p(x|O_i) by this factor, which cancels the
+    aliasing bias (accurate to ~1%) -- the same idea as
+    ``px_Oi_fixedgrid``'s ``correction='L_wx'``, but with a coarse,
+    galaxy-aligned grid instead of a fine one.
+
+    Memory guard: the window has ~``8*a/step_size_phi`` cells per side.
+    This only exceeds ``max_side`` when ``step_size_phi`` is very small
+    -- i.e. when the galaxy grid ALREADY resolves L and the raw value
+    needs no correction -- so in that case we skip (return 1.0) rather
+    than allocate a huge array.
+
+    Args:
+        E0 (float): East offset of the galaxy from the localization
+            center, arcsec (flat sky).
+        N0 (float): North offset of the galaxy from the localization
+            center, arcsec.
+        a (float): Localization ellipse semi-major axis, arcsec.
+        b (float): Localization ellipse semi-minor axis, arcsec.
+        cos_dth (float): cos of the ellipse-frame rotation (90 - PA),
+            shared with the main loop.
+        sin_dth (float): sin of the same rotation.
+        box_hwidth (float): Half-width of the galaxy grid, arcsec
+            (= phi*max); recovers the galaxy lattice with ``ngrid``.
+        ngrid (int): Cells per side of the galaxy grid (built as
+            ``linspace(-box_hwidth, box_hwidth, ngrid)``).
+        step_size_phi (float): Galaxy-grid spacing, arcsec
+            (= phi*step_size); used for the area element dA so the factor
+            matches the caller's raw sum.
+        max_side (int, optional): Skip (return 1.0) if the window would
+            exceed this many cells per side.  Default 5000.
+
+    Returns:
+        float: The discrete ``sum(L_wx)*dA`` ("total L_wx"; ~1 when
+            resolved, < 1 when under-resolved), or 1.0 if skipped.
+    """
+    # Exact galaxy-grid spacing (linspace of ngrid points on [-box,box]).
+    h = 2. * box_hwidth / (ngrid - 1)
+    # Half-window in cells to reach 4 sigma along the major axis (4*a).
+    m = int(np.ceil(4. * a / h))
+    # Skip if the window would be huge: that happens when h << a at fine
+    # step, i.e. L is already well resolved on the galaxy grid and the
+    # raw value needs no correction.  Avoids allocating a huge array.
+    # TODO -- consider still making a correction but with a smaller window
+    if (2 * m + 1) > max_side:
+        return 1.0
+    # Snap the localization onto the galaxy lattice (integer cell shift).
+    # Galaxy-frame lattice points (offsets from the galaxy) are
+    # -box_hwidth + k*h; the transient sits at offset (-E0, -N0).
+    kE = int(np.round((box_hwidth - E0) / h))
+    kN = int(np.round((box_hwidth - N0) / h))
+    idx = np.arange(-m, m + 1)
+    cE = -box_hwidth + (kE + idx) * h        # offsets from galaxy (E)
+    cN = -box_hwidth + (kN + idx) * h        # offsets from galaxy (N)
+    CE, CN = np.meshgrid(cE, cN)
+    # Offset of each cell from the localization center, rotated into the
+    # ellipse frame; same 2D Gaussian L(w-x) as the main loop.
+    E = E0 + CE
+    N = N0 + CN
+    x_box = E * cos_dth + N * sin_dth
+    y_box = N * cos_dth - E * sin_dth
+    L_wx = (np.exp(-x_box ** 2 / (2 * a ** 2))
+            * np.exp(-y_box ** 2 / (2 * b ** 2)) / (2 * np.pi * a * b))
+    # "Total L_wx" -- the discrete integral with the SAME dA as the raw
+    # galaxy-grid sum, so dividing the raw by it cancels the aliasing.
+    return np.sum(L_wx) * step_size_phi ** 2
+
+
 def px_Oi_local(localiz, cand_coords, cand_ang_size,
-                theta_prior, step_size=0.1, debug = False):
+                theta_prior, step_size=0.05,
+                step_size_mode:str='relative',
+                debug = False):
     """
     Perform the calculation on local grids, one
-    per candidate.  This is likely slower than 
+    per candidate.  This is likely slower than
     the "fixed" method, but best for large localization
     areas which cover a large area of the sky.
-    
+
+    The ``eellipse`` localization type uses a fast pure-numpy, flat-sky
+    path (see notes below); all other types fall back to the generic
+    ``localization.calc_LWx`` lookup.  Either way the only astropy access
+    is a single up-front extraction of the candidate and center
+    coordinates -- the per-candidate loop is pure numpy (and structured
+    so a numba kernel can later replace its body; cf. ``px_Oi_numba``).
+
+    Notes (eellipse fast path):
+        * The per-candidate grid is built ONCE in normalized units.
+          Because ``box_hwidth = phi*max`` and the spacing is
+          ``phi*step_size``, the pixel count ``ngrid = 2*max/step_size``
+          is the SAME for every candidate, so the normalized grid
+          (U, V, R) is reused and merely rescaled by ``phi*max``.
+        * L(w-x) for the error ellipse is evaluated directly in the
+          flat-sky tangent plane (offsets in arcsec, rotated into the
+          ellipse frame), avoiding astropy's spherical separation /
+          position-angle machinery.  This matches calc_LWx's eellipse
+          result to ~1e-5 fractionally at arcsec grid scales.
 
     Args:
         localiz (dict):
@@ -178,60 +480,147 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
             If true, hit an embed in the main loop
 
     Returns:
-        np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
+        np.ndarray: p(x|O_i) values, one per candidate.
 
     """
+    # Pre-extract candidate coordinates to plain numpy arrays ONCE.
+    # Iterating a SkyCoord and reading .ra/.dec per candidate is the
+    # dominant astropy overhead; pulling them out here removes it and
+    # keeps the loop numba-friendly.
+    cand_ra = cand_coords.ra.deg                     # deg, shape (N,)
+    cand_dec = cand_coords.dec.deg                   # deg, shape (N,)
+    cos_cand_dec = np.cos(np.radians(cand_dec))      # flat-sky scaling
+
+    # Normalized grid, built ONCE.  ngrid depends only on max/step_size
+    # (phi cancels), so the same grid serves every candidate.  U, V span
+    # [-1, 1]; the physical grid is phi*max * (U, V) and theta = phi*max*R.
+    max_theta = theta_prior['max']
+    if step_size_mode == 'relative':
+        ngrid = int(np.round(2 * max_theta / step_size))
+        u = np.linspace(-1., 1., ngrid)
+        Ugrid, Vgrid = np.meshgrid(u, u)
+        Rgrid = np.sqrt(Ugrid ** 2 + Vgrid ** 2)         # normalized radius
+    else:
+        raise ValueError(f"Invalid step_size_mode: {step_size_mode}")
+
+    # Pre-compute the eellipse constants once (flat-sky fast path).
+    is_eellipse = localiz['type'] == 'eellipse'
+    if is_eellipse:
+        # Pre-extract the localization center once (eellipse only; other
+        # types have no center_coord and resolve L_wx via calc_LWx).
+        center_ra = localiz['center_coord'].ra.deg       # deg
+        center_dec = localiz['center_coord'].dec.deg     # deg
+        cos_center_dec = np.cos(np.radians(center_dec))  # flat-sky scale
+        ell = localiz['eellipse']
+        a = ell['a']
+        b = ell['b']
+        # Rotation that places the ellipse major axis on the x-axis;
+        # identical convention to localization.calc_LWx (dtheta=90-PA).
+        dth = np.radians(90. - ell['theta'])
+        cos_dth = np.cos(dth)
+        sin_dth = np.sin(dth)
+        inv_2a2 = 1. / (2 * a ** 2)
+        inv_2b2 = 1. / (2 * b ** 2)
+        L_norm = 1. / (2 * np.pi * a * b)
+
     # Loop on galaxies
     p_xOis = []
-    # TODO -- parallelize this
-    for icand, cand_coord in enumerate(cand_coords):
-        # Prep
-        phi_cand = cand_ang_size[icand]   # arcsec
-        step_size_phi = phi_cand * step_size        # arcsec
-        box_hwidth = phi_cand * theta_prior['max']  # arcsec
+    # TODO -- parallelize / numba this per-candidate body
+    for icand in range(cand_ra.size):
 
-        # Grid around the galaxy
-        ngrid = int(np.round(2 * box_hwidth / step_size_phi))
-        x = np.linspace(-box_hwidth, box_hwidth, ngrid)
-        xcoord, ycoord = np.meshgrid(x,x)
-        theta = np.sqrt(xcoord**2 + ycoord**2)
+        # Prep -- scale the normalized grid to this galaxy's size
+        phi_cand = cand_ang_size[icand]              # arcsec
+        box_hwidth = phi_cand * max_theta            # arcsec
+        step_size_phi = phi_cand * step_size         # arcsec
+
+        xcoord = box_hwidth * Ugrid                  # east offset, arcsec
+        ycoord = box_hwidth * Vgrid                  # north offset, arcsec
+        theta = box_hwidth * Rgrid                   # arcsec
+
         # p(w|O)
         p_wOi = pw_Oi(theta, phi_cand, theta_prior)
 
-        # Generate coords for transient localiation (flat sky)
-        ra = cand_coord.ra.deg + \
-            xcoord/3600. / np.cos(cand_coord.dec).value
-        dec = cand_coord.dec.deg + ycoord/3600.
+        if is_eellipse:
+            # Flat-sky offsets of the galaxy center from the transient
+            # center (arcsec): east scaled by cos(dec), north direct.
+            E0 = (cand_ra[icand] - center_ra) * cos_center_dec * 3600.
+            N0 = (cand_dec[icand] - center_dec) * 3600.
+            # Offsets of every grid point from the transient center
+            E = E0 + xcoord                          # east, arcsec
+            N = N0 + ycoord                          # north, arcsec
+            # Rotate into the ellipse frame (x along the major axis).
+            # Signs are squared below, so they need not match calc_LWx.
+            x_box = E * cos_dth + N * sin_dth
+            y_box = N * cos_dth - E * sin_dth
+            # 2D Gaussian L(w-x), normalized over x (not omega)
+            L_wx = (np.exp(-x_box ** 2 * inv_2a2)
+                    * np.exp(-y_box ** 2 * inv_2b2) * L_norm)
 
-        # Calculate
-        L_wx = localization.calc_LWx(ra, dec, localiz) 
+            # Correction: when the localization minor axis b is smaller
+            # than the galaxy size phi, the galaxy-centered grid
+            # under-resolves the sharp localization and the raw sum is
+            # biased low.  Divide by the "total L_wx" computed on a
+            # localization-centered, galaxy-aligned grid so the aliasing
+            # cancels (see _Lwx_correction).
+            if b < phi_cand:
+                L_wx_correction = _Lwx_correction(
+                    E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
+                    ngrid, step_size_phi)
+                # Degenerate case: the localization is so much smaller
+                # than the grid spacing that even the aligned correction
+                # grid catches no flux -- the factor underflows to 0 and
+                # the raw sum is 0 too (0/0).  Fall back to the
+                # delta-function limit p(x|O_i) = p(w=x|O_i), which is
+                # exact as b -> 0 since L integrates to 1.
+                if not (L_wx_correction > 0.):
+                    theta0 = np.sqrt(E0 ** 2 + N0 ** 2)  # offset, arcsec
+                    p_xOis.append(pw_Oi(
+                        np.array([theta0]), phi_cand, theta_prior)[0])
+                    if debug:
+                        embed(header='px_Oi_local delta-limit')
+                    continue
+            else:
+                L_wx_correction = 1.0
+
+        else:
+            # Generic fallback (healpix/wcs): build flat-sky coords and
+            # use calc_LWx, which does the type-specific lookup.  No
+            # under-resolution correction here (eellipse only).
+            ra = (cand_ra[icand]
+                  + xcoord / 3600. / cos_cand_dec[icand])
+            dec = cand_dec[icand] + ycoord / 3600.
+            L_wx = localization.calc_LWx(ra, dec, localiz)
+            L_wx_correction = 1.0
 
         # Finish
-        grid_p = L_wx * p_wOi
-        #
-        p_xOis.append(np.sum(grid_p)*step_size_phi**2)
+        grid_p = L_wx * p_wOi / L_wx_correction
+        p_xOis.append(np.sum(grid_p) * step_size_phi ** 2)
         # Debug
         if debug:
-            embed(header='207 of bayesian.py')
+            embed(header='px_Oi_local of bayesian.py')
     # Return
     return np.array(p_xOis)
 
 
-def px_U(box_hwidth):
+def px_U(radius:float):
     """
 
     Args:
-        box_hwidth (float):
-            Half-width of the analysis box, in arcsec
+        radius (float):
+            Radius of the area enclosing the candidates
+            in arcsec
 
     Returns:
-        float: p(x|U)
+        float: p(x|U) in inverse squarearcsec
+            This is the same convention as p(x|O) as it must
 
     """
-    box_sqarcsec = (2*box_hwidth)**2
+    #box_sqarcsec = (2*box_hwidth)**2
     #box_steradians = box_sqarcsec * sqarcsec_steradians
+    area = np.pi * radius**2
     #
-    return 1./box_sqarcsec  # box_steradians
+    #return 1./box_sqarcsec  # box_steradians
+    return 1./area
 
 
 

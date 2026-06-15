@@ -9,11 +9,11 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy import units
+
 from astropath import catalogs
-
-import pandas
-
 from astropath import path
+
+from IPython import embed
 
 
 def run_on_dict(idict: dict,
@@ -22,6 +22,7 @@ def run_on_dict(idict: dict,
                 mag_key: str = None,
                 skip_NGC: bool = False,
                 dust_correct: bool = True,
+                use_local: bool = False,
                 star_galaxy_sep: dict = None):
     """Run PATH on a single FRB, given a dictionary of inputs.
 
@@ -58,6 +59,9 @@ def run_on_dict(idict: dict,
         skip_NGC (bool, optional): Skip adding NGC galaxies when querying. Defaults to False.
         dust_correct (bool, optional): Dust correct magnitudes when querying. Defaults to True.
         star_galaxy_sep (dict, optional): Star/galaxy separation parameters for catalog query.
+        use_local (bool, optional): Use the local method for calculating posteriors. Defaults to False.
+            If True, will use the local method for calculating posteriors.
+            If False, will use the fixed method for calculating posteriors.
 
     Returns:
         tuple: 6 items --
@@ -110,14 +114,21 @@ def run_on_dict(idict: dict,
         return catalog, None, None, None, None, None
 
     # Set boxsize according to the largest galaxy (arcsec)
-    box_hwidth = max(idict['max_box'], 10. * np.max(catalog['ang_size']))
+    #  or the survey size, whichever is larger
+    # TODO -- X decided this is not worth the extra compute
+    #cat_coord = SkyCoord(ra=catalog['ra'].data, dec=catalog['dec'].data, unit='deg')
+    #sep = coord.separation(cat_coord).to('arcsec')
+    #max_sep = np.max(sep + 6*catalog['ang_size'].data*units.arcsec)
+    #embed(header='run.py:117')
 
-    # Cut down the catalog based on box_hwidth
-    Ddec_arcsec = np.abs(catalog['dec'].data - coord.dec.deg) * 3600.
-    Dra_arcsec = np.abs(catalog['ra'].data - coord.ra.deg) * 3600. * np.cos(coord.dec.rad)
+    #box_hwidth = max(idict['max_box'],  # This should be the survey size
+    #    max_sep.value)
+    box_hwidth = idict['max_box']  # This should be the survey size
 
-    # This speeds things up and is required for the P_Ux calculation
-    keep = (Ddec_arcsec < box_hwidth) & (Dra_arcsec < box_hwidth)
+    # Cut down the catalog based on ssize (usually this should do nothing)
+    catalog_coord = SkyCoord(ra=catalog['ra'].data, dec=catalog['dec'].data, unit='deg')
+    sep = coord.separation(catalog_coord).to('arcsec')
+    keep = sep < idict['ssize']*60*units.arcsec
     cut_catalog = catalog[keep]
 
     if len(cut_catalog) == 0:
@@ -160,13 +171,13 @@ def run_on_dict(idict: dict,
 
     # Candidate prior
     P_O_method = priors_dict.get('P_O_method', 'inverse')
-    P_U = priors_dict.get('PU', 0.)
+    P_U = priors_dict['PU']
     Path.init_cand_prior(P_O_method, P_U=P_U)
 
     # Offset prior
-    theta_PDF = priors_dict.get('theta_PDF', 'exp')
+    theta_PDF = priors_dict['theta_PDF']
     theta_max = priors_dict.get('theta_max', 6.)
-    scale = priors_dict.get('scale', 0.5)
+    scale = priors_dict['scale']
     Path.init_theta_prior(theta_PDF, theta_max, scale)
 
     # Calculate priors
@@ -174,19 +185,48 @@ def run_on_dict(idict: dict,
 
     # Calculate step size based on localization and galaxy sizes
     if idict['ltype'] == 'eellipse':
-        a = eellipse['a']
-        b = eellipse['b']
-        step_size_max = 2 * 3 * np.nanmin([a, b]) / np.nanmax(cut_catalog['ang_size'])
-        step_size = np.nanmin([0.1, step_size_max])
+        if idict['pmode'] == 'fixed':
+            min_ang = np.nanmin(cut_catalog['ang_size'].data)
+            if eellipse['b'] > min_ang:
+                correction = 'p_wO'
+                step_size = eellipse['b'] / 20.
+            else:
+                correction = 'L_wx'
+                step_size = min_ang / 20.
+            idict['step_size'] = step_size
+        elif idict['pmode'] == 'local':
+            assert 'step_size' in idict, "step_size is required for local mode"
+            assert 'step_size_mode' in idict, "step_size_mode is required for local mode"
+            correction = None
     else:
         # For healpix, use default step size
-        step_size = 0.1
+        raise ValueError("Healpix localization is not supported yet.")
+
 
     # Calculate posteriors
-    P_Ox, P_Ux = Path.calc_posteriors('local',
+    if idict['pmode'] == 'local':
+        print(f'Calculating posteriors with local and step_size: {idict["step_size"]}') 
+        P_Ox, P_Ux = Path.calc_posteriors(
+            'local',
+            survey_radius=idict['ssize']*60,
+            step_size=idict['step_size'],
+            step_size_mode=idict['step_size_mode'])
+    elif idict['pmode'] == 'fixed':
+        # Memory check
+        if idict['ssize']*60 / step_size > 10000:
+            raise ValueError(f"Fixed grid would be {int(idict['ssize']*60 / step_size)} pixels.  \nYour array will need >100Gb RAM.  Try local or reduce your ssize if you can")
+        print(f'Calculating posteriors with fixed and correction: {correction}')
+        P_Ox, P_Ux = Path.calc_posteriors('fixed',
                                        box_hwidth=box_hwidth,
-                                       max_radius=box_hwidth,
-                                       step_size=step_size)
+                                       survey_radius=idict['ssize']*60,
+                                       step_size=step_size,
+                                       use_numba=idict['use_numba'],
+                                       correction=correction)
+    else:
+        raise ValueError(f"Unsupported posterior mode: {idict['pmode']}. "
+                        f"Supported: 'local', 'fixed'")
+
+    #embed(header='run.py:231')
 
     # Add photo-z columns if available in catalog
     photoz_columns = ['z_phot_median', 'z_phot_l68', 'z_phot_u68',
@@ -216,6 +256,9 @@ def set_anly_sizes(ltype: str, lparam: dict):
 
     This helper function computes appropriate survey search radius (ssize)
     and maximum analysis box size (max_box) based on localization parameters.
+
+    Note: These are guidelines recommended by the PATH
+    developers.  You should use your own judgement
 
     Args:
         ltype (str): Type of localization ['eellipse', 'healpix']
@@ -265,6 +308,10 @@ def build_idict(ra: float, dec: float,
                 scale: float = 0.5,
                 theta_PDF: str = 'exp',
                 theta_max: float = 6.0,
+                use_numba: bool = False,
+                pmode: str = 'local',
+                step_size_mode: str = 'relative',
+                step_size: float = 0.05,
                 survey: str = None,
                 ssize: float = None,
                 max_box: float = None):
@@ -288,6 +335,7 @@ def build_idict(ra: float, dec: float,
         survey (str, optional): Survey name for automatic catalog query.
             Supported: 'Pan-STARRS', 'DECaL'. If None, catalog must be provided
             to run_on_dict().
+        use_numba (bool): Use numba for calculations. Default False.
         ssize (float): Survey search radius in arcmin. If None, auto-computed.
         max_box (float): Maximum analysis box in arcsec. If None, auto-computed.
 
@@ -322,11 +370,15 @@ def build_idict(ra: float, dec: float,
     idict = {
         'ra': ra,
         'dec': dec,
-        'ssize': ssize,
+        'ssize': ssize, # arcmin
         'ltype': ltype,
         'lparam': lparam,
+        'use_numba': use_numba,
+        'pmode': pmode,
+        'step_size_mode': step_size_mode,
+        'step_size': step_size,
         'priors': priors,
-        'max_box': max_box,
+        'max_box': max_box, # arcsec
     }
 
     return idict

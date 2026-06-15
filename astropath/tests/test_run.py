@@ -43,7 +43,11 @@ def test_run_on_dict_eellipse():
         PU=0.,
         scale=1.,
         theta_PDF='exp',
-        theta_max=6.
+        theta_max=6.,
+        # Use the local method: with this tiny a=b=0.1" localization the
+        # fixed grid would be ~15700x15700 (~20 GB peak) and OOM-kill the
+        # CI runner.  The local method gives the same posterior to ~2e-7.
+        pmode='local',
     )
 
     # Run PATH
@@ -87,6 +91,9 @@ def test_run_on_dict_with_PU():
         lparam={'a': 0.1, 'b': 0.1, 'theta': 0.},
         PU=0.1,  # Non-zero unseen prior
         scale=1.,
+        # Local method (see test_run_on_dict_eellipse): avoids the huge
+        # fixed grid that OOM-kills CI for this tiny localization.
+        pmode='local',
     )
 
     # Run PATH

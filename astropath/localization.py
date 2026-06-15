@@ -63,18 +63,42 @@ def calc_LWx(ra:np.ndarray, dec:np.ndarray, localiz:dict):
     if localiz['type'] == 'eellipse':
         # Setup
         eellipse = localiz['eellipse']  # convenience
-        pa_ee = eellipse['theta'] # PA of error ellipse on the sky; deg
-        dtheta = 90. - pa_ee  # Rotation to place the semi-major axis "a" of the ellipse along the x-axis we define
+        pa_ee = eellipse['theta']  # PA of error ellipse on the sky; deg
+        # Rotation to place the semi-major axis "a" of the ellipse along
+        # the x-axis we define
+        dtheta = 90. - pa_ee
         #
-        coord = SkyCoord(ra=ra, dec=dec, unit='deg')
-        coord.equinox = localiz['center_coord'].equinox
-        # Rotate to the transient frame
-        sep_box = localiz['center_coord'].separation(coord).to('arcsec')
-        pa_box = localiz['center_coord'].position_angle(coord).to('deg')
-        new_pa_box = pa_box + dtheta * units.deg
+        # Pure-numpy replacement for the astropy SkyCoord/separation/
+        # position_angle calls (see Logs in prompts/speed_up.md).  We
+        # reproduce astropy.coordinates.angle_utilities exactly with
+        # numpy, avoiding SkyCoord construction and Quantity overhead.
+        # Equinox is irrelevant: ICRS separation/PA do not depend on it.
+        ra0 = np.radians(localiz['center_coord'].ra.deg)   # center RA, rad
+        dec0 = np.radians(localiz['center_coord'].dec.deg)  # center Dec, rad
+        ra_r = np.radians(ra)   # grid RA, rad
+        dec_r = np.radians(dec)  # grid Dec, rad
+        # Trig terms shared by the separation and position-angle formulae
+        dlon = ra_r - ra0
+        sdlon = np.sin(dlon)
+        cdlon = np.cos(dlon)
+        sl1 = np.sin(dec0)
+        cl1 = np.cos(dec0)
+        sl2 = np.sin(dec_r)
+        cl2 = np.cos(dec_r)
+        # Vincenty angular separation (rad) -> arcsec.  Matches
+        # SkyCoord.separation to ~1e-10 arcsec.
+        sep = np.arctan2(
+            np.hypot(cl2 * sdlon, cl1 * sl2 - sl1 * cl2 * cdlon),
+            sl1 * sl2 + cl1 * cl2 * cdlon)
+        sep_box = np.degrees(sep) * 3600.  # arcsec
+        # Position angle East of North (rad).  Matches
+        # SkyCoord.position_angle to ~1e-8 deg.
+        pa_box = np.arctan2(sdlon * cl2, sl2 * cl1 - cl2 * sl1 * cdlon)
+        # Rotate to the transient frame (dtheta given in deg)
+        new_pa_box = pa_box + np.radians(dtheta)
         # x, y of the box in transient frame with x along major axis
-        x_box = -sep_box.value * np.sin(new_pa_box).value
-        y_box = sep_box.value * np.cos(new_pa_box).value
+        x_box = -sep_box * np.sin(new_pa_box)
+        y_box = sep_box * np.cos(new_pa_box)
 
         # Calculate
         L_wx = np.exp(-x_box ** 2 / (2 * eellipse['a'] ** 2)) * np.exp(

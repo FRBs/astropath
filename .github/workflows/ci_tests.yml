@@ -18,8 +18,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python: ['3.12', '3.13']
-        deps: [current, numpy210, astropydev, numpydev, astropydev-numpydev]
+        python: ['3.12', '3.13', '3.14']
+        deps: [current, numpy224, astropydev, numpydev, astropydev-numpydev]
 
     steps:
     - name: Check out repository
@@ -34,10 +34,10 @@ jobs:
         python -m pip install git+https://github.com/FRBs/frb.git#egg=frb
         python -m pip install git+https://github.com/FRBs/ne2001.git#egg=ne2001
         python -m pip install git+https://github.com/linetools/linetools#egg=linetools
-    - name: Test with numpy = 2.1.0
-      if: "contains(matrix.deps, 'numpy210')"
+    - name: Test with numpy = 2.2.4
+      if: "contains(matrix.deps, 'numpy224')"
       run: |
-        python -m pip install numpy==2.1.0
+        python -m pip install numpy==2.2.4
     - name: Test with dev version of numpy
       if: "contains(matrix.deps, 'numpydev')"
       run: |
@@ -70,7 +70,7 @@ jobs:
     - name: Python codestyle check
       uses: actions/setup-python@v5
       with:
-        python-version: '3.12'
+        python-version: '3.13'
     - name: Install base dependencies
       run: |
         python -m pip install --upgrade pip
