@@ -167,7 +167,7 @@ class PATH(object):
                         step_size:float=0.05, 
                         box_hwidth=None,
                         survey_radius:float=None, 
-                        step_size_mode:str=None,
+                        step_size_mode:str='relative',
                         use_numba:bool=False, 
                         debug:bool=False, 
                         correction:str=None):
