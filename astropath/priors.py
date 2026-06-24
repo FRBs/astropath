@@ -90,6 +90,15 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     # Do it
     if method == 'inverse':
         return 1. / Sigma_m
+    elif method == 'inverse_diff':
+        Sigma_diff_m = chance.differential_driver_sigma(mag)
+        # mags = mag.values
+        # sort_indices = np.argsort(mags) 
+        # mags_s = mags[sort_indices]
+        # Sigma_m_s = Sigma_m[sort_indices]
+        # Sigma_diff_m_s = Sigma_diff_m[sort_indices]
+        # print(f'Using diff Sigma: mb={mags_s[0]}, Sigma_mb={Sigma_m_s[0]}, Sigma_diff_mb={Sigma_diff_m_s[0]}\nmf={mags_s[-1]}, Sigma_mf={Sigma_m_s[-1]}, Sigma_diff_mf={Sigma_diff_m_s[-1]}')
+        return 1. / Sigma_diff_m
     elif method == 'inverse_ang':
         return 1. / Sigma_m / ang_size
     elif method == 'inverse_ang2':
