@@ -36,7 +36,7 @@ from scipy.special import i0e # i0e(x) = I_0(x)·exp(−x), numerically stable
 
 
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
-                 output_fn:str=None, thresh_cross_match:float=2.):
+                 output_fn:str=None, thresh_cross_match:float=0.5):
     """
     Combines together the pandas.DataFrame from each simulation step into a "digest"
     DataFrame that can be easily parsed to make informative plots about the simulation results
@@ -87,6 +87,8 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
             - `P_Ox`: Value of the PATH posterior P(Oi|x) for the best candidate
             - `P_Ux`: Value of the PATH posterior P(U|x)
             - `correct_association`: A boolean indicating whether the best candidate matches the true host (a "correct" association), based on a spatial cross-match
+            - `unseen`: A boolean indicating whether the true host is visible in the catalog used to run PATH
+            - `host_catalog`: A string indicating which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from
     """
 
     print("Get parameters from the simulation results dataframe")
@@ -156,8 +158,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     true_host_coord = SkyCoord(ra=true_ras, dec=true_decs, unit='deg')
     best_cand_coord = SkyCoord(ra=best_cands.ra_cand.values, dec=best_cands.dec_cand.values, unit='deg')
     sep_best_host_arcsec = true_host_coord.separation(best_cand_coord).arcsec
-
-    
+ 
     loc_coord = SkyCoord(ra=hosts.ra_loc.values, dec=hosts.dec_loc.values, unit='deg')
     print("Calculate offset between localization and true host")
     sep_host_loc_arcsec = true_host_coord.separation(loc_coord).arcsec
@@ -166,7 +167,6 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     sep_best_loc_arcsec = best_cand_coord.separation(loc_coord).arcsec
     sep_best_loc_norm = sep_best_loc_arcsec / best_cands.ang_size_cand.values
     
-
     print("Add the RA/Dec of the host *galaxy* from the original catalog")
     hosts['ra_host'] = true_ras
     hosts['dec_host'] = true_decs
@@ -188,15 +188,21 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match * max_ang_size)
     df['correct_association'] = match_criteria
 
+    print("Calculate whether true host is seen or unseen in PATH catalog")
+    df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
+    
+    print('Determine which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from')
+    df_unseen_hostcat = extract_host_catalog(df_unseen, combined_catalog)
+
     if output_fn is not None:
         print("Saving to file: {}".format(output_fn))
-        df.to_parquet(output_fn)
+        df_unseen_hostcat.to_parquet(output_fn)
     
-    return df
+    return df_unseen_hostcat
 
 
 def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
-                     mag_limit:float=15., thresh_cross_match:float=2.):
+                     mag_limit:float=15., thresh_cross_match:float=0.5):
     """
     Determines whether a set of FRB host galaxies (hosts) is "unseen" (not detected
     as a source) in the given galaxy catalog of limited magnitude depths
@@ -242,6 +248,46 @@ def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
     
     return hosts
 
+
+def extract_host_catalog(digest:pandas.DataFrame, combined_catalog:pandas.DataFrame): 
+    """
+    Determines which galaxy catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") each
+    true host was selected from.
+
+    Args:
+        digest (pandas.DataFrame): Simulation digest (see build_digest), must contain column: `host_ID`
+        combined_catalog (pandas.DataFrame): The combined catalog dataframe
+
+    Returns:
+        pandas.DataFrame: Hosts catalog, but with an `host_catalog` column indicating
+            which galaxy catalog the true host was selected from.
+    """
+    # Get unique IDs from digest to minimize search space
+    digest_ids = digest["host_ID"].unique()
+    
+    # Build a high-speed lookup dictionary from combined_catalog
+    id_to_source = {}
+    id_columns = ["DECaL_ID", "Pan-STARRS_ID", "HSC_ID", "SDSS_PHOTID"]
+    valid_columns = combined_catalog.columns.intersection(id_columns, sort=False).tolist()
+    
+    for col in valid_columns:
+        # Get valid, non-null IDs from this column that exist in digest
+        matched_ids = combined_catalog.loc[
+            combined_catalog[col].isin(digest_ids), col
+        ].dropna()
+    
+        # Bulk-add them to the dictionary pointing to the current column name
+        if col == 'SDSS_PHOTID':
+            col = 'HECATE_ID'
+        id_to_source.update({id_val: col for id_val in matched_ids})
+    
+    # Instantly map the dictionary to create your new column
+    digest["host_catalog"] = digest["host_ID"].map(id_to_source)
+    
+    # Optional: Fill IDs that didn't find a match anywhere
+    digest["host_catalog"] = digest["host_catalog"].fillna("No Match")
+    
+    return digest
 
 def azimuthal_integrated_prior(u, theta_prior):
     """
