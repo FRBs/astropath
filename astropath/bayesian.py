@@ -434,7 +434,7 @@ def _Lwx_correction(E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
 def px_Oi_local(localiz, cand_coords, cand_ang_size,
                 theta_prior, step_size=0.05,
                 step_size_mode:str='relative', sep_cull=None,
-                debug = False):
+                debug = False, verbose_sims:bool=False):
     """
     Perform the calculation on local grids, one
     per candidate.  This is likely slower than
@@ -614,7 +614,7 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
         # Debug
         if debug:
             embed(header='px_Oi_local of bayesian.py')
-    if is_eellipse and (sep_cull is not None):
+    if verbose_sims and is_eellipse and (sep_cull is not None):
         print(f"{N_cull}/{cand_ra.size} possible candidates skipped since p(x|O)~0")
     
     # Return

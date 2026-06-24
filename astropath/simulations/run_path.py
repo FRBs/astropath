@@ -35,7 +35,7 @@ def run_dict_wrapper(args):
     idx, idict, catalog = args
     catalog = Table.from_pandas(catalog)
     candidates, P_Ux, Path, mag_key, cut_catalog, stars = \
-        run_on_dict(idict, catalog=catalog, mag_key='mag', sep_cull=True, verbose=True)
+        run_on_dict(idict, catalog=catalog, mag_key='mag', sep_cull=True, verbose_sims=False)
 
     if candidates is None or len(candidates) == 0:
         return idx, None
@@ -117,6 +117,8 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         # 'relative' -- Step size is relative to the galaxy size
         # 'absolute' -- Step size is absolute in arcsec [not recommended]
         idict['step_size_mode'] = 'relative'
+        # step_size should be set to 0.05 for local runs
+        idict['step_size'] = 0.05
 
         # Box sizes
         ssize, max_box = set_anly_sizes(idict['ltype'], 

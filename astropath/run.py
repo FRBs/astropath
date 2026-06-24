@@ -19,6 +19,7 @@ import time
 
 def run_on_dict(idict: dict,
                 verbose: bool = False,
+                verbose_sims: bool = False,
                 catalog: Table = None,
                 mag_key: str = None,
                 skip_NGC: bool = False,
@@ -208,15 +209,15 @@ def run_on_dict(idict: dict,
         raise ValueError("Healpix localization is not supported yet.")
 
     # Add to dict
-    idict['step_size'] = step_size
     if 'index' in idict:
         index = idict['index']
 
     # Calculate posteriors
     start_time = time.perf_counter()
     if idict['pmode'] == 'local':
-        if verbose and ('index' in idict):
+        if verbose_sims and ('index' in idict):
             max_ang = np.nanmax(cut_catalog['ang_size'].data)
+            step_size = idict['step_size']
             print(f'FRB {index}: local, ssize={box_hwidth}, max_box_hwidth={max_ang*6.}, step_size={step_size}')
         P_Ox, P_Ux = Path.calc_posteriors(
             'local',
@@ -228,21 +229,23 @@ def run_on_dict(idict: dict,
         # Memory check
         if idict['ssize']*60 / step_size > 10000:
             raise ValueError(f"Fixed grid would be {int(idict['ssize']*60 / step_size)} pixels.  \nYour array will need >100Gb RAM.  Try local or reduce your ssize if you can")
-        if verbose and ('index' in idict):
+        if verbose_sims and ('index' in idict):
+            step_size = idict['step_size']
             max_ang = np.nanmax(cut_catalog['ang_size'].data)
             print(f'FRB {index}: fixed, correction: {correction}, ssize={box_hwidth}, max_box_hwidth={max_ang*6.}, step_size={step_size}')
         P_Ox, P_Ux = Path.calc_posteriors('fixed',
                                        box_hwidth=box_hwidth,
                                        survey_radius=idict['ssize']*60,
-                                       step_size=step_size,
+                                       step_size=idict['step_size'],
                                        use_numba=idict['use_numba'],
-                                       correction=correction)
+                                       correction=correction, 
+                                       verbose_sims=verbose_sims)
     else:
         raise ValueError(f"Unsupported posterior mode: {idict['pmode']}. "
                         f"Supported: 'local', 'fixed'")
 
     end_time = time.perf_counter()
-    if verbose and ('index' in idict):
+    if verbose_sims and ('index' in idict):
         print(f'FRB {index}: execution time: {end_time - start_time:.4f} seconds')
 
     #embed(header='run.py:231')
@@ -258,7 +261,7 @@ def run_on_dict(idict: dict,
     # Sort by posterior probability
     Path.candidates.sort_values(by='P_Ox', ascending=False, inplace=True)
     top_cand_POx = Path.candidates.iloc[0]['P_Ox']
-    if verbose and ('index' in idict):
+    if verbose_sims and ('index' in idict):
         print(f'FRB {index}: P(O1|x)={top_cand_POx:.5f}, P(U|x)={P_Ux:.5f}')
 
     # Print results if verbose
@@ -314,7 +317,7 @@ def set_anly_sizes(ltype: str, lparam: dict):
                         f"Supported: 'eellipse', 'healpix'")
 
     # Enforce minimum search radius
-    ssize = max(ssize, 3.)  # No less than 3 arcmin
+    ssize = max(ssize, 10.) # No less than 10 arcmin
 
     # Max box for PATH analysis (in arcsec)
     max_box = ssize * 60.  # arcsec
