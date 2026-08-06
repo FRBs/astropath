@@ -184,10 +184,13 @@ def px_Oi_numba(ra, dec, L_wx, cand_ra, cand_dec, cos_dec,
     return acc * spacing * spacing, pw_sum
 
 
+
+
 def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
                     cand_ang_size, theta_prior, step_size=0.1,
                     return_grids=False, return_debug:bool=False,
-                    use_numba:bool=False, correction:str=None):
+                    use_numba:bool=False, correction:str=None,
+                    speedup:bool=True):
     """
     Calculate p(x|O_i), the primary piece of the analysis
 
@@ -224,24 +227,55 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
             'p_wO' -- Correct p(w|O)
             'L_wx' -- Correct L(w-x)
             None -- No correction
-
+        speedup (bool,optional): Allows a "speedup" version, which:
+            - identifies large galaxies, and approximates P(x|O)~p(omega|O)
+            - identifies small galaxxies, and approximates P(x|O))~p(x|omega)
+            - automatically calculates grid step size and half widths
     Returns:
         np.ndarray or tuple: p(x|O_i) values and the grids if return_grids = True
 
     """
+    
     # Checks
     if 'center_coord' not in localiz.keys():
         # 
         raise IOError("To use this method, you need to specfic a center for the fixed grid via center_coord in localiz")
-
-    # Build the fixed grid around the transient
-    ngrid = int(np.round(2*box_hwidth / step_size))
-    x = np.linspace(-box_hwidth, box_hwidth, ngrid)
-    xcoord, ycoord = np.meshgrid(x,x)
-
-    # Grid spacing
-    grid_spacing_arcsec = x[1]-x[0]
-
+    
+    # testing for large galaxies - increase gal size by x100
+    #cand_ang_size *= 200
+    
+    # calculate angular error min and max values
+    if localiz["eellipse"]['a'] > localiz["eellipse"]['b']:
+        max_err = localiz["eellipse"]['a']
+        min_err = localiz["eellipse"]['b']
+    else:
+        max_err = localiz["eellipse"]['b']
+        min_err = localiz["eellipse"]['a']
+    
+    ##### Speedup for very large galaxies or very small FRBs #####
+    Ncand = len(cand_ang_size)
+    if return_grids or return_debug or not speedup:
+        small_gs=[]
+        large_gs=[]
+        norm_gs = np.arange(Ncand)
+    else:
+        # we automatically calculate grid spacing based off the properties
+        # of the galaxy and localisation uncertainty
+        gsize = cand_ang_size
+        small_gs = np.where(gsize <= min_err/10.)[0]
+        large_gs = np.where(gsize >= max_err*10)[0]
+        norm_gs = np.where((gsize > min_err/10.) & (gsize < max_err*10.))[0]
+    
+    p_xOis = np.zeros([len(cand_ang_size)])
+    
+    # approximation when galaxies are much small than localisation
+    if len(small_gs) is not None:
+        # call this at galaxy centre only
+        # this is value of localisation at galaxy centre
+        lwxs = localization.calc_LWx(cand_coords.ra.deg[small_gs], cand_coords.dec.deg[small_gs], localiz)
+        p_xOis_small = lwxs
+        p_xOis[small_gs] = lwxs
+    
     # Extract the center coordinate once as plain numpy floats.  Avoids
     # repeated astropy attribute/Quantity access.  The previous
     # equinox-setting line was dropped: it is a no-op for the numpy
@@ -249,12 +283,51 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     center_ra = localiz['center_coord'].ra.deg     # deg
     center_dec = localiz['center_coord'].dec.deg   # deg
     cos_center_dec = np.cos(np.radians(center_dec))  # flat-sky scaling
+    
+    # approximation when galaxies are much larger than localisation
+    for icand in large_gs:
+        # gets galaxy offset prior at localisatiojn centre only
+        theta = 3600*np.sqrt(cos_center_dec**2 * (
+            center_ra-cand_coords.ra.deg[icand])**2 + (center_dec-cand_coords.dec.deg[icand])**2)  # arc sec
+        
+        # p(w|O_i)
+        
+        p_wOi = pw_Oi(theta,
+                      cand_ang_size[icand],  # phi
+                      theta_prior)
+        p_xOis[icand] = p_wOi
+    
+    # for remaining galaxies, calculate box_hwidth and step size
+    # get largest and smallest scales
+    if len(norm_gs) > 0:
+        
+        if speedup:
+            # intelligently calculates grid sizes
+            # these numbers tested to produce small errors
+            max_scale = max(6.*np.max(cand_ang_size[norm_gs]),3.*max_err)
+            min_scale = 0.2*min(np.min(cand_ang_size[norm_gs]),min_err) # 0.1 in sigma
+            box_hwidth = max_scale
+            step_size = min_scale
+        else:
+            # else takes them from the user
+            step_size=0.1
+    else:
+        # return at this point, making a shortcut
+        return p_xOis
+    
+    # Build the fixed grid around the transient
+    ngrid = int(np.round(2*box_hwidth / step_size))
+    x = np.linspace(-box_hwidth, box_hwidth, ngrid)
+    xcoord, ycoord = np.meshgrid(x,x)
 
+    # Grid spacing
+    grid_spacing_arcsec = x[1]-x[0]
+    
     # #####################
     # L(w-x) -- 2D Gaussian, normalized to 1 when integrating over x not omega
     # Approximate as flat sky
     #  Warning:  RA increases in x for these grids!!
-    print('Calculating L(w-x)')
+    
     ra = center_ra + xcoord/3600. / cos_center_dec
     dec = center_dec + ycoord/3600.
     L_wx = localization.calc_LWx(ra, dec, localiz)
@@ -282,12 +355,11 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
     if use_numba_eff:
         print('Using numba for the posterior calculation')
 
-    p_xOis, grids = [], []
+    grids = []
     # TODO -- multiprocess this?
-    print('Looping on candidates')
-    for icand in range(cand_ra.size):
-        if icand % 50 == 0:
-            print(f'icand: {icand}')
+    for icand in norm_gs:
+        #if icand % 50 == 0:
+        #    print(f'icand: {icand}')
 
         if use_numba_eff:
             # Resolve the prior to scalars, then fuse theta/PDF/product/
@@ -335,8 +407,9 @@ def px_Oi_fixedgrid(box_hwidth, localiz, cand_coords,
             p_val /= corr_Lwx
 
         #embed(header='336 of bayesian.py')
-        p_xOis.append(p_val)
-
+        #p_xOis.append(p_val)
+        p_xOis[icand] = p_val
+    
     # Return
     if return_grids:
         return np.array(p_xOis), grids
