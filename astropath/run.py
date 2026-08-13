@@ -317,7 +317,7 @@ def set_anly_sizes(ltype: str, lparam: dict):
                         f"Supported: 'eellipse', 'healpix'")
 
     # Enforce minimum search radius
-    ssize = max(ssize, 10.) # No less than 10 arcmin
+    ssize = max(ssize, 3.) # No less than 3 arcmin
 
     # Max box for PATH analysis (in arcsec)
     max_box = ssize * 60.  # arcsec

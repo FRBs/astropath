@@ -106,12 +106,11 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     true_mr = []
     true_Mr = []
     valid_idx = [] # Track which FRBs have valid results
+    n_before = len(hosts)
     for ii in range(len(hosts)):
         host_row = hosts[ii:ii+1]
         cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
         frb = frbs.iloc[[ii]]
-        # if ii == 106:
-        #     print(cands)
         if len(cands) == 0:
             print(f"FRB {ii} has no candidates — skipping")
             continue
@@ -119,9 +118,14 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         best_cand = cands[0:1]
         best_cands_list.append(best_cand)
 
-        orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
-        true_ras.append(orig_true_host.ra.item())
-        true_decs.append(orig_true_host.dec.item())
+        gal_id_val = host_row['gal_ID'].item()
+        if gal_id_val == -99:                    # random localization: no true host
+            true_ras.append(np.nan)
+            true_decs.append(np.nan)
+        else:
+            orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
+            true_ras.append(orig_true_host.ra.item())
+            true_decs.append(orig_true_host.dec.item())
         true_z.append(frb['z'].values[0])
         true_dmeg.append(frb['DMeg'].values[0])
         true_mr.append(frb['m_r'].values[0])
@@ -131,7 +135,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     # Filter hosts to only valid FRBs so shapes match
     hosts = hosts.iloc[valid_idx].reset_index(drop=True)
     frbs  = frbs.iloc[valid_idx].reset_index(drop=True)
-    print(f"Excluded {len(hosts) - len(valid_idx)} FRBs with no candidates")
+    print(f"Excluded {n_before - len(valid_idx)} FRBs with no candidates")
 
     print("Rename some columns to make concatenation cleaner")
     best_cands = best_cands.rename(
@@ -189,7 +193,11 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     df['correct_association'] = match_criteria
 
     print("Calculate whether true host is seen or unseen in PATH catalog")
-    df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
+    if (df['host_ID'] == -99).all():             # whole run is random; no true host
+        df['unseen'] = np.nan                    # not meaningful for random fields
+        df_unseen = df
+    else:
+        df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
     
     print('Determine which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from')
     df_unseen_hostcat = extract_host_catalog(df_unseen, combined_catalog)
@@ -282,13 +290,17 @@ def extract_host_catalog(digest:pandas.DataFrame, combined_catalog:pandas.DataFr
         id_to_source.update({id_val: col for id_val in matched_ids})
     
     # Instantly map the dictionary to create your new column
-    digest["host_catalog"] = digest["host_ID"].map(id_to_source)
+    digest["host_catalog"] = digest["host_ID"].map(id_to_source).astype(object)
+
+    # Random-field localizations (sentinel host_ID) have no true host by construction
+    digest.loc[digest["host_ID"] == -99, "host_catalog"] = "Random"
     
     # Optional: Fill IDs that didn't find a match anywhere
     digest["host_catalog"] = digest["host_catalog"].fillna("No Match")
     
     return digest
 
+    
 def azimuthal_integrated_prior(u, theta_prior):
     """
     1D radial PDF p(u) where u = theta/phi, obtained by integrating
