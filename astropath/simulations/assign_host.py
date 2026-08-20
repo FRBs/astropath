@@ -11,8 +11,10 @@ import os
 import numpy as np
 import random
 import pandas as pd
+import warnings
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
+from scipy.spatial import cKDTree
 
 from astropy import units
 from astropy.coordinates import SkyCoord, match_coordinates_sky
@@ -84,7 +86,7 @@ def assign_frbs_to_hosts(
             - PA: Position angle (degrees, East of North)
         mag_range (tuple, optional): (min, max) magnitude range for FRB selection.
             FRBs outside this range are filtered out. Default: (17., 28.)
-        offset_function (str, optional): Function to use for generating galaxy positions (exponential, uniform_1d, uniform_2d)
+        offset_function (str, optional): Function to use for generating galaxy positions (exponential, exponential_incorrect, uniform_1d, uniform_2d)
         scale (float, optional): Scale factor for exponential half-light radius or uniform distribution
             outer cutoff when offsetting FRBs due to intrinsic distribution.
             Smaller values concentrate FRBs closer to galaxy centers.
@@ -174,6 +176,348 @@ def assign_frbs_to_hosts(
 
     return df_out
 
+
+def assign_frbs_random(
+    frb_df: pd.DataFrame,
+    galaxy_catalog: pd.DataFrame,
+    localization: Tuple[float, float, float],
+    mag_range: Tuple[float, float] = None,
+    offset_function: str = 'exponential',   # unused; kept for signature parity
+    scale: float = 0.5,                     # unused; kept for signature parity
+    trim_catalog: units.Quantity = 1 * units.arcmin,
+    seed: Optional[int] = None,
+    debug: bool = False,
+    coverage_catalog: pd.DataFrame = None,
+    coverage_radius: units.Quantity = 0.5 * units.deg,
+    include_boxes: List[Tuple[Tuple[float, float], Tuple[float, float]]] = None,
+    max_batches: int = 200,
+) -> pd.DataFrame:
+    """
+    Place FRB localization regions at random positions on-sky WITHIN THE FULL
+    PRE-QUERIED FOOTPRINT, with NO association to a host galaxy.
+
+    Null-hypothesis twin of `assign_frbs_to_hosts`, for measuring the rate of spurious
+    high-confidence PATH associations (P(O|x) > 0.9) at random fields.
+
+    The valid footprint is the UNION of:
+        (1) disks of radius `coverage_radius` around the pre-queried Legacy Surveys /
+            Pan-STARRS centers (~1 deg around bright galaxies), AND
+        (2) any contiguous regions in `include_boxes` (e.g. the HSC-SSP XMM-LSS field).
+    A localization center is accepted if it lands in EITHER (1) OR (2) -- not either/or
+    at the call level, but a true combined footprint. Centers are drawn uniformly on the
+    sphere (RA uniform, Dec uniform in sin(Dec)) over an enclosing box and rejection-
+    tested against this union, so PATH always has catalog coverage over the analysis box.
+
+    Args (differences from `assign_frbs_to_hosts`):
+        coverage_catalog (pd.DataFrame, optional): Centers of the pre-queried disk
+            patches (needs 'ra', 'dec'). Defaults to `galaxy_catalog`; pass the true
+            query-center list if it differs, else the disk footprint may be undersized.
+        coverage_radius (Quantity): Disk radius. Default 1 deg.
+        include_boxes (list of ((ra_min, ra_max), (dec_min, dec_max)), optional):
+            Contiguous fully-covered regions to ADD to the footprint, e.g.
+            XMM-LSS: [((33., 38.), (-7., -2.))]. Boxes are edge-shrunk by `trim_catalog`.
+            Boxes must not wrap RA=0 (a warning is issued if one appears to).
+        offset_function, scale: ignored (no host to place the FRB within).
+
+    Returns:
+        pd.DataFrame with the SAME columns as `assign_frbs_to_hosts`:
+            'ra','dec','a','b','PA','FRB_ID' -- POPULATED
+            'true_ra','true_dec','gal_off','mag','half_light','loc_off' -- NaN
+            'gal_ID' -- -99 int sentinel (build_digest tests this to skip host lookup)
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    _validate_frb_columns(frb_df)
+    _validate_galaxy_columns(galaxy_catalog)
+
+    if coverage_catalog is None:
+        coverage_catalog = galaxy_catalog
+
+    # Mirror the FRB subset assign_frbs_to_hosts would use (default None -> all FRBs)
+    if mag_range is not None:
+        mag_cut = (frb_df['m_r'] >= mag_range[0]) & (frb_df['m_r'] <= mag_range[1])
+    else:
+        mag_cut = np.ones(len(frb_df), dtype=bool)
+    cut_frbs = frb_df[mag_cut].copy()
+
+    if len(cut_frbs) == 0:
+        raise ValueError(
+            f"No FRBs remain after magnitude cut [{mag_range[0]}, {mag_range[1]}]. "
+            f"Input m_r range: [{frb_df['m_r'].min():.2f}, {frb_df['m_r'].max():.2f}]"
+        )
+    n_needed = len(cut_frbs)
+    print(f"Placing {n_needed} random localizations within pre-queried footprint "
+          f"(filtered from {len(frb_df)})")
+
+    # --- Disk geometry -------------------------------------------------------
+    R = coverage_radius.to(units.deg).value
+    buf = trim_catalog.to(units.deg).value
+    R_eff = R - buf
+    if R_eff <= 0:
+        raise ValueError(
+            f"coverage_radius ({R} deg) must exceed trim_catalog ({buf} deg)."
+        )
+    chord_thresh = 2.0 * np.sin(np.radians(R_eff) / 2.0)  # chord length for ang sep R_eff
+
+    cov_xyz = _radec_to_unitvec(coverage_catalog['ra'].values,
+                                coverage_catalog['dec'].values)
+    tree = cKDTree(cov_xyz)
+
+    # --- Box geometry (edge-shrunk by trim buffer) ---------------------------
+    shrunk_boxes = []
+    if include_boxes:
+        for (ra_lo, ra_hi), (dec_lo, dec_hi) in include_boxes:
+            if ra_hi - ra_lo > 180.:
+                warnings.warn(
+                    f"include_box RA span ({ra_lo},{ra_hi}) may wrap RA=0; "
+                    "box membership test assumes no wrap."
+                )
+            # RA buffer scaled by cos(dec) so the shrink is a true angular buffer
+            cosd = np.cos(np.radians(0.5 * (dec_lo + dec_hi)))
+            ra_buf = buf / max(cosd, 1e-6)
+            shrunk_boxes.append((
+                (ra_lo + ra_buf, ra_hi - ra_buf),
+                (dec_lo + buf, dec_hi - buf),
+            ))
+
+    # --- Enclosing sampling box (covers disks AND boxes) ---------------------
+    # Full RA because the disk footprint wraps across RA=0; empty RA is rejected.
+    ra_lo_s, ra_hi_s = 0.0, 360.0
+    dec_lo_s = coverage_catalog['dec'].min() - R
+    dec_hi_s = coverage_catalog['dec'].max() + R
+    if shrunk_boxes:
+        dec_lo_s = min(dec_lo_s, min(b[1][0] for b in shrunk_boxes))
+        dec_hi_s = max(dec_hi_s, max(b[1][1] for b in shrunk_boxes))
+    dec_lo_s = max(-90.0, dec_lo_s)
+    dec_hi_s = min(90.0, dec_hi_s)
+    sin_lo, sin_hi = np.sin(np.radians(dec_lo_s)), np.sin(np.radians(dec_hi_s))
+
+    # --- Rejection sampling: uniform-on-sky within (disks UNION boxes) -------
+    accepted_ra, accepted_dec = [], []
+    n_acc, n_tried = 0, 0
+    batch = max(4 * n_needed, 2000)
+    for _ in range(max_batches):
+        if n_acc >= n_needed:
+            break
+        cand_ra = np.random.uniform(ra_lo_s, ra_hi_s, size=batch)
+        cand_dec = np.degrees(np.arcsin(np.random.uniform(sin_lo, sin_hi, size=batch)))
+        dist, _ = tree.query(_radec_to_unitvec(cand_ra, cand_dec), k=1)
+        keep = (dist <= chord_thresh) | _in_boxes(cand_ra, cand_dec, shrunk_boxes)
+        accepted_ra.append(cand_ra[keep])
+        accepted_dec.append(cand_dec[keep])
+        n_acc += int(keep.sum())
+        n_tried += batch
+        p = max(n_acc / max(n_tried, 1), 1e-4)          # adapt to measured acceptance
+        remaining = n_needed - n_acc
+        batch = int(np.clip(1.5 * remaining / p, 2000, 5_000_000)) if remaining > 0 else batch
+    else:
+        raise RuntimeError(
+            f"Only generated {n_acc}/{n_needed} localizations after {max_batches} batches "
+            f"(acceptance ~{n_acc/max(n_tried,1):.4f}). Footprint may be tiny relative to "
+            f"the sampling box, or coverage_radius/include_boxes too small."
+        )
+
+    rand_ra = np.concatenate(accepted_ra)[:n_needed]
+    rand_dec = np.concatenate(accepted_dec)[:n_needed]
+
+    if debug:
+        p = n_acc / max(n_tried, 1)
+        box_area = (ra_hi_s - ra_lo_s) * (sin_hi - sin_lo) * (180.0 / np.pi)  # sq deg
+        # Fraction of accepted points that came via a box (overlap counts as box)
+        if shrunk_boxes:
+            in_box_final = _in_boxes(rand_ra, rand_dec, shrunk_boxes)
+            print(f"{in_box_final.sum()}/{n_needed} localizations fell in include_boxes")
+        print(f"acceptance ~{p:.4f}  ->  footprint area ~{p * box_area:.1f} sq deg")
+        print(f"RA sampled [{ra_lo_s:.2f}, {ra_hi_s:.2f}], "
+              f"Dec [{dec_lo_s:.3f}, {dec_hi_s:.3f}], R_eff={R_eff:.4f} deg")
+
+    # --- Output (same columns / dummy scheme as assign_frbs_to_hosts) --------
+    a, b, PA = localization
+    nan_col = np.full(n_needed, np.nan)
+    return pd.DataFrame({
+        'ra':         rand_ra,
+        'dec':        rand_dec,
+        'true_ra':    nan_col,
+        'true_dec':   nan_col,
+        'gal_ID':     np.full(n_needed, -99, dtype=int),   # sentinel: no host
+        'gal_off':    nan_col,
+        'mag':        nan_col,
+        'half_light': nan_col,
+        'loc_off':    nan_col,
+        'FRB_ID':     cut_frbs.index.values,
+        'a':          np.full(n_needed, a,  dtype=float),
+        'b':          np.full(n_needed, b,  dtype=float),
+        'PA':         np.full(n_needed, PA, dtype=float),
+    })
+    
+
+def assign_frbs_random_box(
+    frb_df: pd.DataFrame,
+    galaxy_catalog: pd.DataFrame,
+    localization: Tuple[float, float, float],
+    mag_range: Tuple[float, float] = None,
+    offset_function: str = 'exponential',   # unused; signature parity
+    scale: float = 0.5,                     # unused; signature parity
+    trim_catalog: units.Quantity = 1 * units.arcmin,
+    seed: Optional[int] = None,
+    debug: bool = False,
+    coverage_catalog: pd.DataFrame = None,
+    coverage_box_width: units.Quantity = 0.7 * units.deg,
+    include_boxes: List[Tuple[Tuple[float, float], Tuple[float, float]]] = None,
+    max_batches: int = 200,
+) -> pd.DataFrame:
+    """
+    Place FRB localization regions at random positions on-sky within the PATH
+    footprint, with NO association to a host galaxy. Null-hypothesis twin of
+    `assign_frbs_to_hosts` for measuring the spurious high-confidence rate
+    (P(O|x) > 0.9).
+
+    Footprint = (union of `coverage_box_width` x `coverage_box_width` boxes in RAW
+    RA/Dec degrees around each `coverage_catalog` center, i.e. the HECATE hosts)
+    UNION (`include_boxes`, e.g. the XMM-LSS field). Boxes are NOT cos(dec)-scaled,
+    matching how the PATH catalog was queried. Centers are drawn uniformly on the
+    sphere (RA uniform, Dec uniform in sin Dec) and accepted only inside the
+    footprint, shrunk by `trim_catalog` so PATH always has coverage over the box.
+
+    Args (differences from assign_frbs_to_hosts):
+        coverage_catalog: centers of the per-host query boxes ('ra','dec'); the
+            HECATE hosts. Defaults to galaxy_catalog. Pass the exact HECATE subset.
+        coverage_box_width: full box width per host (default 1 deg -> +/-0.5 deg).
+        include_boxes: fully-covered regions to ADD, e.g. XMM-LSS
+            [((33.575, 37.795), (-6.103, -3.191))].
+        offset_function, scale: ignored (no host to place the FRB within).
+
+    Returns:
+        Same columns as assign_frbs_to_hosts:
+            'ra','dec','a','b','PA','FRB_ID' -- POPULATED
+            'true_ra','true_dec','gal_off','mag','half_light','loc_off' -- NaN
+            'gal_ID' -- -99 int sentinel (build_digest tests this)
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    _validate_frb_columns(frb_df)
+    _validate_galaxy_columns(galaxy_catalog)
+    if coverage_catalog is None:
+        coverage_catalog = galaxy_catalog
+
+    if mag_range is not None:
+        mag_cut = (frb_df['m_r'] >= mag_range[0]) & (frb_df['m_r'] <= mag_range[1])
+    else:
+        mag_cut = np.ones(len(frb_df), dtype=bool)
+    cut_frbs = frb_df[mag_cut].copy()
+    if len(cut_frbs) == 0:
+        raise ValueError(
+            f"No FRBs remain after magnitude cut [{mag_range[0]}, {mag_range[1]}]."
+        )
+    n_needed = len(cut_frbs)
+    print(f"Placing {n_needed} random localizations (filtered from {len(frb_df)})")
+
+    half = coverage_box_width.to(units.deg).value / 2.0
+    buf = trim_catalog.to(units.deg).value
+    half_eff = half - buf
+    if half_eff <= 0:
+        raise ValueError(
+            f"trim_catalog ({buf} deg) must be < box half-width ({half} deg)."
+        )
+
+    # Chebyshev (box) membership: nearest center in (ra,dec) coord space, p=inf
+    centers = np.column_stack([coverage_catalog['ra'].values,
+                               coverage_catalog['dec'].values])
+    tree = cKDTree(centers)
+
+    shrunk_boxes = []
+    if include_boxes:
+        for (ra_lo, ra_hi), (dec_lo, dec_hi) in include_boxes:
+            shrunk_boxes.append(((ra_lo + buf, ra_hi - buf),
+                                 (dec_lo + buf, dec_hi - buf)))
+
+    ra_lo_s, ra_hi_s = 0.0, 360.0
+    dec_lo_s = coverage_catalog['dec'].min() - half
+    dec_hi_s = coverage_catalog['dec'].max() + half
+    if shrunk_boxes:
+        dec_lo_s = min(dec_lo_s, min(b[1][0] for b in shrunk_boxes))
+        dec_hi_s = max(dec_hi_s, max(b[1][1] for b in shrunk_boxes))
+    dec_lo_s = max(-90.0, dec_lo_s)
+    dec_hi_s = min(90.0, dec_hi_s)
+    sin_lo, sin_hi = np.sin(np.radians(dec_lo_s)), np.sin(np.radians(dec_hi_s))
+
+    accepted_ra, accepted_dec = [], []
+    n_acc, n_tried = 0, 0
+    batch = max(8 * n_needed, 5000)
+    for _ in range(max_batches):
+        if n_acc >= n_needed:
+            break
+        cand_ra = np.random.uniform(ra_lo_s, ra_hi_s, size=batch)
+        cand_dec = np.degrees(np.arcsin(
+            np.random.uniform(sin_lo, sin_hi, size=batch)))
+        dist, _ = tree.query(np.column_stack([cand_ra, cand_dec]), k=1, p=np.inf)
+        keep = (dist <= half_eff) | _in_boxes(cand_ra, cand_dec, shrunk_boxes)
+        accepted_ra.append(cand_ra[keep])
+        accepted_dec.append(cand_dec[keep])
+        n_acc += int(keep.sum())
+        n_tried += batch
+        p = max(n_acc / max(n_tried, 1), 1e-5)
+        remaining = n_needed - n_acc
+        batch = int(np.clip(1.5 * remaining / p, 5000, 20_000_000)) if remaining > 0 else batch
+    else:
+        raise RuntimeError(
+            f"Only generated {n_acc}/{n_needed} localizations after {max_batches} "
+            f"batches (acceptance ~{n_acc/max(n_tried,1):.5f}). Footprint tiny vs box, "
+            f"or coverage_box_width/include_boxes too small."
+        )
+
+    rand_ra = np.concatenate(accepted_ra)[:n_needed]
+    rand_dec = np.concatenate(accepted_dec)[:n_needed]
+
+    if debug:
+        p = n_acc / max(n_tried, 1)
+        box_area = (ra_hi_s - ra_lo_s) * (sin_hi - sin_lo) * (180.0 / np.pi)
+        print(f"acceptance ~{p:.5f} -> footprint ~{p * box_area:.1f} sq deg")
+        if shrunk_boxes:
+            ib = _in_boxes(rand_ra, rand_dec, shrunk_boxes)
+            print(f"{ib.sum()}/{n_needed} localizations in include_boxes")
+
+    a, b, PA = localization
+    nan_col = np.full(n_needed, np.nan)
+    return pd.DataFrame({
+        'ra':         rand_ra,
+        'dec':        rand_dec,
+        'true_ra':    nan_col,
+        'true_dec':   nan_col,
+        'gal_ID':     np.full(n_needed, -99, dtype=int),
+        'gal_off':    nan_col,
+        'mag':        nan_col,
+        'half_light': nan_col,
+        'loc_off':    nan_col,
+        'FRB_ID':     cut_frbs.index.values,
+        'a':          np.full(n_needed, a,  dtype=float),
+        'b':          np.full(n_needed, b,  dtype=float),
+        'PA':         np.full(n_needed, PA, dtype=float),
+    })
+
+    
+def _radec_to_unitvec(ra_deg, dec_deg):
+    """RA/Dec (deg) -> 3D unit vectors, shape (N, 3). Wrap-safe by construction."""
+    ra = np.radians(np.asarray(ra_deg, dtype=float))
+    dec = np.radians(np.asarray(dec_deg, dtype=float))
+    cos_dec = np.cos(dec)
+    return np.column_stack([cos_dec * np.cos(ra),
+                            cos_dec * np.sin(ra),
+                            np.sin(dec)])
+
+
+def _in_boxes(ra_deg, dec_deg, boxes):
+    """Boolean mask: True where (ra, dec) falls in ANY box. Boxes already edge-shrunk."""
+    ra = np.asarray(ra_deg, dtype=float)
+    dec = np.asarray(dec_deg, dtype=float)
+    inside = np.zeros(ra.shape, dtype=bool)
+    for (ra_lo, ra_hi), (dec_lo, dec_hi) in boxes:
+        inside |= (ra >= ra_lo) & (ra <= ra_hi) & (dec >= dec_lo) & (dec <= dec_hi)
+    return inside
 
 
 def _validate_frb_columns(frb_df: pd.DataFrame):
@@ -366,12 +710,15 @@ def _generate_galaxy_positions(
         unit='deg'
     )
 
-
     if function == 'exponential':
         # Gamma(2, scale) gives p(r) ∝ r·exp(-r/scale), matching the
         # PATH per-solid-angle exponential prior
         randn = np.random.gamma(shape=2, scale=scale, size=10 * n_frbs)
         good = randn < 6.
+        randn = randn[good][:n_frbs]
+    elif function == 'exponential_incorrect':
+        randn = np.random.exponential(scale=scale, size=10 * n_frbs)
+        good = np.abs(randn) < (6.)
         randn = randn[good][:n_frbs]
     elif function == 'uniform_1d':
         # Uniform when integrated over azimuth
@@ -387,7 +734,7 @@ def _generate_galaxy_positions(
     #    good = np.abs(randn) < (6.)
     #    randn = randn[good][:n_frbs]
     else:
-        raise ValueError(f"Invalid offset function: {function} (options: 'exponential', 'uniform_1d', uniform_2d'")
+        raise ValueError(f"Invalid offset function: {function} (options: 'exponential', 'exponential_incorrect', 'uniform_1d', uniform_2d'")
 
     # Generate offsets
     galaxy_offsets = randn * galaxy_sample.half_light.values * units.arcsec
