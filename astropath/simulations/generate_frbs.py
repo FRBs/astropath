@@ -367,7 +367,9 @@ def generate_frbs(n_frbs, survey, dm_catalog=None,
 
     # Load the survey-specific P(z,DM) grid
     # First load CHIME grid to get z and DM arrays (they're the same for all)
-    grid_data = prob_dmz.grab_repo_grid(SURVEY_GRIDS[survey])
+    # grid_data = prob_dmz.grab_repo_grid(SURVEY_GRIDS[survey])
+    pzdm_james23_fn = files('astropath.data') / 'simulations' / 'CHIME_progenitors_james23_case_bestfit.npz'
+    grid_data = np.load(pzdm_james23_fn)
     zvals = grid_data['z']
     dmvals = grid_data['DM']
     pzdm = grid_data['pzdm']
