@@ -970,13 +970,13 @@ def _extract_dm(frb_df: pd.DataFrame, localization: LocalizationLike):
     """
     if not _needs_dm(localization):
         return None
-    if 'DM' not in frb_df.columns:
+    if 'DMeg' not in frb_df.columns:
         raise ValueError(
             "Joint (DM, a, b, PA) localization sampling requires a 'DM' column in the FRB "
             f"DataFrame (extragalactic DM), but columns are {list(frb_df.columns)}. "
             "Pass a 3-column (a, b, PA) population to sample localizations independently."
         )
-    return frb_df['DM'].values
+    return frb_df['DMeg'].values
 
 
 def _validate_frb_columns(frb_df: pd.DataFrame):
