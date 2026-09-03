@@ -1252,9 +1252,9 @@ def _apply_localization_error(
     a_ax, b_ax, pa = loc[:, 0], loc[:, 1], loc[:, 2]
 
     # Generate offsets along major and minor axes (truncated to 3 sigma)
-    randn = np.random.normal(size=10 * n_frbs)
-    good = np.abs(randn) < 3.
-    randn = randn[good]
+    randn = np.random.normal(size=10*n_frbs)
+    # good = np.abs(randn) < 3.
+    # randn = randn[good]
     if len(randn) < 2 * n_frbs:
         raise RuntimeError(
             f"Truncated-normal draw produced only {len(randn)} of {2 * n_frbs} required values"

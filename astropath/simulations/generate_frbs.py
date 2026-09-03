@@ -66,7 +66,7 @@ def kde_dm(data, c=60., npts=1400, dm_max=3200.):
 
 
 def sample_dm_from_catalog(dm_values, n_samples, dm_range:tuple=None,
-                           n_kde_points=2000, seed=None):
+                           n_kde_points=2000, seed=None, rng=None):
     """
     Sample DM values from a KDE fit to observed catalog DMs.
 
