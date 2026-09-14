@@ -837,7 +837,7 @@ def plot_color_image(
     if has_second_cand:
         angsize_display = 2*angsize_second_cand/3600.-2*angsize_second_cand/10./3600.
         fig.show_ellipses(ra_second_cand, dec_second_cand, angsize_display, angsize_display, angle=0., edgecolor='xkcd:green', linestyle='dotted', lw=3, zorder=101)
-        label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_true_host)
+        label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_second_cand)
         fig.add_label(ra_second_cand - label_offset, dec_second_cand + label_offset, label_str, relative=False, family='sans-serif', size=20, color='xkcd:green', weight='bold')
     label_str = "$P(U|x)$ = {0:.2f}%".format(PUx*100)
     fig.add_label(0.18, 0.06, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold')
