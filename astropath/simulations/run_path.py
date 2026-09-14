@@ -143,17 +143,38 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         galaxy_coords, frb_coords, maxx_box*units.arcsec)
 
 
+    # print("Slicing...")
+    # list_candidates = []
+    # for kk in range(nFRB):
+    #     if (kk % 1000) == 0:
+    #         print('kk: ', kk)
+    #     in_idx2 = np.where(idx2 == kk)[0]
+    #     gd_gal = idx1[in_idx2]
+    #     close_galaxies = catalog.iloc[gd_gal][
+    #         ['ang_size', 'mag', 'ra', 'dec', 'ID']].copy()
+    #     # close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
+    #     list_candidates.append(close_galaxies)
     print("Slicing...")
+    cols = ['ang_size', 'mag', 'ra', 'dec', 'ID']
+    col_arrays = {c: catalog[c].to_numpy() for c in cols}
+    cat_index = catalog.index.to_numpy()
+    
+    # Group the pair list by FRB in one pass instead of nFRB full scans.
+    # 'stable' keeps the within-group ordering identical to np.where's.
+    order = np.argsort(idx2, kind='stable')
+    idx1_by_frb = idx1[order]
+    del order
+    starts = np.concatenate(([0], np.cumsum(np.bincount(idx2, minlength=nFRB))))
+    
     list_candidates = []
     for kk in range(nFRB):
-        if (kk % 1000) == 0:
-            print('kk: ', kk)
-        in_idx2 = np.where(idx2 == kk)[0]
-        gd_gal = idx1[in_idx2]
-        close_galaxies = catalog.iloc[gd_gal][
-            ['ang_size', 'mag', 'ra', 'dec', 'ID']].copy()
-        # close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
-        list_candidates.append(close_galaxies)
+      gd_gal = idx1_by_frb[starts[kk]:starts[kk+1]]
+      list_candidates.append(pandas.DataFrame(
+          {c: col_arrays[c][gd_gal] for c in cols},
+          index=cat_index[gd_gal],
+      ))
+    
+    del col_arrays, cat_index, idx1_by_frb
 
     # Slicing done — the full catalog and coords are no longer needed
     # Delete them BEFORE creating the pool so workers don't inherit 31.5G
