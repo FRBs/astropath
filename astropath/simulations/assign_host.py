@@ -1253,6 +1253,7 @@ def _apply_localization_error(
 
     # Generate offsets along major and minor axes (truncated to 3 sigma)
     randn = np.random.normal(size=10*n_frbs)
+    # BCA: removed truncation... why did this exist to begin with?
     # good = np.abs(randn) < 3.
     # randn = randn[good]
     if len(randn) < 2 * n_frbs:
