@@ -35,8 +35,7 @@ from reproject.mosaicking import reproject_and_coadd
 from scipy.special import i0e # i0e(x) = I_0(x)·exp(−x), numerically stable
 
 
-def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
-                 output_fn:str=None, thresh_cross_match:float=0.5):
+def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, output_fn:str=None, thresh_cross_match:float=1.):
     """
     Combines together the pandas.DataFrame from each simulation step into a "digest"
     DataFrame that can be easily parsed to make informative plots about the simulation results
@@ -92,45 +91,83 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     """
 
     print("Get parameters from the simulation results dataframe")
-    # (like galaxy ID, ra, dec, angular size, magnitude, separation, PATH parameters, etc)
-    # and append them to the hosts dataframe to construct a dataframe useful for plotting
-    best_cands_list = []
-    true_ras = []
-    true_decs = []
-    true_mags = []
-    true_ang_size = []
-    true_z = []
-    true_dmeg = []
-    true_dmhost = []
-    true_dmcosmic = []
-    true_mr = []
-    true_Mr = []
-    valid_idx = [] # Track which FRBs have valid results
-    n_before = len(hosts)
-    for ii in range(len(hosts)):
-        host_row = hosts[ii:ii+1]
-        cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
-        frb = frbs.iloc[[ii]]
-        if len(cands) == 0:
-            print(f"FRB {ii} has no candidates — skipping")
-            continue
-        valid_idx.append(ii)
-        best_cand = cands[0:1]
-        best_cands_list.append(best_cand)
+    # # (like galaxy ID, ra, dec, angular size, magnitude, separation, PATH parameters, etc)
+    # # and append them to the hosts dataframe to construct a dataframe useful for plotting
+    # best_cands_list = []
+    # true_ras = []
+    # true_decs = []
+    # true_mags = []
+    # true_ang_size = []
+    # true_z = []
+    # true_dmeg = []
+    # true_dmhost = []
+    # true_dmcosmic = []
+    # true_mr = []
+    # true_Mr = []
+    # valid_idx = [] # Track which FRBs have valid results
+    # n_before = len(hosts)
+    # for ii in range(len(hosts)):
+    #     host_row = hosts[ii:ii+1]
+    #     cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
+    #     frb = frbs.iloc[[ii]]
+    #     if len(cands) == 0:
+    #         print(f"FRB {ii} has no candidates — skipping")
+    #         continue
+    #     valid_idx.append(ii)
+    #     best_cand = cands[0:1]
+    #     best_cands_list.append(best_cand)
 
-        gal_id_val = host_row['gal_ID'].item()
-        if gal_id_val == -99:                    # random localization: no true host
-            true_ras.append(np.nan)
-            true_decs.append(np.nan)
-        else:
-            orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
-            true_ras.append(orig_true_host.ra.item())
-            true_decs.append(orig_true_host.dec.item())
-        true_z.append(frb['z'].values[0])
-        true_dmeg.append(frb['DMeg'].values[0])
-        true_mr.append(frb['m_r'].values[0])
-        true_Mr.append(frb['M_r'].values[0])
-    best_cands = pandas.concat(best_cands_list, ignore_index=True)
+    #     gal_id_val = host_row['gal_ID'].item()
+    #     if gal_id_val == -99:                    # random localization: no true host
+    #         true_ras.append(np.nan)
+    #         true_decs.append(np.nan)
+    #     else:
+    #         orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
+    #         true_ras.append(orig_true_host.ra.item())
+    #         true_decs.append(orig_true_host.dec.item())
+    #     true_z.append(frb['z'].values[0])
+    #     true_dmeg.append(frb['DMeg'].values[0])
+    #     true_mr.append(frb['m_r'].values[0])
+    #     true_Mr.append(frb['M_r'].values[0])
+    nhosts = len(hosts)
+    iFRB = raw_sim_results['iFRB'].to_numpy()
+    
+    # First row of each iFRB group, in the table's existing order -- exactly what
+    # cands[0:1] picked. (run_dict_wrapper sorts each block by P_Ox descending, so
+    # that row is the best candidate, but this does not rely on it.)
+    order = np.argsort(iFRB, kind='stable')
+    s = iFRB[order]
+    starts = np.concatenate(([True], s[1:] != s[:-1]))
+    first_of_group, present = order[starts], s[starts]
+    
+    keep = (present >= 0) & (present < nhosts)
+    valid_idx = present[keep]
+    best_cands = raw_sim_results.iloc[first_of_group[keep]].reset_index(drop=True)
+    
+    for ii in np.setdiff1d(np.arange(nhosts), valid_idx, assume_unique=True):
+      print(f"FRB {ii} has no candidates — skipping")
+    
+    # One hash lookup instead of a full catalog scan per FRB
+    gal_ids = hosts['gal_ID'].to_numpy()[valid_idx]
+    true_ras = np.full(len(valid_idx), np.nan)
+    true_decs = np.full(len(valid_idx), np.nan)
+    real = gal_ids != -99
+    if real.any():
+      pos = pandas.Index(combined_catalog['ID']).get_indexer(gal_ids[real])
+      if (pos < 0).any():
+          raise ValueError(f"{int((pos < 0).sum())} host gal_ID values not found "
+                           f"in combined_catalog['ID']")
+      true_ras[real] = combined_catalog['ra'].to_numpy()[pos]
+      true_decs[real] = combined_catalog['dec'].to_numpy()[pos]
+    
+    true_z    = frbs['z'].to_numpy()[valid_idx]
+    true_dmeg = frbs['DMeg'].to_numpy()[valid_idx]
+    true_mr   = frbs['m_r'].to_numpy()[valid_idx]
+    true_Mr   = frbs['M_r'].to_numpy()[valid_idx]
+    
+    n_before = nhosts
+    valid_idx = list(valid_idx)
+    # best_cands = pandas.concat(best_cands_list, ignore_index=True)
 
     # Filter hosts to only valid FRBs so shapes match
     hosts = hosts.iloc[valid_idx].reset_index(drop=True)
@@ -200,7 +237,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
     
     print('Determine which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from')
-    df_unseen_hostcat = extract_host_catalog(df_unseen, combined_catalog)
+    df_unseen_hostcat = extract_host_catalog_sga(df_unseen, combined_catalog)
 
     if output_fn is not None:
         print("Saving to file: {}".format(output_fn))
@@ -210,7 +247,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
 
 
 def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
-                     mag_limit:float=15., thresh_cross_match:float=0.5):
+                     mag_limit:float=None, thresh_cross_match:float=1.):
     """
     Determines whether a set of FRB host galaxies (hosts) is "unseen" (not detected
     as a source) in the given galaxy catalog of limited magnitude depths
@@ -298,6 +335,76 @@ def extract_host_catalog(digest:pandas.DataFrame, combined_catalog:pandas.DataFr
     # Optional: Fill IDs that didn't find a match anywhere
     digest["host_catalog"] = digest["host_catalog"].fillna("No Match")
     
+    return digest
+    
+
+def extract_host_catalog_sga(digest: pandas.DataFrame,
+                             combined_catalog: pandas.DataFrame,
+                             priority=("SGA", "DECaL_ID", "Pan-STARRS_ID",
+                                       "HSC_ID", "HECATE_ID")):
+    """
+    Determines which galaxy catalog ("SGA", "DECaLs", "Pan-STARRS", "HSC" or
+    "HECATE") each true host was selected from.
+
+    SGA membership is flagged by the boolean `is_sga` column rather than by a
+    dedicated ID column, so an SGA galaxy also carries an ID in one of the
+    survey columns (usually DECaL_ID).  It is therefore applied as an override
+    on top of whichever ID matched.
+
+    Args:
+        digest (pandas.DataFrame): Simulation digest (see build_digest), must
+            contain column: `host_ID`
+        combined_catalog (pandas.DataFrame): The combined catalog dataframe
+        priority (tuple): Labels ordered most- to least-specific.  When one
+            host_ID appears in several catalogs, the earliest label wins.
+
+    Returns:
+        pandas.DataFrame: digest with a `host_catalog` column indicating which
+            galaxy catalog the true host was selected from.
+    """
+    id_columns = ["DECaL_ID", "Pan-STARRS_ID", "HSC_ID", "SDSS_PHOTID"]
+    label_of = {"SDSS_PHOTID": "HECATE_ID"}
+
+    # Get unique IDs from digest to minimize search space
+    digest_ids = pandas.Index(digest["host_ID"].dropna().unique())
+    rank = {label: i for i, label in enumerate(priority)}
+
+    # is_sga may arrive as object/nullable-boolean with NaNs; NaN is truthy to
+    # numpy, so coerce explicitly rather than relying on the raw column.
+    if "is_sga" in combined_catalog.columns:
+        is_sga = combined_catalog["is_sga"].fillna(False).astype(bool).to_numpy()
+    else:
+        is_sga = np.zeros(len(combined_catalog), dtype=bool)
+
+    valid_columns = [c for c in id_columns if c in combined_catalog.columns]
+
+    # Build a lookup dictionary from combined_catalog, resolving multi-catalog
+    # membership by `priority` rather than by column processing order.
+    id_to_source = {}
+    for col in valid_columns:
+        # Get valid, non-null IDs from this column that exist in digest
+        ids = combined_catalog[col]
+        hit = (ids.notna() & ids.isin(digest_ids)).to_numpy()
+        if not hit.any():
+            continue
+
+        base_label = label_of.get(col, col)
+        labels = np.where(is_sga[hit], "SGA", base_label)
+
+        for id_val, label in zip(ids.to_numpy()[hit], labels):
+            previous = id_to_source.get(id_val)
+            if previous is None or rank.get(label, len(rank)) < rank.get(previous, len(rank)):
+                id_to_source[id_val] = label
+
+    # Map the dictionary to create the new column
+    digest["host_catalog"] = digest["host_ID"].map(id_to_source).astype(object)
+
+    # Random-field localizations (sentinel host_ID) have no true host by construction
+    digest.loc[digest["host_ID"] == -99, "host_catalog"] = "Random"
+
+    # Fill IDs that didn't find a match anywhere
+    digest["host_catalog"] = digest["host_catalog"].fillna("No Match")
+
     return digest
 
     
