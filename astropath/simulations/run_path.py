@@ -95,7 +95,7 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
     else:
         nFRB = len(frbs)
 
-    # Generate the FRB dicts
+    print("Generate the FRB dicts")
     FRB_dicts = []
     maxx_box = 0.
     for index, row in frbs.iterrows():
@@ -132,12 +132,12 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
         FRB_dicts.append(idict)
 
     # ####################################################
-    # Build the galaxy catalog tables
+    print("Galaxy catalog cross-match")
     frb_coords = SkyCoord(ra=frbs.ra.values,
                           dec=frbs.dec.values, unit='deg')   
     galaxy_coords = SkyCoord(ra=catalog.ra.values,
                              dec=catalog.dec.values, unit='deg')
-
+    
     # Search
     idx1, idx2, sep2d, _ = search_around_sky(
         galaxy_coords, frb_coords, maxx_box*units.arcsec)

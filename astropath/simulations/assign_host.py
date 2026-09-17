@@ -558,7 +558,7 @@ def assign_frbs_to_hosts(
         raise ValueError("No galaxies remain after trimming catalog edges")
 
     # Match FRBs to galaxies by magnitude
-    galaxy_indices = _match_by_magnitude(cut_frbs, galaxy_cut, debug=debug)
+    galaxy_indices = _match_by_magnitude_fast(cut_frbs, galaxy_cut, debug=debug)
     galaxy_sample = galaxy_cut.loc[galaxy_indices]
 
     # Generate FRB positions within galaxies
@@ -1020,6 +1020,253 @@ def _trim_catalog(galaxy_df: pd.DataFrame, trim: units.Quantity) -> pd.DataFrame
     cut_dec = (dec > (dec_min + trim)) & (dec < (dec_max - trim))
 
     return galaxy_df[cut_ra & cut_dec]
+
+def _match_by_magnitude_fast(frb_df, galaxy_df, allow_duplicates=True,
+                            duplicate_tol=0.05, order='scarcity', debug=True):
+    """Match FRBs to galaxies by magnitude, one pass, no replacement.
+
+    Args:
+        frb_df: FRB catalog with 'm_r'.
+        galaxy_df: Galaxy catalog with 'mag'.
+        allow_duplicates: permit reuse where the catalog cannot supply.
+        duplicate_tol: magnitude tolerance defining "cannot supply", mag.
+        order: FRB processing order. 'scarcity' serves the rarest magnitudes
+            first (best fidelity where supply is thin), 'bright', or 'random'.
+        debug: print a summary.
+
+    Returns:
+        Array of galaxy DataFrame index labels, one per FRB.
+    """
+    fm = frb_df['m_r'].to_numpy(float)
+    gm = galaxy_df['mag'].to_numpy(float)
+    glab = galaxy_df.index.to_numpy()
+    n, ng = len(fm), len(gm)
+
+    gs = np.argsort(gm, kind='stable')
+    smag = gm[gs]
+
+    if order == 'scarcity':
+        # supply/demand per 0.25 mag; serve the most oversubscribed FRBs first
+        e = np.arange(np.floor(min(fm.min(), smag[0])), fm.max() + 0.25, 0.25)
+        dem = np.histogram(fm, e)[0].astype(float)
+        sup = np.histogram(smag, e)[0].astype(float)
+        press = np.where(sup > 0, dem / np.maximum(sup, 1e-9), np.inf)
+        seq = np.argsort(-press[np.clip(np.searchsorted(e, fm) - 1, 0, len(press) - 1)],
+                         kind='stable')
+    elif order == 'bright':
+        seq = np.argsort(fm, kind='stable')
+    else:
+        seq = np.random.default_rng(0).permutation(n)
+
+    # path-compressed pointers: nxt[i] = smallest free slot >= i (ng = none);
+    # prv[i] = largest free slot <= i (-1 = none)
+    nxt = np.arange(ng + 1)
+    prv = np.arange(ng + 1)          # prv[i] == i means "i is free" (as in nxt)
+
+    def find_n(i):
+        r = i
+        while r < ng and nxt[r] != r:
+            r = nxt[r]
+        while i < ng and nxt[i] != i:
+            nxt[i], i = r, nxt[i]
+        return r
+
+    def find_p(i):
+        r = i
+        while r >= 0 and prv[r] != r:
+            r = prv[r]
+        while i >= 0 and prv[i] != i:
+            prv[i], i = r, prv[i]
+        return r
+
+    k0 = np.searchsorted(smag, fm)
+    out = np.empty(n, dtype=glab.dtype)
+    for i in seq:
+        r = find_n(min(k0[i], ng))
+        l = find_p(min(k0[i], ng) - 1)
+        if r >= ng and l < 0:
+            if not allow_duplicates:
+                raise RuntimeError(
+                    f"galaxy catalog exhausted: {n} FRBs, {ng} galaxies. "
+                    "Pass allow_duplicates=True.")
+            # every galaxy is taken; reuse the nearest in magnitude
+            kk = min(max(k0[i], 1), ng - 1)
+            j = kk if abs(smag[kk] - fm[i]) < abs(smag[kk - 1] - fm[i]) else kk - 1
+            out[i] = glab[gs[j]]
+            continue
+        if r >= ng or (l >= 0 and (fm[i] - smag[l]) <= (smag[r] - fm[i])):
+            j = l
+        else:
+            j = r
+        out[i] = glab[gs[j]]
+        nxt[j] = j + 1          # splice out
+        prv[j] = j - 1
+
+    err = np.abs(gm[pd.Index(glab).get_indexer(out)] - fm)
+    if allow_duplicates:
+        k = np.clip(np.searchsorted(smag, fm), 1, ng - 1)
+        d_ideal = np.minimum(np.abs(smag[k] - fm), np.abs(smag[k - 1] - fm))
+        starved = np.flatnonzero(err > d_ideal + duplicate_tol)
+        if len(starved):
+            n_use = np.zeros(ng, dtype=np.int64)
+            np.add.at(n_use, gs[np.argsort(gs)][:0], 0)   # no-op init
+            pos = pd.Index(glab).get_indexer(out)
+            cnt = np.bincount(pos, minlength=ng)
+            rad = np.maximum(duplicate_tol, d_ideal)
+            lo = np.searchsorted(smag, fm - rad, 'left')
+            hi = np.searchsorted(smag, fm + rad, 'right')
+            for i in starved:
+                w = gs[lo[i]:hi[i]]
+                if not len(w):
+                    continue
+                j = w[np.argmin(cnt[w])]
+                out[i] = glab[j]
+                cnt[j] += 1
+            err = np.abs(gm[pd.Index(glab).get_indexer(out)] - fm)
+        c = pd.Series(out).value_counts()
+        if debug:
+            print(f"Duplicates: {int((c[c>1]-1).sum())} FRBs share a host "
+                  f"({int((c[c>1]-1).sum())/n:.2%}); {int((c>1).sum())} galaxies "
+                  f"reused; max reuse {int(c.max())}x")
+    if debug:
+        print(f"|mag_host - m_r|: median {np.median(err):.4f}  "
+              f"90th {np.percentile(err,90):.3f}  frac>0.05 {(err>0.05).mean():.2%}")
+    return out
+
+
+def _match_by_magnitude_nodups(frb_df: pd.DataFrame,
+                        galaxy_df: pd.DataFrame,
+                        allow_duplicates: bool = True,
+                        duplicate_tol: float = 0.05,
+                        debug: bool = True) -> np.ndarray:
+    """Match FRBs to galaxies by apparent magnitude.
+
+    Args:
+        frb_df: FRB catalog with 'm_r'.
+        galaxy_df: Galaxy catalog with 'mag'.
+        allow_duplicates: If True, a galaxy may be assigned to more than one FRB,
+            but only where the without-replacement result misses the requested
+            magnitude by more than `duplicate_tol` while a galaxy within
+            `duplicate_tol` exists.  Default False (original behaviour).
+        duplicate_tol: Magnitude tolerance, mag.  An FRB is "starved" when its
+            assigned host is off by more than this AND the catalog holds an
+            unassignable galaxy that is within it.
+        debug: Extra output.
+
+    Returns:
+        Array of galaxy DataFrame index labels, one per FRB.
+    """
+    n_frbs = len(frb_df)
+    fake_frb_coords = SkyCoord(ra=np.ones(n_frbs), dec=frb_df['m_r'].values, unit='deg')
+    fake_galaxy_coords = SkyCoord(ra=np.ones(len(galaxy_df)),
+                                  dec=galaxy_df['mag'].values, unit='deg')
+
+    galaxy_used = np.zeros(len(galaxy_df), dtype=bool)
+    galaxy_indices = np.arange(len(galaxy_df))
+    galaxy_df_indices = galaxy_df.index.values.copy()
+    frb_assignments = -1 * np.ones(n_frbs, dtype=int)
+
+    iteration = 0
+    while np.any(frb_assignments < 0):
+        iteration += 1
+        n_remaining = np.sum(frb_assignments < 0)
+        if debug or (iteration == 1) or (n_remaining < 100) or (iteration % 10 == 0):
+            print(f"Iteration {iteration}: {n_remaining} FRBs remaining")
+            print(f"  Brightest unassigned FRB: m_r = "
+                  f"{np.min(fake_frb_coords[frb_assignments < 0].dec):.2f}")
+
+        unassigned_mask = frb_assignments < 0
+        available_mask = ~galaxy_used
+        sub_frb_coords = fake_frb_coords[unassigned_mask]
+        sub_frb_indices = np.where(unassigned_mask)[0]
+        sub_galaxy_coords = fake_galaxy_coords[available_mask]
+        sub_galaxy_df_indices = galaxy_df_indices[available_mask]
+        sub_galaxy_flag_indices = galaxy_indices[available_mask]
+
+        if np.max(sub_frb_coords.dec.deg) < np.min(sub_galaxy_coords.dec.deg):
+            print(f"Ran out of bright galaxies at iteration {iteration}")
+            print(f"  Brightest remaining galaxy: m_r = {np.min(sub_galaxy_coords.dec.deg):.2f}")
+            print(f"  Faintest remaining FRB: m_r = {np.max(sub_frb_coords.dec.deg):.2f}")
+            srt_galaxies = np.argsort(sub_galaxy_coords.dec.deg)
+            srt_frbs = np.argsort(sub_frb_coords.dec.deg)
+            n_to_assign = min(len(srt_frbs), len(srt_galaxies))
+            frb_assignments[sub_frb_indices[srt_frbs[:n_to_assign]]] = \
+                sub_galaxy_df_indices[srt_galaxies[:n_to_assign]]
+            if len(srt_frbs) > len(srt_galaxies):
+                print(f"WARNING: {len(srt_frbs) - len(srt_galaxies)} FRBs could not be assigned")
+            break
+
+        idx, d2d, _ = match_coordinates_sky(sub_frb_coords, sub_galaxy_coords, nthneighbor=1)
+        if debug or iteration == 1:
+            print(f"  Max magnitude separation: {d2d.max():.4f} deg")
+        unique_galaxies, unique_indices = np.unique(idx, return_index=True)
+        frb_assignments[sub_frb_indices[unique_indices]] = \
+            sub_galaxy_df_indices[unique_galaxies]
+        galaxy_used[sub_galaxy_flag_indices[unique_galaxies]] = True
+
+    print(f"Assignment complete after {iteration} iterations")
+
+    # ---- duplicate post-pass -------------------------------------------------
+    if allow_duplicates:
+        gal_mag = galaxy_df['mag'].values
+        frb_mag = frb_df['m_r'].values
+        pos = pd.Index(galaxy_df_indices)
+        order = np.argsort(gal_mag, kind='stable')
+        smag = gal_mag[order]
+        n_use = np.zeros(len(galaxy_df), dtype=np.int64)
+
+        assigned = frb_assignments >= 0
+        ppos = pos.get_indexer(frb_assignments[assigned])
+        np.add.at(n_use, ppos[ppos >= 0], 1)
+        err = np.full(n_frbs, np.inf)
+        err[assigned] = np.abs(gal_mag[ppos] - frb_mag[assigned])
+
+        # Best magnitude match the catalog can offer at all, ignoring usage.
+        k = np.clip(np.searchsorted(smag, frb_mag), 1, len(smag) - 1)
+        d_ideal = np.minimum(np.abs(smag[k] - frb_mag), np.abs(smag[k - 1] - frb_mag))
+
+        # Starved = the without-replacement result is meaningfully worse than the
+        # best the catalog could do.  That is "we ran out AT THIS MAGNITUDE",
+        # which the main loop never reports.
+        starved = np.flatnonzero(err > d_ideal + duplicate_tol)
+        if debug:
+            print(f"  post-pass: {len(starved)} starved FRBs "
+                  f"(assigned host worse than the best available by > {duplicate_tol})")
+
+        # Window: everything within tol of the request, widened to reach the
+        # nearest galaxy when the catalog holds nothing that close.  Reuse goes
+        # to the least-used galaxy in the window so it spreads.
+        rad = np.maximum(duplicate_tol, d_ideal)
+        lo = np.searchsorted(smag, frb_mag - rad, 'left')
+        hi = np.searchsorted(smag, frb_mag + rad, 'right')
+        for i in starved:
+            w = order[lo[i]:hi[i]]
+            if not len(w):
+                continue
+            j = w[np.argmin(n_use[w])]
+            frb_assignments[i] = galaxy_df_indices[j]
+            n_use[j] += 1
+
+        counts = pd.Series(frb_assignments).value_counts()
+        rep = counts[counts > 1]
+        n_dup_frbs = int((counts[counts > 1] - 1).sum())
+        print(f"Duplicates: {n_dup_frbs} FRBs share a host with another FRB "
+              f"({n_dup_frbs / n_frbs:.2%} of the sample); "
+              f"{len(rep)} distinct galaxies reused; max reuse {int(counts.max())}x")
+    else:
+        counts = pd.Series(frb_assignments[frb_assignments >= 0]).value_counts()
+        if (counts > 1).any():
+            print(f"WARNING: {int((counts[counts>1]-1).sum())} duplicate assignments "
+                  f"despite allow_duplicates=False")
+
+    if np.any(frb_assignments < 0):
+        n_unassigned = np.sum(frb_assignments < 0)
+        raise RuntimeError(
+            f"{n_unassigned} FRBs could not be assigned to galaxies. "
+            "Galaxy catalog may be too small or magnitude distribution mismatch."
+            + ("" if allow_duplicates else "  Try allow_duplicates=True."))
+
+    return frb_assignments
 
 
 def _match_by_magnitude(
