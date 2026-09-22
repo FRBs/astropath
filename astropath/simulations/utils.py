@@ -91,50 +91,11 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     """
 
     print("Get parameters from the simulation results dataframe")
-    # # (like galaxy ID, ra, dec, angular size, magnitude, separation, PATH parameters, etc)
-    # # and append them to the hosts dataframe to construct a dataframe useful for plotting
-    # best_cands_list = []
-    # true_ras = []
-    # true_decs = []
-    # true_mags = []
-    # true_ang_size = []
-    # true_z = []
-    # true_dmeg = []
-    # true_dmhost = []
-    # true_dmcosmic = []
-    # true_mr = []
-    # true_Mr = []
-    # valid_idx = [] # Track which FRBs have valid results
-    # n_before = len(hosts)
-    # for ii in range(len(hosts)):
-    #     host_row = hosts[ii:ii+1]
-    #     cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
-    #     frb = frbs.iloc[[ii]]
-    #     if len(cands) == 0:
-    #         print(f"FRB {ii} has no candidates — skipping")
-    #         continue
-    #     valid_idx.append(ii)
-    #     best_cand = cands[0:1]
-    #     best_cands_list.append(best_cand)
-
-    #     gal_id_val = host_row['gal_ID'].item()
-    #     if gal_id_val == -99:                    # random localization: no true host
-    #         true_ras.append(np.nan)
-    #         true_decs.append(np.nan)
-    #     else:
-    #         orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
-    #         true_ras.append(orig_true_host.ra.item())
-    #         true_decs.append(orig_true_host.dec.item())
-    #     true_z.append(frb['z'].values[0])
-    #     true_dmeg.append(frb['DMeg'].values[0])
-    #     true_mr.append(frb['m_r'].values[0])
-    #     true_Mr.append(frb['M_r'].values[0])
+    # (like galaxy ID, ra, dec, angular size, magnitude, separation, PATH parameters, etc)
+    # and append them to the hosts dataframe to construct a dataframe useful for plotting
     nhosts = len(hosts)
     iFRB = raw_sim_results['iFRB'].to_numpy()
     
-    # First row of each iFRB group, in the table's existing order -- exactly what
-    # cands[0:1] picked. (run_dict_wrapper sorts each block by P_Ox descending, so
-    # that row is the best candidate, but this does not rely on it.)
     order = np.argsort(iFRB, kind='stable')
     s = iFRB[order]
     starts = np.concatenate(([True], s[1:] != s[:-1]))
@@ -224,17 +185,20 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     print("Merge dataframes, to create a nice big cross-checked dataframe for plotting purposes")
     df = hosts.merge(best_cands, left_index=True, right_index=True)
 
-    print("Determine correct and incorrect matches")
-    max_ang_size = np.maximum.reduce([df.ang_size_cand.values, df.ang_size_host.values], axis=0)
-    match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match * max_ang_size)
-    df['correct_association'] = match_criteria
+    print("Determine correct matches and calculate whether each host is seen or unseen in PATH catalog")
+    df_unseen = calculate_unseen_and_correct(df, raw_sim_results, mag_limit=None, thresh_cross_match=1., floor=0.5)
 
-    print("Calculate whether true host is seen or unseen in PATH catalog")
-    if (df['host_ID'] == -99).all():             # whole run is random; no true host
-        df['unseen'] = np.nan                    # not meaningful for random fields
-        df_unseen = df
-    else:
-        df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
+    # print("Determine correct and incorrect matches")
+    # max_ang_size = np.maximum.reduce([df.ang_size_cand.values, df.ang_size_host.values], axis=0)
+    # match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match * max_ang_size)
+    # df['correct_association'] = match_criteria
+
+    # print("Calculate whether true host is seen or unseen in PATH catalog")
+    # if (df['host_ID'] == -99).all():             # whole run is random; no true host
+    #     df['unseen'] = np.nan                    # not meaningful for random fields
+    #     df_unseen = df
+    # else:
+    #     df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
     
     print('Determine which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from')
     df_unseen_hostcat = extract_host_catalog_sga(df_unseen, combined_catalog)
@@ -245,6 +209,79 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     
     return df_unseen_hostcat
 
+
+def calculate_unseen_and_correct(hosts, galaxy_catalog, mag_limit=None, thresh_cross_match=1., floor=0.5):
+    """Set `hosts['unseen']` and `hosts['correct_association']`.
+
+    Args:
+        hosts (pandas.DataFrame): digest under construction.  Needs
+            `ra_host`, `dec_host`, `ang_size_host`, `host_ID`,
+            `sep_best_host_arcsec`, `ang_size_cand`, `cand_ID`
+            (and `mag_host` if `mag_limit` is used).
+        galaxy_catalog (pandas.DataFrame): the table PATH actually searched --
+            i.e. the concatenated candidate rows.  Needs `ra`, `dec`,
+            `ang_size`, and `ID` for the ID path.
+        mag_limit (float, optional): drop hosts brighter than this before
+            testing.  Default None (no cut); note it SHORTENS the frame.
+        thresh_cross_match (float): multiple of the larger half-light radius.
+        floor (float): minimum match radius in arcsec.
+
+    Returns:
+        pandas.DataFrame: `hosts` with `unseen` and `correct_association` set.
+    """
+    if mag_limit is not None:
+        hosts = hosts[hosts['mag_host'] > mag_limit]
+
+    # The candidate table repeats each galaxy once per FRB that saw it (65%
+    # redundancy on the 100k run).  Same ID means same position, so collapsing
+    # first leaves the nearest-neighbour answer identical and cuts the tree ~3x.
+    if 'ID' in galaxy_catalog.columns:
+        galaxy_catalog = galaxy_catalog.drop_duplicates('ID')
+
+    # Nearest catalog source to each true host, at any distance.
+    idx, d2d, _ = match_coordinates_sky(
+        SkyCoord(ra=hosts.ra_host.values, dec=hosts.dec_host.values, unit='deg'),
+        SkyCoord(ra=galaxy_catalog.ra.values, dec=galaxy_catalog.dec.values,
+                 unit='deg'),
+        nthneighbor=1)
+    sep = d2d.arcsec
+
+    # Match radius: size-scaled, floored.  NaN sizes fall back to the floor.
+    size_host = np.nan_to_num(hosts.ang_size_host.values)
+    size_near = np.nan_to_num(galaxy_catalog.ang_size.values[idx])
+    size_cand = np.nan_to_num(hosts.ang_size_cand.values)
+    thr_unseen = np.maximum(thresh_cross_match *
+                            np.maximum(size_host, size_near), floor)
+    thr_corr = np.maximum(thresh_cross_match *
+                          np.maximum(size_host, size_cand), floor)
+
+    # Is this host's ID in the catalog's namespace?  A hit proves the host is
+    # in the catalog; a miss proves nothing (foreign namespace), so only the
+    # hit is allowed to override geometry.
+    host_id = hosts.host_ID.values
+    if 'ID' in galaxy_catalog.columns:
+        id_seen = np.isin(host_id, galaxy_catalog.ID.values)
+    else:
+        id_seen = np.zeros(len(hosts), dtype=bool)
+
+    unseen = (~id_seen) & (sep >= thr_unseen)
+
+    # Correct association: exact by ID where the namespace is shared, geometric
+    # otherwise.  `id_seen` marks precisely the rows where cand_ID is comparable.
+    correct = np.where(id_seen,
+                       host_id == hosts.cand_ID.values,
+                       hosts.sep_best_host_arcsec.values < thr_corr)
+
+    # A host that is not in the catalog cannot have been recovered from it.
+    correct = correct & (~unseen)
+
+    # Random-field localizations carry no true host.
+    no_host = host_id == -99
+    hosts['unseen'] = np.where(no_host, np.nan, unseen).astype(object) \
+        if no_host.any() else unseen
+    hosts['correct_association'] = correct & (~no_host)
+    return hosts
+    
 
 def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
                      mag_limit:float=None, thresh_cross_match:float=1.):

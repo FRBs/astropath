@@ -2,6 +2,7 @@
 import numpy as np
 import pandas
 import multiprocessing
+assert multiprocessing.get_start_method() == "fork", "USR_raw_prior_Oi will not reach worker processes under this start method"
 
 from astropy.coordinates import SkyCoord
 from astropy import units
@@ -13,8 +14,6 @@ from astropath.run import run_on_dict, set_anly_sizes
 from IPython import embed
 
 import gc
-
-    
 
 def run_dict_wrapper(args):
     """
