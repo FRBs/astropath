@@ -578,7 +578,7 @@ def px_Oi_local(localiz, cand_coords, cand_ang_size,
             # biased low.  Divide by the "total L_wx" computed on a
             # localization-centered, galaxy-aligned grid so the aliasing
             # cancels (see _Lwx_correction).
-            if b < phi_cand:
+            if b < phi_cand and (2*int(np.ceil(4.*a / (2.*box_hwidth/(ngrid-1)))) + 1) <= 700:
                 L_wx_correction = _Lwx_correction(
                     E0, N0, a, b, cos_dth, sin_dth, box_hwidth,
                     ngrid, step_size_phi)
