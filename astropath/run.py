@@ -301,7 +301,7 @@ def set_anly_sizes(ltype: str, lparam: dict):
     """
     if ltype == 'eellipse':
         # Survey search size based on semi-major axis
-        ssize = 10 * lparam['a'] / 60.  # arcmin
+        ssize = 10. * lparam['a'] / 60.  # arcmin
     elif ltype == 'healpix':
         # For healpix, estimate from nside if available
         if 'healpix_nside' in lparam:

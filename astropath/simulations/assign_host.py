@@ -66,16 +66,16 @@ def load_galaxy_catalog(catalog_fn: str = 'combined_HSC_DECaLs_HECATE_galaxies_h
 # ---------------------------------------------------------------------------
 
 def localizations_from_errors(
-    ra_err: np.ndarray,
-    dec_err: np.ndarray,
-    pa: float = 90.0,
+    a_err: np.ndarray,
+    b_err: np.ndarray,
+    pa: float | np.ndarray = 90.0,
     dm: np.ndarray = None,
     min_err: float = 0.0,
     max_err: float = np.inf,
     drop_nonpositive: bool = True,
 ) -> np.ndarray:
     """
-    Build a localization population array from per-FRB RA/Dec uncertainties.
+    Build a localization population array from per-FRB localization uncertainties.
 
     Intended for turning an observed catalog (e.g. BaseCat2) into the
     `localization` argument of `assign_frbs_to_hosts`.
@@ -83,16 +83,17 @@ def localizations_from_errors(
     The convention matches `_apply_localization_error`: `a` is the offset scale
     along position angle `PA` (degrees East of North) and `b` is the scale along
     PA + 90.  With the default ``pa=90``, `a` runs East-West and `b` runs
-    North-South, so `a` should be the RA uncertainty and `b` the Dec
-    uncertainty.  Both are treated as 1-sigma Gaussian widths, truncated at
+    North-South.  Both are treated as 1-sigma Gaussian widths, truncated at
     3 sigma, exactly as for a scalar localization.
 
     Args:
-        ra_err (array): RA uncertainty per FRB (arcsec), already sky-projected
+        a_err (array): semi-major uncertainty per FRB (arcsec), already sky-projected
             (i.e. including any cos(dec) factor).
-        dec_err (array): Dec uncertainty per FRB (arcsec).
-        pa (float): Position angle assigned to every ellipse (deg E of N).
-            Default 90, pairing `a` with RA.
+        b_err (array): semi-minor uncertainty per FRB (arcsec).
+        pa (float or array): Position angle(s) of the ellipses (deg E of N).
+            A scalar is applied to every ellipse; an array must have the same
+            shape as `a_err` and gives each FRB its own PA. Rows with a
+            non-finite PA are dropped. Default 90, pairing `a` with RA.
         dm (array, optional): Dispersion measure of each real FRB, on the SAME
             scale as the simulated `frb_df['DM']` -- i.e. EXTRAGALACTIC DM, with
             the Milky Way disk and halo contributions already subtracted. If
@@ -112,33 +113,44 @@ def localizations_from_errors(
 
     Example:
         >>> cat = pd.read_csv('basecat2_results.csv')
-        >>> ra_e = pd.to_numeric(cat['RA Error (arcsec)'], errors='coerce')
-        >>> de_e = pd.to_numeric(cat['Dec Error (arcsec)'], errors='coerce')
-        >>> # independent sampling
-        >>> locs = localizations_from_errors(ra_e, de_e)
-        >>> # joint (DM, a, b, PA) sampling -- note DM must be EXTRAGALACTIC
-        >>> dm_ex = pd.to_numeric(cat['Struct-max DM (pc cm-3)'], errors='coerce') - dm_mw
-        >>> locs = localizations_from_errors(ra_e, de_e, dm=dm_ex)
+        >>> a_e  = pd.to_numeric(cat['a_err'], errors='coerce')
+        >>> b_e  = pd.to_numeric(cat['b_err'], errors='coerce')
+        >>> pa_e = pd.to_numeric(cat['PA'], errors='coerce')
+        >>> # single PA for all ellipses
+        >>> locs = localizations_from_errors(a_e, b_e)
+        >>> # per-FRB PAs, joint (DM, a, b, PA) sampling -- DM must be EXTRAGALACTIC
+        >>> locs = localizations_from_errors(a_e, b_e, pa=pa_e, dm=dm_ex)
         >>> df = assign_frbs_to_hosts(frbs, galaxies, localization=locs, seed=42)
     """
-    a = np.asarray(ra_err, dtype=float)
-    b = np.asarray(dec_err, dtype=float)
+    a = np.asarray(a_err, dtype=float)
+    b = np.asarray(b_err, dtype=float)
 
     if a.shape != b.shape:
-        raise ValueError(f"ra_err and dec_err must have the same shape, got {a.shape} and {b.shape}")
+        raise ValueError(f"a_err and b_err must have the same shape, got {a.shape} and {b.shape}")
+
+    # Accept a scalar PA (broadcast to all rows) or a per-FRB array
+    pa_arr = np.asarray(pa, dtype=float)
+    if pa_arr.ndim == 0:
+        pa_arr = np.full(a.shape, float(pa_arr))
+    elif pa_arr.shape != a.shape:
+        raise ValueError(
+            f"pa must be a scalar or have the same shape as a_err/b_err, "
+            f"got {pa_arr.shape} and {a.shape}"
+        )
 
     keep = np.ones(a.shape, dtype=bool)
     if drop_nonpositive:
         keep &= np.isfinite(a) & np.isfinite(b) & (a > 0) & (b > 0)
     keep &= (a >= min_err) & (b >= min_err)
     keep &= (a <= max_err) & (b <= max_err)
+    keep &= np.isfinite(pa_arr)
 
     dm_arr = None
     if dm is not None:
         dm_arr = np.asarray(dm, dtype=float)
         if dm_arr.shape != a.shape:
             raise ValueError(
-                f"dm must have the same shape as ra_err/dec_err, got {dm_arr.shape} and {a.shape}"
+                f"dm must have the same shape as a_err/b_err, got {dm_arr.shape} and {a.shape}"
             )
         keep &= np.isfinite(dm_arr) & (dm_arr > 0)
 
@@ -146,20 +158,19 @@ def localizations_from_errors(
     if n_drop:
         print(f"localizations_from_errors: dropped {n_drop}/{len(a)} invalid rows")
 
-    a, b = a[keep], b[keep]
+    a, b, pa_arr = a[keep], b[keep], pa_arr[keep]
     if len(a) == 0:
         raise ValueError("No valid localizations remain after filtering")
 
-    pa_col = np.full(len(a), float(pa))
     if dm_arr is None:
-        return np.column_stack([a, b, pa_col])
+        return np.column_stack([a, b, pa_arr])
 
     dm_arr = dm_arr[keep]
     print(
         f"localizations_from_errors: DM column supplied "
         f"(median {np.median(dm_arr):.0f} pc/cm3) -> joint (DM, a, b, PA) sampling enabled"
     )
-    return np.column_stack([dm_arr, a, b, pa_col])
+    return np.column_stack([dm_arr, a, b, pa_arr])
 
 
 def _check_localization_values(arr: np.ndarray):
