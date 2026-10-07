@@ -563,7 +563,8 @@ def assign_frbs_to_hosts(
     )
 
     # Trim catalog edges to maintain analysis region
-    galaxy_cut = _trim_catalog(galaxy_catalog, trim_catalog)
+    # Edit: not needed for iter7 catalog
+    galaxy_cut = galaxy_catalog # _trim_catalog(galaxy_catalog, trim_catalog)
 
     if len(galaxy_cut) == 0:
         raise ValueError("No galaxies remain after trimming catalog edges")
@@ -1053,6 +1054,10 @@ def _match_by_magnitude_fast(frb_df, galaxy_df, allow_duplicates=True,
     glab = galaxy_df.index.to_numpy()
     n, ng = len(fm), len(gm)
 
+    # Little magnitude dither. Only important for PS1 catalogs
+    # not impactful for DECaLs
+    gm = gm + np.random.uniform(-5e-5, 5e-5, ng)
+    
     gs = np.argsort(gm, kind='stable')
     smag = gm[gs]
 
