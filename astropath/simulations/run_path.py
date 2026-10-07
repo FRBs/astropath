@@ -8,7 +8,7 @@ from astropy.coordinates import SkyCoord
 from astropy import units
 from astropy.coordinates import search_around_sky
 from astropy.table import Table
-
+from scipy.spatial import cKDTree
 from astropath.run import run_on_dict, set_anly_sizes
 
 from IPython import embed
@@ -47,11 +47,12 @@ def run_dict_wrapper(args):
     return idx, sv_tbl[keep].copy()
     
 
-def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame, 
-             prior_dict:dict,
-             multi:bool=True,
-             ncpu:int=4,
-             debug:bool=False):
+def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
+           prior_dict:dict,
+           multi:bool=True,
+           ncpu:int=4,
+           frb_chunk:int=5000,
+           debug:bool=False):
     """
     Run the PATH simulation with a given catalog and priors.
 
@@ -132,54 +133,64 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
 
     # ####################################################
     print("Galaxy catalog cross-match")
-    frb_coords = SkyCoord(ra=frbs.ra.values,
-                          dec=frbs.dec.values, unit='deg')   
-    galaxy_coords = SkyCoord(ra=catalog.ra.values,
-                             dec=catalog.dec.values, unit='deg')
+    # Per-FRB search radius, NOT the global maximum over all FRBs.
+    #
+    # run_on_dict() cuts the catalog at idict['ssize']*60, which is exactly this
+    # FRB's own max_box (astropath/run.py, "Cut down the catalog based on ssize").
+    # So every galaxy the old global-radius search returned beyond an FRB's own
+    # max_box was thrown away before PATH ever saw it. Using max(max_box) for all
+    # FRBs inflated the pair list by (max(max_box) / max_box_i)^2 while changing
+    # no result: for the basecat2 localizations (p50 25", max 152") that is ~16x,
+    # i.e. ~370M pairs / 33 GB at 100k FRBs against ~23M / 2 GB.
+    frb_radii = np.array([d['max_box'] for d in FRB_dicts], dtype=float)  # arcsec
+    print(f"  max_box: median {np.median(frb_radii[:nFRB]):.0f}\", "
+        f"max {frb_radii[:nFRB].max():.0f}\"  "
+        f"(the previous code used the max for every FRB)")
     
-    # Search
-    idx1, idx2, sep2d, _ = search_around_sky(
-        galaxy_coords, frb_coords, maxx_box*units.arcsec)
-
-
-    # print("Slicing...")
-    # list_candidates = []
-    # for kk in range(nFRB):
-    #     if (kk % 1000) == 0:
-    #         print('kk: ', kk)
-    #     in_idx2 = np.where(idx2 == kk)[0]
-    #     gd_gal = idx1[in_idx2]
-    #     close_galaxies = catalog.iloc[gd_gal][
-    #         ['ang_size', 'mag', 'ra', 'dec', 'ID']].copy()
-    #     # close_galaxies['separation'] = sep2d[in_idx2].to('arcsec').value
-    #     list_candidates.append(close_galaxies)
     print("Slicing...")
     cols = ['ang_size', 'mag', 'ra', 'dec', 'ID']
     col_arrays = {c: catalog[c].to_numpy() for c in cols}
     cat_index = catalog.index.to_numpy()
     
-    # Group the pair list by FRB in one pass instead of nFRB full scans.
-    # 'stable' keeps the within-group ordering identical to np.where's.
-    order = np.argsort(idx2, kind='stable')
-    idx1_by_frb = idx1[order]
-    del order
-    starts = np.concatenate(([0], np.cumsum(np.bincount(idx2, minlength=nFRB))))
+    def _unit_vec(ra_deg, dec_deg):
+      """(N,3) unit vectors on the sphere.
     
+      Chord length is monotonic in angular separation, so a chord cut is an
+      exact angular cut. This also avoids building SkyCoord objects for the
+      whole catalog, which was itself a large allocation.
+      """
+      ra = np.radians(np.asarray(ra_deg, dtype=float))
+      dec = np.radians(np.asarray(dec_deg, dtype=float))
+      cd = np.cos(dec)
+      return np.column_stack([cd * np.cos(ra), cd * np.sin(ra), np.sin(dec)])
+    
+    tree = cKDTree(_unit_vec(catalog.ra.values, catalog.dec.values))
+    
+    # Chunk the FRBs so the pair list never exists for all of them at once.
+    # Peak memory is set by frb_chunk, not by nFRB.
+    frb_ra = frbs.ra.values
+    frb_dec = frbs.dec.values
     list_candidates = []
-    for kk in range(nFRB):
-      gd_gal = idx1_by_frb[starts[kk]:starts[kk+1]]
-      list_candidates.append(pandas.DataFrame(
-          {c: col_arrays[c][gd_gal] for c in cols},
-          index=cat_index[gd_gal],
-      ))
+    n_pairs = 0
+    for lo in range(0, nFRB, frb_chunk):
+      hi = min(lo + frb_chunk, nFRB)
+      vec = _unit_vec(frb_ra[lo:hi], frb_dec[lo:hi])
+      chord = 2.0 * np.sin(np.radians(frb_radii[lo:hi] / 3600.) / 2.)
+      for hits in tree.query_ball_point(vec, chord):
+          gd_gal = np.sort(np.asarray(hits, dtype=np.int64))
+          n_pairs += len(gd_gal)
+          list_candidates.append(pandas.DataFrame(
+              {c: col_arrays[c][gd_gal] for c in cols},
+              index=cat_index[gd_gal],
+          ))
+      del vec, chord
+      print(f"  {hi}/{nFRB} FRBs sliced, {n_pairs:,d} candidates so far")
     
-    del col_arrays, cat_index, idx1_by_frb
-
-    # Slicing done — the full catalog and coords are no longer needed
-    # Delete them BEFORE creating the pool so workers don't inherit 31.5G
+    del col_arrays, cat_index, tree
+    
+    # Slicing done -- the full catalog is no longer needed.
+    # Delete it BEFORE creating the pool so workers do not inherit it.
     del catalog
-    del galaxy_coords
-    del idx1, idx2, sep2d
     gc.collect()
 
     # Now create the pool - workers will fork from a much smaller parent
