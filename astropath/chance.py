@@ -14,7 +14,48 @@ driver_tck = (np.array([15., 15., 15., 15., 30., 30., 30., 30.]),
        np.array([-6.41580144, -3.53188049, -1.68500105, -0.63090954, 0., 0., 0., 0.]), 3)
 driver_spl = interpolate.UnivariateSpline._from_tck(driver_tck)
 
+# ---------------------------------------------------------------------------
+# Updated Driver+16 counts: a spline fit directly to the Driver+16 Table 3 r-band
+# DIFFERENTIAL counts (SDSS r, Subaru r, HST F606W)
+# log10 of galaxies per mag per deg^2, valid 10 < r < 30. PATH's driver_spl above
+# runs 1.3-2.1x high against Table 3 over 13 < r < 26.
+# ---------------------------------------------------------------------------
+driver16_tck = (np.array([10., 10., 10., 10., 30., 30., 30., 30.]),
+              np.array([-2.24409004, 1.72855560, 5.13784270, 5.97024269, 0., 0., 0., 0.]), 3)
+driver16_spl = interpolate.UnivariateSpline._from_tck(driver16_tck)
+_D16_MMIN, _D16_MMAX = 10., 30.
 
+
+def differential_driver16_sigma(rmag):
+  """Galaxies per sq arcsec per mag at r = rmag, from the Driver+16 Table 3 fit.
+  Clipped to the fit range 10 < r < 30."""
+  m = np.clip(np.asarray(rmag, float), _D16_MMIN, _D16_MMAX)
+  return 10**driver16_spl(m) / 3600.**2
+  
+
+def _build_driver16_cumulative(dm=1e-3):
+  """Tabulate Sigma(<m) = integral of the differential counts, in sq arcsec^-1.
+  Below r = 10 the counts continue as a power law matched to the log-slope of the
+  fit at r = 10, so Sigma stays finite and positive for very bright galaxies."""
+  m = np.arange(_D16_MMIN, _D16_MMAX + dm/2, dm)
+  rho = differential_driver16_sigma(m) 
+  k = (np.log10(rho[1]) - np.log10(rho[0])) / dm          # dex per mag at r = 10
+  tail = rho[0] / (k * np.log(10.))                        # integral of the power law to r = 10
+  cum = tail + np.concatenate([[0.], np.cumsum(0.5*(rho[1:] + rho[:-1]) * dm)])
+  return m, cum, k, rho[0]
+  
+_D16_M, _D16_CUM, _D16_K, _D16_RHO10 = _build_driver16_cumulative()
+
+
+def driver16_sigma(rmag):
+  """Galaxies per sq arcsec with r < rmag (CUMULATIVE), from the Driver+16 Table 3 fit.
+  This is the analogue of driver_sigma(), which the 'inverse' prior uses."""
+  m = np.asarray(rmag, float)
+  out = np.interp(m, _D16_M, _D16_CUM)
+  bright = m < _D16_MMIN
+  if np.any(bright):
+      out = np.where(bright, _D16_RHO10 / (_D16_K*np.log(10.)) * 10**(_D16_K*(m - _D16_MMIN)), out)
+  return out
 
 def driver_sigma(mag):
     """
