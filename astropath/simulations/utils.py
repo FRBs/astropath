@@ -11,9 +11,6 @@ params = {'axes.labelsize':20,
          'xtick.labelsize':20,
          'ytick.labelsize':20}
 pylab.rcParams.update(params)
-from matplotlib import rc
-rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
-rc('text', usetex=False)
 import matplotlib
 import requests
 from PIL import Image
@@ -32,7 +29,7 @@ import shutil
 from reproject.mosaicking import find_optimal_celestial_wcs
 from reproject import reproject_interp
 from reproject.mosaicking import reproject_and_coadd
-from scipy.special import i0e # i0e(x) = I_0(x)·exp(−x), numerically stable
+from scipy.special import i0e, j0
 
 
 def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, output_fn:str=None, thresh_cross_match:float=1.):
@@ -87,7 +84,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
             - `P_Ux`: Value of the PATH posterior P(U|x)
             - `correct_association`: A boolean indicating whether the best candidate matches the true host (a "correct" association), based on a spatial cross-match
             - `unseen`: A boolean indicating whether the true host is visible in the catalog used to run PATH
-            - `host_catalog`: A string indicating which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from
+            - `host_catalog`: A string indicating which catalog ("HSC", "DECaLs", "Pan-STARRS", or "SGA") the host was selected from
     """
 
     print("Get parameters from the simulation results dataframe")
@@ -449,152 +446,186 @@ def azimuthal_integrated_prior(u, theta_prior):
     """
     1D radial PDF p(u) where u = theta/phi, obtained by integrating
     pw_Oi over azimuth.
- 
-    For 'exp':     p(u) = u*exp(-u/s) / (s^2 * (1-(1+max_v)*exp(-max_v)))
+
+    For 'exp':     p(u) = u*exp(-u/s) / (s^2 * (1-(1+M)*exp(-M))),  M = max/s, u <= max
     For 'uniform': p(u) = 2u / max^2  for u in [0, max]
     For 'core':    p(u) = [u/(u+1)] / (max - ln(1+max))
+
+    The 'exp' cutoff is u <= max (theta <= max*phi), matching
+    bayesian._resolve_offset_prior, where theta_max = max*phi uses the
+    ORIGINAL phi and the normalisation uses max_eff = max/scale.
     """
     u = np.asarray(u, dtype=float)
     p = np.zeros_like(u)
- 
+
     if theta_prior['PDF'] == 'exp':
         s     = theta_prior.get('scale', 1.0)
-        max_v = theta_prior['max']
-        max_u = max_v * s
+        max_u = theta_prior['max']
+        M     = max_u / s
         ok    = u <= max_u
-        norm  = s**2 * (1 - (1 + max_v) * np.exp(-max_v))
+        norm  = s**2 * (1 - (1 + M) * np.exp(-M))
         p[ok] = u[ok] * np.exp(-u[ok] / s) / norm
- 
+
     elif theta_prior['PDF'] == 'uniform':
         max_u = theta_prior['max']
         ok    = u <= max_u
         p[ok] = 2 * u[ok] / max_u**2
- 
+
     elif theta_prior['PDF'] == 'core':
         max_u = theta_prior['max']
         ok    = u <= max_u
         norm  = max_u - np.log(1 + max_u)
         p[ok] = u[ok] / (u[ok] + 1) / norm
- 
+
     return p
- 
- 
-def convolve_prior_with_loc(u, p_prior, sigma_over_phi):
+
+
+def _prior_hankel(k, theta_prior, n_nodes=None):
     """
-    Convolve the 1D radial prior p(u) with the correct 2D radial (Rice/Rician)
-    convolution kernel for a circular Gaussian localisation of width
-    sigma_over_phi = sigma_loc / phi.
- 
-    WHY NOT A 1D GAUSSIAN:
-    p(u) is a radial PDF in 2D.  Adding a 2D Gaussian localisation error
-    ε ~ N(0, σ²I) produces an observed offset whose distribution is NOT the
-    1D convolution of p with a Gaussian.  The correct result follows from
-    marginalising the full 2D convolution over azimuth:
- 
-        p_obs(u) = ∫₀^∞ p(u') · (u/σ²) · exp(-(u²+u'²)/2σ²) · I₀(uu'/σ²) du'
- 
-    Using the numerically stable form i0e(x) = I₀(x)·exp(-x):
- 
-        kernel(u,u') = (u/σ²) · exp(-(u-u')²/2σ²) · i0e(uu'/σ²)
- 
-    which is evaluated as a matrix-vector product over the u' grid.
- 
-    Parameters
-    ----------
-    u : np.ndarray
-        Uniformly spaced grid of theta/phi values (length N)
-    p_prior : np.ndarray
-        Prior values on grid u (from azimuthal_integrated_prior)
-    sigma_over_phi : float
-        Localisation 1-sigma in units of the host half-light radius phi
- 
-    Returns
-    -------
-    u_out : np.ndarray  (length 2N-1)
-    p_obs : np.ndarray  (normalised)
+    2D Fourier (zeroth-order Hankel) transform of the radial prior:
+        P(k) = int_0^max p(u) J0(k u) du,   P(0) = 1.
     """
-    du   = u[1] - u[0]
-    sig2 = sigma_over_phi ** 2
- 
-    n_out = 2 * len(u) - 1
-    u_out = np.arange(n_out) * du
- 
-    U  = u_out[:, None]   # (n_out, 1) — observed radii
-    UP = u[None,  :]      # (1,     N) — true radii
- 
-    # Rice kernel (stable via i0e):
-    #   (u/σ²)·exp(-(u-u')²/2σ²)·i0e(uu'/σ²)
-    # = (u/σ²)·exp(-(u²+u'²)/2σ²)·I₀(uu'/σ²)   [exact Rice formula]
-    kernel = (U / sig2) * np.exp(-(U - UP)**2 / (2 * sig2)) * i0e(U * UP / sig2)
- 
-    p_obs = (kernel @ p_prior) * du   # integrate over u'
-    p_obs = np.maximum(p_obs, 0.)
- 
-    norm = np.sum(p_obs) * du
-    if norm > 0:
-        p_obs /= norm
- 
-    return u_out, p_obs
- 
- 
-def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host'):
+    k = np.asarray(k, dtype=float)
+    max_u = theta_prior['max']
+    if theta_prior['PDF'] == 'exp':
+        # Closed form of the untruncated transform, minus the u > max tail.
+        s = theta_prior.get('scale', 1.0)
+        M = max_u / s
+        norm = s**2 * (1 - (1 + M) * np.exp(-M))
+        a = 1. / s
+        full = a / (a**2 + k**2)**1.5
+        # Tail int_max^inf u e^{-u/s} J0(ku) du; its mass is (1+M)e^{-M} of the
+        # untruncated PDF (8e-5 for max=6, s=0.5), so 40 decay lengths suffice.
+        x, w = np.polynomial.legendre.leggauss(400)
+        lo, hi = max_u, max_u + 40 * s
+        ut = 0.5 * (hi - lo) * x + 0.5 * (hi + lo)
+        wt = 0.5 * (hi - lo) * w * ut * np.exp(-ut / s)
+        kk = k[k * (hi - lo) < 400]      # nodes resolve J0 only up to here
+        tail = np.zeros_like(k)
+        tail[:len(kk)] = j0(np.outer(kk, ut)) @ wt
+        return (full - tail) / norm
+    # Generic: Gauss-Legendre on [0, max] with enough nodes to resolve J0(k u).
+    if n_nodes is None:
+        n_nodes = int(np.max(k) * max_u / np.pi * 2) + 200
+    x, w = np.polynomial.legendre.leggauss(n_nodes)
+    us = 0.5 * max_u * (x + 1)
+    ws = 0.5 * max_u * w * azimuthal_integrated_prior(us, theta_prior)
+    out = np.empty_like(k)
+    for i in range(0, len(k), 2000):
+        out[i:i + 2000] = j0(np.outer(k[i:i + 2000], us)) @ ws
+    return out
+
+
+def _loc_char_fn(k, sig1, sig2):
     """
-    Average the localisation-convolved prior over a population of FRBs,
-    each with its own localisation ellipse and host half-light radius.
- 
-    Parameters
-    ----------
-    u : np.ndarray
-        Normalized offset grid (theta/phi)
-    theta_prior : dict
-        Prior parameters for azimuthal_integrated_prior
-    frb_df : pd.DataFrame
-        Must have columns 'a', 'b' (1-sigma loc semi-axes in arcsec) and phi_col
-    phi_col : str
-        Column name for host half-light radius in arcsec
- 
-    Returns
-    -------
-    u_conv : np.ndarray
-    p_stacked : np.ndarray
-        Mean convolved prior over all FRBs
+    Azimuthal average of the characteristic function of an elliptical
+    Gaussian with 1-sigma semi-axes sig1 >= sig2:
+        <exp(-k^2 (sig1^2 cos^2 psi + sig2^2 sin^2 psi)/2)>_psi
+          = exp(-k^2 sig2^2 / 2) * i0e(k^2 (sig1^2 - sig2^2) / 4)
+    Circular (sig1 = sig2 = sig): exp(-k^2 sig^2 / 2).
     """
-    p_prior = azimuthal_integrated_prior(u, theta_prior)
-    stacked = None
- 
-    for _, frb in frb_df.iterrows():
-        # Effective circular 1-sigma from the localisation ellipse.
-        #
-        # The simulation draws:
-        #   a_offset ~ N(0, a²) along PA
-        #   b_offset ~ N(0, b²) along PA+90
-        # giving total 2D variance Var(ΔRA) + Var(ΔDec) = a² + b²  (PA-independent).
-        #
-        # The Rice kernel requires the equivalent circular σ such that
-        # 2σ² = a² + b², i.e.:
-        #
-        #   σ_eff = √((a² + b²) / 2)
-        #
-        # This is the RMS of the two axes.  For a circular beam (a=b): σ=a ✓
-        # For an elongated beam (b→0): σ=a/√2 ✓  (not zero, unlike geometric mean)
-        sigma_arcsec   = np.sqrt((frb.a**2 + frb.b**2) / 2.0)
-        sigma_over_phi = sigma_arcsec / frb[phi_col]
- 
-        u_conv, p_conv = convolve_prior_with_loc(u, p_prior, sigma_over_phi)
- 
-        if stacked is None:
-            stacked = p_conv.copy()
-        else:
-            if len(p_conv) < len(stacked):
-                p_conv  = np.pad(p_conv,  (0, len(stacked) - len(p_conv)))
-            elif len(stacked) < len(p_conv):
-                stacked = np.pad(stacked, (0, len(p_conv) - len(stacked)))
-            stacked += p_conv
- 
-    stacked /= len(frb_df)
-    du       = u[1] - u[0]
-    stacked /= np.sum(stacked) * du
-    return u_conv, stacked
+    k2 = k**2
+    return np.exp(-0.5 * k2 * sig2**2) * i0e(0.25 * k2 * (sig1**2 - sig2**2))
+
+
+def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host',
+                        a_col='a', b_col='b', k_max=200., log_phi_bin=0.005,
+                        u_chunk=50):
+  """
+  Distribution of |x_obs - x_host| / phi stacked over a population of FRBs,
+  where the true offset follows the PATH offset prior and the localisation
+  error is an elliptical Gaussian with 1-sigma semi-axes (a, b), exactly as
+  assign_host._apply_localization_error draws it.
+
+  Because the true offset is isotropic, the PA drops out and the radial PDF
+  of the observed offset u for one FRB is the inverse Hankel transform
+
+      p_obs(u) = u * int_0^inf k J0(k u) P(k) G(k) dk
+
+  with P(k) the Hankel transform of the prior and G(k) the azimuthally
+  averaged characteristic function of the ellipse (in units of phi). The
+  stack over FRBs is linear, so G is averaged over FRBs first and a single
+  transform is done. To keep the oscillatory k integral convergent the
+  unconvolved prior is split off analytically:
+
+      p_obs(u) = p(u) + u * int_0^kmax k J0(k u) P(k) (<G>(k) - 1) dk
+
+  Cost scales as max(u)^2, so pass u only over the range you need.
+
+  Parameters
+  ----------
+  u : np.ndarray
+      Uniform grid of theta/phi at which to evaluate the stacked PDF.
+  theta_prior : dict
+      PATH offset prior, e.g. {'PDF': 'exp', 'scale': 0.5, 'max': 6.}.
+  frb_df : pd.DataFrame
+      Needs a_col, b_col (1-sigma localisation semi-axes, arcsec) and
+      phi_col (host angular size, arcsec). Use ALL rows; the cost depends
+      on the number of distinct (a, b, phi-bin) groups, not on len(frb_df).
+  phi_col, a_col, b_col : str
+  k_max : float
+      Upper limit of the k integral, in units of 1/phi. k_max=200 and 1000
+      agree to <1e-4 of the peak.
+  log_phi_bin : float
+      FRBs are grouped in log10(phi) bins of this width (0.005 dex = 1.2%).
+  u_chunk : int
+      Number of u points per J0 block (memory ~ u_chunk * n_k * 8 bytes).
+
+  Returns
+  -------
+  u : np.ndarray
+      The input grid.
+  p_stacked : np.ndarray
+      Stacked PDF of the observed normalised offset; integrates to the
+      fraction of probability inside [u.min(), u.max()].
+  """
+  u = np.asarray(u, dtype=float)
+  d = pandas.DataFrame({
+      'a': np.asarray(frb_df[a_col], float),
+      'b': np.asarray(frb_df[b_col], float),
+      'phi': np.asarray(frb_df[phi_col], float),
+  })
+  d = d[np.isfinite(d).all(axis=1) & (d.phi > 0)]
+  if len(d) == 0:
+      raise ValueError('stack_convolved_prior: no rows with finite a, b and phi > 0')
+  d['lnphi'] = np.log(d.phi)
+  d['lp'] = np.round(np.log10(d.phi) / log_phi_bin).astype(int)
+  g = d.groupby(['a', 'b', 'lp'], sort=False).agg(n=('phi', 'size'), lnphi=('lnphi', 'mean'))
+  g['phi'] = np.exp(g.lnphi)
+  a = g.index.get_level_values('a').to_numpy()
+  b = g.index.get_level_values('b').to_numpy()
+  sig1 = np.maximum(a, b) / g.phi.to_numpy()
+  sig2 = np.minimum(a, b) / g.phi.to_numpy()
+  wts = g.n.to_numpy() / g.n.sum()
+
+  # Uniform k grid: on a uniform grid the trapezoid rule for the oscillatory
+  # J0(k u) integrand is far more accurate than on a non-uniform one, so
+  # dk <= pi/(8 u_max) throughout. dk <= 1/sig1_max also resolves the widest
+  # localisation; the integrand vanishes at k = 0, so the first step
+  # contributes only O(dk^2).
+  u_max = max(np.max(u), 1.)
+  dk = min(np.pi / (8 * u_max), 1. / np.max(sig1))
+  k = np.arange(0., k_max + dk, dk)
+
+  Gbar = np.zeros_like(k)
+  for i in range(0, len(wts), 64):
+      Gbar += (wts[i:i + 64, None] *
+               _loc_char_fn(k[None, :], sig1[i:i + 64, None], sig2[i:i + 64, None])).sum(0)
+
+  # Prior transform on a coarse grid (it varies on a scale ~ 1/max), then interpolated.
+  kc = np.arange(0., k_max + 0.05, 0.05)
+  Pk = np.interp(k, kc, _prior_hankel(kc, theta_prior))
+
+  f = k * Pk * (Gbar - 1.)
+  wk = np.full_like(k, dk)
+  wk[0] = wk[-1] = 0.5 * dk                       # trapezoid
+  fw = f * wk
+  
+  p = azimuthal_integrated_prior(u, theta_prior).copy()
+  for i in range(0, len(u), u_chunk):
+      uu = u[i:i + u_chunk]
+      p[i:i + u_chunk] += uu * (j0(np.outer(uu, k)) @ fw)
+  return u, np.maximum(p, 0.)
 
 
 ps1filename = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
@@ -966,9 +997,8 @@ def plot_color_image(
     fig.grid.set_linewidth(1)
     
     # Plot all the markers
-    fig.show_ellipses(ra_best_cand, dec_best_cand, 2*angsize_cand/3600., 2*angsize_cand/3600., angle=0., edgecolor='xkcd:azure', linestyle='dashdot', lw=3, zorder=101)
-    angsize_display = 2*angsize_host/3600.-2*2*angsize_host/10./3600.
-    fig.show_ellipses(ra_true_host, dec_true_host, angsize_display, angsize_display, angle=0., edgecolor='xkcd:yellow', lw=3, zorder=101)
+    fig.show_ellipses(ra_best_cand, dec_best_cand, 8*angsize_cand/3600., 8*angsize_cand/3600., angle=0., edgecolor='xkcd:azure', linestyle='dashdot', lw=3, zorder=101)
+    fig.show_ellipses(ra_true_host, dec_true_host, 8*angsize_host/3600., 8*angsize_host/3600., angle=0., edgecolor='xkcd:light purple', lw=3, zorder=101)
     label_str = "$P(O_1|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_best_cand*100, mag_best_cand)
     label_offset = size_arcmin * 60. / 8. / 3600.
     fig.add_label(ra_best_cand - label_offset, dec_best_cand + label_offset, label_str, relative=False, family='sans-serif', size=20, color='xkcd:azure', weight='bold')
@@ -979,16 +1009,15 @@ def plot_color_image(
         angsize_second_cand, POx_second_cand,
     ))
     if has_second_cand:
-        angsize_display = 2*angsize_second_cand/3600.-2*angsize_second_cand/10./3600.
-        fig.show_ellipses(ra_second_cand, dec_second_cand, angsize_display, angsize_display, angle=0., edgecolor='xkcd:green', linestyle='dotted', lw=3, zorder=101)
+        fig.show_ellipses(ra_second_cand, dec_second_cand, 8*angsize_second_cand/3600., 8*angsize_second_cand/3600., angle=0., edgecolor='xkcd:green', linestyle='dotted', lw=3, zorder=101)
         label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_second_cand)
         fig.add_label(ra_second_cand - label_offset, dec_second_cand + label_offset, label_str, relative=False, family='sans-serif', size=20, color='xkcd:green', weight='bold')
     label_str = "$P(U|x)$ = {0:.2f}%".format(PUx*100)
-    fig.add_label(0.18, 0.06, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold')
+    fig.add_label(0.04, 0.06, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold', horizontalalignment='left', verticalalignment='bottom')
     label_str = "Incorrect Association"
     if correct_association:
         label_str = "Correct Association"
-    fig.add_label(0.22, 0.11, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold')
+    fig.add_label(0.04, 0.11, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold', horizontalalignment='left', verticalalignment='bottom')
 
     # If list of candidates is provided, plot them all
     if all_cands is not None:
