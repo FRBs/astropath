@@ -47,7 +47,7 @@ def load_galaxy_catalog(catalog_fn: str = 'combined_HSC_DECaLs_HECATE_galaxies_h
     frb_apath = os.environ.get('FRB_APATH')
 
     if frb_apath is not None:
-        catalog_path = Path(frb_apath) / catalog_fn
+        catalog_path = Path(frb_apath) / 'catalogs' / catalog_fn
 
         if catalog_path.exists():
             print(f"Loading real galaxy catalog from:")
@@ -1437,21 +1437,25 @@ def _generate_galaxy_positions(
     )
 
     if function == 'exponential':
+        print(f"Distributing FRBs according to {function}")
         # Gamma(2, scale) gives p(r) ∝ r·exp(-r/scale), matching the
         # PATH per-solid-angle exponential prior
         randn = np.random.gamma(shape=2, scale=scale, size=10 * n_frbs)
         good = randn < 6.
         randn = randn[good][:n_frbs]
     elif function == 'exponential_incorrect':
+        print(f"Distributing FRBs according to {function}")
         randn = np.random.exponential(scale=scale, size=10 * n_frbs)
         good = np.abs(randn) < (6.)
         randn = randn[good][:n_frbs]
     elif function == 'uniform_1d':
+        print(f"Distributing FRBs according to {function}")
         # Uniform when integrated over azimuth
         randn = np.random.uniform(low=0., high=10., size=10 * n_frbs)
         good = np.abs(randn) < scale
         randn = randn[good][:n_frbs]
     elif function == 'uniform_2d':
+        print(f"Distributing FRBs according to {function}")
         # scale * sqrt(U) gives p(r) ∝ r over [0, scale], matching the
         # PATH per-solid-angle uniform prior (constant per pixel over a disk)
         randn = scale * np.sqrt(np.random.uniform(low=0., high=1., size=n_frbs))

@@ -55,7 +55,7 @@ def _build_cumulative_interpolator(values, pdf):
     return interp1d(cum, values, bounds_error=False, fill_value=(values[0], values[-1]))
 
 
-def kde_dm(data, c=60., npts=1400, dm_max=3200.):
+def kde_dm(data, c=60., npts=1400, dm_max=5000.):
     """KDE for DM_EG via y = log10(DM + c). Returns (DM_axis, pdf_in_DM)."""
     y = np.log10(data + c)
     kernel = stats.gaussian_kde(y)
@@ -249,7 +249,7 @@ def sample_redshifts_from_grid(dm_samples, pzdm, zvals, dmvals,
 
 
 def sample_host_Mr(n_samples, Mr_pdf=None,
-                   Mr_range=(-25., -15.), n_kde_points=500, rng=None, seed=None):
+                   Mr_range=(-26., -13.), n_kde_points=1000, rng=None, seed=None):
     """
     Sample host galaxy absolute r-band magnitudes.
 
@@ -275,8 +275,13 @@ def sample_host_Mr(n_samples, Mr_pdf=None,
     else:
         print("Using Lz values to sample host galaxy absolute magnitudes")
         # Load up Lz values
-        host_file = files('astropath.data') / 'frb_surveys' / 'Lz_host_data.csv'
-        df= pandas.read_csv(host_file)
+        # Old file of 44 hosts from Alexa Gordon, complete up to Shannon+24
+        # print("Using Gordon host sample")
+        # host_file = files('astropath.data') / 'frb_surveys' / 'Lz_host_data.csv'
+        # New file of 111 hosts from Vic Dong
+        print("Using Dong+26 host sample")
+        host_file = files('astropath.data') / 'simulations' / 'published_frb_hosts_100726.csv'
+        df = pandas.read_csv(host_file)
         # Scale mrs with z's to find distribution of Mrs
         mrs = np.array(df['r-band'])
         zs_mrs = np.array(df['redshift'])
@@ -286,9 +291,10 @@ def sample_host_Mr(n_samples, Mr_pdf=None,
 
         # Calculate absolute magnitudes
         Mr_values = mrs - 5. * np.log10(ds) + 5
+        Mr_values = Mr_values[np.isfinite(Mr_values)]
 
         # Build KDE from observed values
-        kernel = stats.gaussian_kde(Mr_values)
+        kernel = stats.gaussian_kde(Mr_values, bw_method=0.3)
         Mr_grid = np.linspace(Mr_range[0], Mr_range[1], n_kde_points)
         pdf = kernel(Mr_grid)
 
@@ -366,10 +372,11 @@ def generate_frbs(n_frbs, survey, dm_catalog=None,
         random.seed(seed)
 
     # Load the survey-specific P(z,DM) grid
-    # First load CHIME grid to get z and DM arrays (they're the same for all)
-    # grid_data = prob_dmz.grab_repo_grid(SURVEY_GRIDS[survey])
-    pzdm_james23_fn = files('astropath.data') / 'simulations' / 'CHIME_progenitors_james23_case_bestfit.npz'
-    grid_data = np.load(pzdm_james23_fn)
+    if survey == 'CHIME':
+        pzdm_james23_fn = files('astropath.data') / 'simulations' / 'CHIME_progenitors_james23_case_bestfit.npz'
+        grid_data = np.load(pzdm_james23_fn)
+    else:
+        grid_data = prob_dmz.grab_repo_grid(SURVEY_GRIDS[survey])
     zvals = grid_data['z']
     dmvals = grid_data['DM']
     pzdm = grid_data['pzdm']
@@ -475,7 +482,7 @@ def gen_random_FRBs(grid:dict, nFRBs:int, seed:int=None, rng=None):
     # Return
     return df
 
-def load_chime_cat1_DMeg():
+def load_chime_cat2_DMeg(cut_snr=12., dm_halo=30.):
     """ 
     Load the DM_extra galactic component from CHIME Catalog 1
 
@@ -484,17 +491,20 @@ def load_chime_cat1_DMeg():
     np.ndarray: DM_extra galactic component
     """
     # Load CHIME Catalog 1
-    chime_cat_file = files('astropath.data') / 'frb_surveys' / 'chimefrbcat1.csv'
-    df_dr1 = pandas.read_csv(chime_cat_file)
+    chime_cat_file = files('astropath.data') / 'frb_surveys' / 'chimefrbcat2.csv'
+    df_dr2 = pandas.read_csv(chime_cat_file)
 
     # Make cut based on bonsai S/N
-    cut_snr = 12.
-    snr_cut = df_dr1['bonsai_snr'] > cut_snr
-    df_dr1 = df_dr1[snr_cut].copy()
+    snr_cut = df_dr2['bonsai_snr'] > cut_snr
+    repeater_cut = df_dr2['repeater_name'].isna()
+    df_dr2 = df_dr2[snr_cut & repeater_cut].copy()
 
     # Subtract MW ISM component
-    DMeg = np.nanmean([df_dr1['dm_exc_ne2001'].values,
-        df_dr1['dm_exc_ymw16'].values], axis=0) #- 100. # Minus MW halo component
+    DMeg = np.nanmean([df_dr2['dm_exc_ne2001'].values,
+        df_dr2['dm_exc_ymw16'].values], axis=0) - dm_halo # Minus MW halo component
+
+    # Remove FRBs for which the strict halo subtraction over-estimates
+    DMeg = DMeg[DMeg > 0.]
 
     # Return
     return DMeg
