@@ -2,11 +2,10 @@
 # =============================================================================
 # run_all_simulations.sh
 #
-# Runs every simulation from Table 1 of Andersen+26 using the DECaLs/Legacy
-# catalog only (Pan-STARRS runs are run separately).
+# Runs every simulation from Table 1 of Andersen+26 using Pan-STARRS catalog.
 #
 # Usage:
-#   bash run_all_simulations.sh
+#   bash run_all_simulations_final_ps1.sh
 # =============================================================================
 set -euo pipefail
 
@@ -19,7 +18,6 @@ SEED=57821
 CLI="${CLI:-./run_path_simulation_cli_final_ps1.py}"
 
 # Offset distribution used for mismatch-CKGH ("uniform" in the table).
-# Options: uniform_1d
 MISMATCH_OFFSET_DIST="uniform_1d"
 
 # P(U) sweep values for the PU-* group (0-0.9 in the table).
