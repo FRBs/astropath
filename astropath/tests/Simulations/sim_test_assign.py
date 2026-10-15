@@ -235,8 +235,7 @@ def test_astropath_assign(seed:int=42, NFRB:int=100):
 
     # Assign
     hosts = assign_frbs_to_hosts(
-        df_frbs, galaxies, localization, seed=seed,
-        trim_catalog=60*units.arcmin)
+        df_frbs, galaxies, localization, seed=seed)
 
     # Load original
     output_fn = 'generated_hosts_DECaL_DECaLhost_hecatecut_{}_{}.parquet'.format(int(seed), int(NFRB))

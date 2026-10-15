@@ -164,7 +164,7 @@ def astropath_generate():
 
     # Generate
     df_chime = generate_frbs(NFRB, 'CHIME', seed=seed, 
-        dm_catalog=DMeg, dm_range=(0., 3000.))
+        dm_catalog=DMeg)
 
     # Load 
     output_fn = 'generated_frbs_test_{}_{}.parquet'.format(int(seed), int(NFRB))

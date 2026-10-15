@@ -26,6 +26,9 @@ MISMATCH_OFFSET_DIST="uniform_1d"
 # 10 values, step 0.1
 PU_VALUES=(0.00 0.10 0.20 0.30 0.40 0.50 0.60 0.70 0.80 0.90)
 
+# Base simulation directory: catalogs are read from ${FRB_APATH}/catalogs/
+export FRB_APATH="/arc/projects/chime_frb/bandersen/path-simulations"
+
 # Fixed defaults shared by all simulations
 SURVEY="CHIME"
 OFFSET_SCALE="0.5"
@@ -96,7 +99,7 @@ run_sim() {
 
 pu=0.30
 
-OUTPUT_DIR="/arc/projects/chime_frb/bandersen/path-simulations/sim_paper"
+OUTPUT_DIR="${FRB_APATH}/sim_paper"
 mkdir -p "${OUTPUT_DIR}"
 echo "Outputting to ${OUTPUT_DIR}"
 

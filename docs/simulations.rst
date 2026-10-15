@@ -24,14 +24,27 @@ Step 1 — Generate an FRB Population
 =====================================
 
 ``generate_frbs()`` samples a synthetic FRB population from a
-survey-specific P(z, DM\ :sub:`EG`) grid provided by the ``frb`` package.
-For each FRB it also draws a host-galaxy absolute magnitude from the known
-FRB host luminosity function (``Lz_host_data.csv``), then converts to
-apparent magnitude using the sampled redshift and a cosmological distance
-modulus.
+survey-specific P(z, DM\ :sub:`EG`) grid.  For each FRB it also draws a
+host-galaxy absolute magnitude *M*\ :sub:`r` from the luminosity
+distribution of published FRB hosts, then converts to apparent
+magnitude *m*\ :sub:`r` using the sampled redshift and a cosmological
+distance modulus.
+
+The host absolute magnitudes are drawn from a Gaussian KDE
+(bandwidth 0.3, evaluated over −26 < *M*\ :sub:`r` < −13) of the
+published host sample in ``astropath/data/simulations/published_frb_hosts_100726.csv``
+(the Dong+26 sample), whose apparent *r*-band magnitudes are converted to
+absolute magnitudes with Planck18 luminosity distances.  See Section 3.1
+of Andersen+26.
 
 Supported surveys
 -----------------
+
+For ``CHIME`` the grid is the James+23 best-fit P(z, DM\ :sub:`EG`)
+grid shipped with astropath
+(``astropath/data/simulations/CHIME_progenitors_james23_case_bestfit.npz``).
+For every other survey the grid is taken from the ``frb`` package
+(``frb.dm.prob_dmz``).
 
 .. list-table::
    :header-rows: 1
@@ -61,7 +74,7 @@ Supported surveys
 API
 ---
 
-``generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None, dm_range=None)``
+``generate_frbs(n_frbs, survey, dm_catalog=None, cosmo=None, seed=None)``
 
 .. list-table::
    :header-rows: 1
@@ -79,19 +92,17 @@ API
    * - *dm_catalog*
      - ``None``
      - 1-D array of observed extragalactic DMs.  When provided, DMs are
-       drawn from a Gaussian KDE fitted to this array rather than
-       directly from the P(DM, z) grid *(np.ndarray, optional)*
+       drawn from a Gaussian KDE fitted to this array (in
+       log\ :sub:`10`\ (DM + 60) space) and redshifts are then drawn from
+       P(z | DM\ :sub:`EG`).  When ``None``, DM and *z* are drawn jointly
+       from the P(DM, z) grid *(np.ndarray, optional)*
    * - *cosmo*
      - Planck18
-     - Astropy cosmology for distance modulus calculations
-       *(astropy.cosmology, optional)*
+     - Astropy cosmology for the distance modulus used to compute
+       *m*\ :sub:`r` *(astropy.cosmology, optional)*
    * - *seed*
      - ``None``
      - Global random seed for reproducibility *(int, optional)*
-   * - *dm_range*
-     - ``None``
-     - ``(min, max)`` DM range for the KDE evaluation when *dm_catalog*
-       is provided *(tuple, optional)*
 
 Output — ``pandas.DataFrame``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -125,20 +136,26 @@ Sample directly from the survey P(DM, z) grid::
 
     frbs = generate_frbs(1000, 'CHIME', seed=42)
 
-Constrain the DM distribution to an observed sample (e.g. CHIME
-Catalog 1 bursts with S/N > 12)::
+Constrain the DM distribution to an observed sample (e.g. the
+non-repeating CHIME/FRB Catalog 2 bursts with S/N > 12, with a 30
+pc cm\ :sup:`−3` Milky Way halo contribution subtracted)::
 
     from importlib.resources import files
     import pandas as pd
     import numpy as np
 
-    fn = files('astropath.data') / 'frb_surveys' / 'chimefrbcat1.csv'
-    df_dr1 = pd.read_csv(fn)
-    dms_eg = np.nanmean([df_dr1['dm_exc_ne2001'].values,
-                         df_dr1['dm_exc_ymw16'].values], axis=0)
-    observed_dms = dms_eg[df_dr1['bonsai_snr'] > 12.]
+    fn = files('astropath.data') / 'frb_surveys' / 'chimefrbcat2.csv'
+    df_dr2 = pd.read_csv(fn)
+    df_dr2 = df_dr2[(df_dr2['bonsai_snr'] > 12.) & df_dr2['repeater_name'].isna()]
+    dm_halo = 30.  # pc/cc
+    dms_eg = np.nanmean([df_dr2['dm_exc_ne2001'].values,
+                         df_dr2['dm_exc_ymw16'].values], axis=0) - dm_halo
+    observed_dms = dms_eg[dms_eg > 0.]
 
     frbs = generate_frbs(1000, 'CHIME', dm_catalog=observed_dms, seed=42)
+
+The same DM selection is available as
+``astropath.simulations.generate_frbs.load_chime_cat2_DMeg(cut_snr=12., dm_halo=30.)``.
 
 
 .. _step2:
@@ -149,29 +166,34 @@ Step 2 — Load a Galaxy Catalog and Assign FRBs to Hosts
 Loading the host galaxy catalog
 --------------------------------
 
-``load_galaxy_catalog()`` reads a parquet catalog from the directory
-given by the ``FRB_APATH`` environment variable::
+``load_galaxy_catalog()`` reads a parquet catalog from the ``catalogs``
+subdirectory of the directory given by the ``FRB_APATH`` environment
+variable, i.e. ``$FRB_APATH/catalogs/<catalog_fn>``.  ``catalog_fn``
+defaults to ``combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet``.  It
+raises a ``ValueError`` if ``FRB_APATH`` is not set or the file does not
+exist::
 
     import os
     from astropath.simulations import load_galaxy_catalog
 
-    os.environ['FRB_APATH'] = '/path/to/catalogs/'
+    os.environ['FRB_APATH'] = '/path/to/simulation/data/'
     galaxies = load_galaxy_catalog(
-        catalog_fn='combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'
+        catalog_fn='combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet'
     )
 
 Two combined host catalogs are available from the
 `Google Drive link <https://drive.google.com/drive/folders/1PKqh8tnDLbtqIuGeoPFEEh60ovs8Zjw8?usp=drive_link>`_
-(~264 MB each).  Choose the one that matches the PATH catalog you will
+(~150 MB each).  Choose the one that matches the PATH catalog you will
 use in Step 3:
 
-* ``combined_HSC_PS1_HECATE_galaxies_hecatecut.parquet`` — pair with
+* ``combined_HSC_PS1_SGA_hosts_clean_ps1_iter10.parquet`` — pair with
   the Pan-STARRS PATH catalog
-* ``combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet`` — pair with
+* ``combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet`` — pair with
   the DECaLs PATH catalog
 
-Both catalogs span HECATE (10 < *m*\ :sub:`r` < 14), Pan-STARRS or
-DECaLs (14 < *m*\ :sub:`r` < 22), and HSC (22 < *m*\ :sub:`r` < 28).
+Both catalogs combine SGA-2020 large galaxies, Pan-STARRS or DECaLs
+galaxies, and HSC-SSP Wide galaxies.  See Section 3.2 of Andersen+26
+for how they are constructed.
 
 The catalog must have the following columns:
 
@@ -202,15 +224,24 @@ Assigning FRBs to host galaxies
 --------------------------------
 
 ``assign_frbs_to_hosts()`` matches each FRB to a host galaxy by
-apparent magnitude using a fake-coordinate iterative matching
-algorithm, places the FRB within the host according to a chosen
-intrinsic offset distribution, and offsets the position by a
+apparent magnitude, places the FRB within the host according to a
+chosen intrinsic offset distribution, and offsets the position by a
 localization error to produce the *observed* FRB coordinates.
+
+Magnitude matching is a single pass without replacement: each FRB takes
+the unused galaxy closest to its *m*\ :sub:`r`, with the most
+oversubscribed magnitudes (highest ratio of FRBs to galaxies per 0.25
+mag) served first.  Where the catalog cannot supply an unused galaxy
+within 0.05 mag of the ideal match, the FRB re-uses the least-used
+galaxy within that tolerance.
+
+The localization error is drawn from an elliptical Gaussian with 1σ
+widths *a* along the position angle PA and *b* along PA + 90°.
 
 API
 ~~~
 
-``assign_frbs_to_hosts(frb_df, galaxy_catalog, localization, mag_range=None, offset_function='exponential', scale=0.5, trim_catalog=1*arcmin, seed=None, debug=False)``
+``assign_frbs_to_hosts(frb_df, galaxy_catalog, localization, mag_range=None, offset_function='exponential', scale=0.5, dm_neighbors=25, dm_match_scale='log', seed=None, debug=False)``
 
 .. list-table::
    :header-rows: 1
@@ -222,16 +253,24 @@ API
    * - *frb_df*
      - —
      - FRB DataFrame from ``generate_frbs()``; must contain column
-       ``m_r`` *(pd.DataFrame)*
+       ``m_r`` (and ``DMeg`` for joint DM–localization sampling)
+       *(pd.DataFrame)*
    * - *galaxy_catalog*
      - —
      - Galaxy catalog DataFrame; see column requirements above
        *(pd.DataFrame)*
    * - *localization*
      - —
-     - Error ellipse as ``(a, b, PA)`` where *a* and *b* are the
-       semi-major and semi-minor axes in arcsec and *PA* is the
-       position angle in degrees East of North *(tuple)*
+     - Error ellipse(s), in one of three forms: a single ``(a, b, PA)``
+       triple applied to every FRB, where *a* and *b* are the semi-major
+       and semi-minor axes in arcsec and *PA* is the position angle in
+       degrees East of North; a population of ellipses (an (N, 3) array or
+       a DataFrame with columns ``a``, ``b``, ``PA``), from which one row
+       is drawn at random per FRB; or a joint (DM, a, b, PA) population
+       (an (N, 4) array, or a DataFrame that also has a ``DM`` column), in
+       which each FRB is given the localization of a real FRB of similar
+       DM.  ``localizations_from_errors()`` builds either population from
+       an observed catalog *(tuple, array, or pd.DataFrame)*
    * - *mag_range*
      - ``None``
      - ``(min, max)`` apparent magnitude range; FRBs outside this range
@@ -245,16 +284,20 @@ API
      - ``0.5``
      - Scale parameter for the chosen offset distribution, in units of
        the host half-light radius *(float)*
-   * - *trim_catalog*
-     - ``1 arcmin``
-     - Buffer trimmed from catalog edges to keep FRBs within the valid
-       analysis region *(astropy.units.Quantity)*
+   * - *dm_neighbors*
+     - ``25``
+     - Joint DM–localization sampling only: number of real FRBs, nearest
+       in DM, from which each localization is drawn *(int)*
+   * - *dm_match_scale*
+     - ``'log'``
+     - Joint DM–localization sampling only: ``'log'`` or ``'linear'``,
+       the space in which DM neighbours are found *(str)*
    * - *seed*
      - ``None``
      - Random seed *(int, optional)*
    * - *debug*
      - ``False``
-     - Print iteration-by-iteration matching diagnostics *(bool)*
+     - Print matching and localization diagnostics *(bool)*
 
 Intrinsic offset distributions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -267,7 +310,8 @@ Intrinsic offset distributions
      - Distribution
    * - ``'exponential'``
      - :math:`p(r) \propto r\,\exp(-r/s)` — Gamma(2, scale) in units of
-       the host half-light radius.  Matches the PATH exponential prior.
+       the host half-light radius, truncated at 6 half-light radii.
+       Matches the PATH exponential prior.
    * - ``'uniform_1d'``
      - Uniform in *r*, truncated at *scale* × half-light radius.
    * - ``'uniform_2d'``
@@ -316,18 +360,17 @@ Output — ``pandas.DataFrame``
      - Index of the FRB in the input ``frb_df``
    * - ``a``
      - float
-     - Localization semi-major axis used (arcsec)
+     - Localization semi-major axis used for this FRB (arcsec)
    * - ``b``
      - float
-     - Localization semi-minor axis used (arcsec)
+     - Localization semi-minor axis used for this FRB (arcsec)
    * - ``PA``
      - float
-     - Localization position angle used (degrees)
+     - Localization position angle used for this FRB (degrees)
 
 Usage example::
 
     from astropath.simulations import assign_frbs_to_hosts
-    from astropy import units
 
     assignments = assign_frbs_to_hosts(
         frb_df          = frbs,
@@ -335,7 +378,6 @@ Usage example::
         localization    = (25., 2., 12.),   # a, b, PA  [arcsec, arcsec, deg]
         offset_function = 'exponential',
         scale           = 0.5,
-        trim_catalog    = 60 * units.arcmin,
         seed            = 42,
     )
 
@@ -350,18 +392,22 @@ computation is embarrassingly parallel and is distributed across CPUs
 with Python's ``multiprocessing`` module.  As a reference point: 5,000
 FRBs took ~50 minutes on an Apple M3 MacBook Pro (16 GB RAM, ``ncpu = 6``).
 
+Each FRB is run in PATH's ``'local'`` likelihood mode with a relative
+step size of 0.05, against the PATH-catalog galaxies within a search
+radius of max(10 *a*, 3′) of its observed position.
+
 Before calling this function, load the pre-queried PATH galaxy catalog.
 Two options are available from the
 `Google Drive link <https://drive.google.com/drive/folders/1PKqh8tnDLbtqIuGeoPFEEh60ovs8Zjw8?usp=drive_link>`_:
 
-* ``catalog_dudxmmlss_hecate_Pan-STARRS.parquet`` (900 MB)
-* ``catalog_dudxmmlss_hecate_DECaL.parquet`` (6.1 GB)
+* ``catalog_hscwide_SGA_PS1_clean_ps1_iter10.parquet`` (Pan-STARRS)
+* ``catalog_hscwide_SGA_DECaL_clean_iter11.parquet`` (DECaLs)
 
 Choose the catalog that matches the host-galaxy catalog used in Step 2,
-save it to ``$FRB_APATH``, and load it::
+save it to ``$FRB_APATH/catalogs/``, and load it::
 
     path_catalog = load_galaxy_catalog(
-        catalog_fn='catalog_dudxmmlss_hecate_DECaL.parquet'
+        catalog_fn='catalog_hscwide_SGA_DECaL_clean_iter11.parquet'
     )
 
 This catalog must have the following columns in addition to ``ra``,
@@ -384,7 +430,7 @@ This catalog must have the following columns in addition to ``ra``,
 API
 ---
 
-``run_path.full(frbs, catalog, prior_dict, multi=True, ncpu=4, debug=False)``
+``run_path.full(frbs, catalog, prior_dict, multi=True, ncpu=4, frb_chunk=5000, debug=False)``
 
 .. list-table::
    :header-rows: 1
@@ -409,6 +455,10 @@ API
    * - *ncpu*
      - ``4``
      - Number of parallel worker processes *(int)*
+   * - *frb_chunk*
+     - ``5000``
+     - Number of FRBs cross-matched against the catalog at a time when
+       building each FRB's candidate list *(int)*
    * - *debug*
      - ``False``
      - Process only the first 100 FRBs *(bool)*
@@ -424,11 +474,17 @@ Prior dictionary
      - Values
      - Description
    * - ``'P_O_method'``
-     - ``'inverse'``, ``'identical'``
-     - Magnitude prior :math:`P(O_i)`.  ``'inverse'`` weights by inverse
-       flux; ``'identical'`` gives equal weight to all candidates.
+     - ``'inverse'``, ``'identical'``, ``'updated_driver'``,
+       ``'updated_driver_diff'``, ``'user'``
+     - Magnitude prior :math:`P(O_i)`.  ``'inverse'`` weights by the
+       inverse of the cumulative galaxy surface density brighter than the
+       candidate; ``'identical'`` gives equal weight to all candidates;
+       ``'updated_driver'`` and ``'updated_driver_diff'`` use a fit to the
+       Driver+16 r-band counts (cumulative and differential,
+       respectively); ``'user'`` calls the user-defined function
+       ``astropath.priors.USR_raw_prior_Oi``.
    * - ``'PU'``
-     - float in (0, 1)
+     - float in [0, 1)
      - Prior probability that the true host is unseen in the catalog.
        See Section 4.1.1 of Andersen+26 for guidance on estimating this
        value.
@@ -448,7 +504,9 @@ Prior dictionary
 Output — ``pandas.DataFrame``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each row is the best PATH candidate for one simulated FRB.  Key columns:
+Each row is one PATH candidate for one simulated FRB.  The candidates
+of each FRB are sorted by descending :math:`P(O_i | x)`, so the first
+row for each ``iFRB`` is the best candidate.  Key columns:
 
 .. list-table::
    :header-rows: 1
@@ -469,12 +527,12 @@ Each row is the best PATH candidate for one simulated FRB.  Key columns:
    * - ``ang_size``
      - float
      - Angular size of the candidate galaxy (arcsec)
+   * - ``ID``
+     - int
+     - ID of the candidate galaxy in the PATH catalog
    * - ``P_O``
      - float
      - PATH prior :math:`P(O_i)`
-   * - ``p_xO``
-     - float
-     - PATH likelihood :math:`p(x | O_i)`
    * - ``P_Ox``
      - float
      - PATH posterior :math:`P(O_i | x)`
@@ -512,13 +570,14 @@ Step 4 — Build the Digest
 ==========================
 
 ``utils.build_digest()`` merges the outputs of all three preceding steps
-into a single, analysis-ready DataFrame and optionally writes it to a
-parquet file.
+into a single, analysis-ready DataFrame with one row per simulated FRB
+(its best PATH candidate), and optionally writes it to a parquet file.
+FRBs with no PATH candidates are excluded.
 
 API
 ---
 
-``utils.build_digest(raw_sim_results, frbs, hosts, combined_catalog, output_fn=None, thresh_cross_match=2.)``
+``utils.build_digest(raw_sim_results, frbs, hosts, combined_catalog, output_fn=None)``
 
 .. list-table::
    :header-rows: 1
@@ -543,11 +602,15 @@ API
    * - *output_fn*
      - ``None``
      - If provided, the digest is written to this parquet path *(str)*
-   * - *thresh_cross_match*
-     - ``2.0``
-     - A candidate is "correct" if its angular separation from the true
-       host is within this multiple of the larger of the two galaxies'
-       half-light radii *(float)*
+
+An association is "correct" when the best candidate is the true host:
+by ID where the true host's ID appears among the candidates PATH
+searched, and otherwise when the two are separated by less than
+max(*φ*\ :sub:`host`, *φ*\ :sub:`cand`, 0.5″), the larger of the two
+half-light radii with a 0.5″ floor.  A host is "unseen" when its ID is
+not among the searched candidates and the nearest searched candidate
+lies farther than max(*φ*\ :sub:`host`, *φ*\ :sub:`nearest`, 0.5″).
+An unseen host is never a correct association.
 
 Digest column reference
 -----------------------
@@ -592,10 +655,10 @@ Digest column reference
      - Separation between the best candidate and the true host (arcsec)
    * - ``sep_host_loc_arcsec``
      - Separation between the true host center and the localization (arcsec)
-   * - ``sep_best_loc_arcsec``
-     - Separation between the best candidate center and the localization (arcsec)
    * - ``sep_host_loc_norm``
      - ``sep_host_loc_arcsec`` normalised by ``ang_size_host``
+   * - ``sep_best_loc_arcsec``
+     - Separation between the best candidate center and the localization (arcsec)
    * - ``sep_best_loc_norm``
      - ``sep_best_loc_arcsec`` normalised by ``ang_size_cand``
    * - ``z_host``
@@ -610,23 +673,27 @@ Digest column reference
      - RA of the best PATH candidate (degrees)
    * - ``dec_cand``
      - Dec of the best PATH candidate (degrees)
-   * - ``mag_cand``
-     - Apparent magnitude of the best candidate
    * - ``ang_size_cand``
      - Angular size of the best candidate (arcsec)
+   * - ``mag_cand``
+     - Apparent magnitude of the best candidate
    * - ``cand_ID``
      - ID of the best candidate in the PATH catalog
    * - ``P_O``
      - PATH prior :math:`P(O_i)` for the best candidate
-   * - ``p_xO``
-     - PATH likelihood :math:`p(x | O_i)` for the best candidate
    * - ``P_Ox``
      - PATH posterior :math:`P(O_i | x)` for the best candidate
    * - ``P_Ux``
      - PATH unseen-host posterior :math:`P(U | x)`
+   * - ``unseen``
+     - ``True`` if the true host is not detected in the catalog PATH
+       searched (see above)
    * - ``correct_association``
-     - ``True`` if the best candidate spatially matches the true host
-       (within *thresh_cross_match* × half-light radius)
+     - ``True`` if the best candidate is the true host (see above)
+   * - ``host_catalog``
+     - Catalog the true host was drawn from: ``'SGA'``, ``'DECaL_ID'``,
+       ``'Pan-STARRS_ID'``, ``'HSC_ID'``, or ``'HECATE_ID'``
+       (``'No Match'`` if the host ID is found in none of them)
 
 Usage example::
 
@@ -656,18 +723,30 @@ Usage example::
 Command-Line Interface
 ======================
 
-``run_path_simulation_cli.py`` wraps the entire four-step pipeline into a
-single command.  It enforces valid choices and types for every parameter,
-generates output filenames automatically from the simulation settings, and
-falls back gracefully to mock catalogs when real catalog files are not
-present.
+``astropath/simulations/run_path_simulation_cli_final.py`` wraps the
+entire four-step pipeline into a single command.  It enforces valid
+choices and types for every parameter and generates output filenames
+automatically from the simulation settings.
+``run_path_simulation_cli_final_ps1.py`` is identical except that its
+default catalogs are the Pan-STARRS ones.
+
+As for ``load_galaxy_catalog()``, ``FRB_APATH`` must be set in your
+environment to the base simulation directory, and every catalog or DM
+table named on the command line is read from
+``$FRB_APATH/catalogs/<filename>``.  The script exits with an error if
+``FRB_APATH`` is not set. If the host or PATH catalog file is not found,
+the script prints a warning and falls back to a small mock catalog,
+which is only useful for testing. A missing DM or localization/DM table
+raises an error.
 
 Usage
 -----
 
 .. code-block:: bash
 
-   python run_path_simulation_cli.py \
+   export FRB_APATH=/path/to/simulation/data   # contains catalogs/
+
+   python run_path_simulation_cli_final.py \
        --survey          CHIME         \
        --n-frbs          1000          \
        --loc-a           25            \
@@ -682,6 +761,18 @@ Usage
        --theta-max       6.0           \
        --ncpu            4             \
        --output-dir      ./results
+
+The DMs are taken from, in order of precedence:
+
+* ``--locdm-catalog`` — DMs *and* localizations from a table of real
+  FRBs (the localization of each simulated FRB is drawn from real FRBs of
+  similar DM; ``--loc-a/b/pa`` are ignored);
+* ``--dm-catalog`` — DMs only; the localization is ``--loc-a/b/pa``;
+* otherwise, for ``--survey CHIME``, the non-repeating CHIME/FRB Catalog 2
+  bursts with S/N > 12 (see :ref:`step1`);
+* otherwise, the survey's full P(DM, z) grid.
+
+``--dm-catalog`` and ``--locdm-catalog`` cannot be combined.
 
 Key arguments
 ~~~~~~~~~~~~~
@@ -702,19 +793,35 @@ Key arguments
    * - ``--loc-a / --loc-b / --loc-pa``
      - 25 / 2 / 12
      - Localization ellipse semi-axes (arcsec) and position angle (deg)
+   * - ``--locdm-catalog``
+     - ``None``
+     - Parquet or CSV table of real FRBs with columns ``DM_ex``
+       (extragalactic DM), ``a_err``, ``b_err`` (arcsec), and ``pa``
+       (deg).  DMs are drawn from its ``DM_ex`` values and localizations
+       are sampled jointly with DM from its ellipses, overriding
+       ``--loc-a/b/pa``
+   * - ``--dm-catalog``
+     - ``None``
+     - Parquet or CSV table with an extragalactic-DM column ``DM_ex``.
+       DMs are drawn from these values; the localization is
+       ``--loc-a/b/pa``
    * - ``--offset-dist``
      - ``exponential``
-     - Intrinsic offset distribution (``exponential``, ``uniform_1d``,
-       ``uniform_2d``)
+     - Intrinsic offset distribution (``exponential``,
+       ``exponential_incorrect``, ``uniform_1d``, ``uniform_2d``)
    * - ``--offset-scale``
      - 0.5
      - Scale of the intrinsic offset distribution
    * - ``--mag-prior``
      - ``inverse``
-     - PATH magnitude prior (``inverse``, ``identical``)
+     - PATH magnitude prior (``inverse``, ``inverse_diff``,
+       ``identical``, ``user``, ``updated_driver``,
+       ``updated_driver_diff``).  ``user`` divides a KDE of the
+       simulated FRB host *m*\ :sub:`r` distribution by a fit to the
+       Driver+16 differential galaxy counts
    * - ``--unseen-prior``
      - 0.15
-     - PATH unseen-host prior P(U); must be in (0, 1)
+     - PATH unseen-host prior P(U); must be in [0, 1]
    * - ``--offset-prior``
      - ``exp``
      - PATH offset prior shape (``exp``, ``core``, ``uniform``)
@@ -729,12 +836,10 @@ Key arguments
      - Number of parallel CPUs for PATH
    * - ``--host-catalog``
      - (see note)
-     - Filename of the wide-field host catalog (looked up in
-       ``$FRB_APATH``)
+     - Filename of the wide-field host catalog
    * - ``--path-catalog``
      - (see note)
-     - Filename of the pre-queried PATH galaxy catalog (looked up in
-       ``$FRB_APATH``)
+     - Filename of the pre-queried PATH galaxy catalog
    * - ``--output-dir``
      - ``./``
      - Output directory
@@ -744,6 +849,13 @@ Key arguments
    * - ``--digest-output``
      - auto
      - Parquet path for the digest
+   * - ``--tag``
+     - ``sim``
+     - Label placed at the start of the auto-generated filenames
+   * - ``--save-full-output``
+     - ``True``
+     - Whether to write the raw PATH results (can be large); use
+       ``--save-full-output False`` to skip
    * - ``--seed``
      - ``None``
      - Global random seed
@@ -753,19 +865,32 @@ Key arguments
    * - ``--debug``
      - off
      - Process only 100 FRBs; useful for testing
+   * - ``--random-locs``
+     - ``False``
+     - Place FRBs at random positions in the XMM-LSS HSC-SSP field
+       instead of in host galaxies; ``--random-locs`` or
+       ``--random-locs True`` turns it on
 
-Default catalog filenames (looked up in ``$FRB_APATH``):
+Default catalog filenames (looked up in ``$FRB_APATH/catalogs/``):
 
-* Host catalog: ``combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet``
-* PATH catalog: ``catalog_dudxmmlss_hecate_DECaL.parquet``
+* ``run_path_simulation_cli_final.py``: host catalog
+  ``combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet``, PATH catalog
+  ``catalog_hscwide_SGA_DECaL_clean_iter11.parquet``
+* ``run_path_simulation_cli_final_ps1.py``: host catalog
+  ``combined_HSC_PS1_SGA_hosts_clean_ps1_iter10.parquet``, PATH catalog
+  ``catalog_hscwide_SGA_PS1_clean_ps1_iter10.parquet``
 
 Auto-generated output filenames follow the pattern::
 
-    digest__<loc>_<offset_dist>_<offset_prior>_<mag_prior>_pu<PU>_<catalog_stem>.parquet
+    digest_<tag>_<loc>_<offset_dist>_<offset_prior>_<mag_prior>_<path_catalog_stem>_<n_frbs>_seed<seed>.parquet
+    full_path_results_<tag>_<loc>_<offset_dist>_<offset_prior>_<mag_prior>_<path_catalog_stem>_<n_frbs>_seed<seed>.parquet
 
-so runs with different settings never overwrite each other.
+where ``<loc>`` is ``a<a>b<b>pa<PA>`` with two decimals each.  P(U)
+does not appear in the pattern, so include it in ``--tag`` when
+comparing runs that differ only in P(U); the suite scripts
+(:ref:`full_suite`) use ``--tag <table1_label>_<unseen_prior>``.
 
-Run ``python run_path_simulation_cli.py --help`` for the complete
+Run ``python run_path_simulation_cli_final.py --help`` for the complete
 argument list.
 
 
@@ -778,17 +903,22 @@ The notebook ``docs/nb/Reproducing_Andersen+26_Figures.ipynb`` contains
 code to reproduce Figures 3–16 of Andersen+26.  To run it, download the
 pre-computed simulation digests from the
 `Google Drive link <https://drive.google.com/drive/folders/1Rv6koYfKJ7yQ5xYV666gIaMQ2wX0A6Tg?usp=drive_link>`_
-and save them to ``$FRB_APATH``.  Digest files are named::
+and save them to ``$FRB_APATH/sim_paper/``.  Digest files are named::
 
-    digest_<loc>_<offset_dist>_<offset_prior>_<mag_prior>_<PU>_<catalog>.parquet
+    digest_<table1_label>_<unseen_prior>_<loc>_<intrinsic_offset_distribution>_<offset_prior>_<magnitude_prior>_<path_catalog>_<NFRBs>_<random_seed>.parquet
 
-For example, ``digest_ck_exp_exp_inverse_0.15_DECaL.parquet`` corresponds
-to the CHIME-KKO localization, exponential intrinsic offset distribution,
-exponential PATH offset prior, inverse magnitude prior, P(U) = 0.15, run
-with the DECaLs catalog (the first entry in Table 11 of Andersen+26).
+For example,
+``digest_default-CK_pu0.10_a25.00b2.00pa12.00_exponential_exp_inverse_catalog_hscwide_SGA_DECaL_clean_iter11_100000_seed57822.parquet``
+is the ``default-CK`` simulation from Table 1 of Andersen+26: the
+CHIME-KKO localization, P(U) = 0.10, an exponential intrinsic offset
+distribution, an exponential PATH offset prior, and an inverse magnitude
+prior, run with the DECaLs PATH catalog.
 
 Figure 7 (estimation of P(U)) additionally requires the pre-queried PATH
-catalogs; see :ref:`step3` for download instructions.
+catalogs and the matching host catalogs, saved to
+``$FRB_APATH/catalogs/``; see :ref:`step2` and :ref:`step3` for download
+instructions.  These files are large: 1.1 GB for Pan-STARRS and 5.1 GB
+for DECaLs.
 
 
 Complete Example
@@ -800,36 +930,35 @@ The following reproduces a typical CHIME simulation end-to-end::
     import numpy as np
     import pandas as pd
     from importlib.resources import files
-    from astropy import units
     from astropath.simulations import generate_frbs, assign_frbs_to_hosts
     from astropath.simulations import load_galaxy_catalog, run_path
     from astropath.simulations import utils as sim_utils
 
-    os.environ['FRB_APATH'] = '/path/to/catalogs/'
+    os.environ['FRB_APATH'] = '/path/to/simulation/data/'
 
     # Step 1 — generate FRBs
-    fn = files('astropath.data') / 'frb_surveys' / 'chimefrbcat1.csv'
-    df_dr1 = pd.read_csv(fn)
-    dms_eg = np.nanmean([df_dr1['dm_exc_ne2001'].values,
-                         df_dr1['dm_exc_ymw16'].values], axis=0)
-    observed_dms = dms_eg[df_dr1['bonsai_snr'] > 12.]
+    fn = files('astropath.data') / 'frb_surveys' / 'chimefrbcat2.csv'
+    df_dr2 = pd.read_csv(fn)
+    df_dr2 = df_dr2[(df_dr2['bonsai_snr'] > 12.) & df_dr2['repeater_name'].isna()]
+    dms_eg = np.nanmean([df_dr2['dm_exc_ne2001'].values,
+                         df_dr2['dm_exc_ymw16'].values], axis=0) - 30.
+    observed_dms = dms_eg[dms_eg > 0.]
     frbs = generate_frbs(1000, 'CHIME', dm_catalog=observed_dms, seed=42)
 
     # Step 2 — assign to hosts
     galaxies    = load_galaxy_catalog(
-                      'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet')
+                      'combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet')
     assignments = assign_frbs_to_hosts(
         frb_df          = frbs,
         galaxy_catalog  = galaxies,
         localization    = (25., 2., 12.),
         offset_function = 'exponential',
         scale           = 0.5,
-        trim_catalog    = 60 * units.arcmin,
         seed            = 42,
     )
 
     # Step 3 — run PATH
-    path_catalog = load_galaxy_catalog('catalog_dudxmmlss_hecate_DECaL.parquet')
+    path_catalog = load_galaxy_catalog('catalog_hscwide_SGA_DECaL_clean_iter11.parquet')
     prior_dict   = {
         'P_O_method': 'inverse',
         'PU':         0.15,
@@ -853,3 +982,100 @@ The following reproduces a typical CHIME simulation end-to-end::
         combined_catalog = galaxies,
         output_fn        = 'digest_chime.parquet',
     )
+
+
+.. _full_suite:
+
+Running the Full Simulation Suite
+=================================
+
+The simulations in Table 1 of Andersen+26 are run with two shell
+scripts in ``astropath/simulations/``, each of which calls the CLI
+(:ref:`cli`) once per simulation:
+
+* ``run_all_simulations_final.sh`` — DECaLs runs, calling
+  ``run_path_simulation_cli_final.py`` (seed 57822, P(U) = 0.10)
+* ``run_all_simulations_final_ps1.sh`` — Pan-STARRS runs, calling
+  ``run_path_simulation_cli_final_ps1.py`` (seed 57821, P(U) = 0.30)
+
+Both scripts run every simulation for ``CHIME`` with 100,000 FRBs on 12
+CPUs, an intrinsic offset scale of 0.5, and an ``exp`` PATH offset
+prior with ``scale = 0.5`` and ``theta_max = 6.0``.  The localizations
+are:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 30 50
+
+   * - Label
+     - (*a*, *b*, PA)
+     - Description
+   * - ``C``
+     - (25″, 25″, 0°)
+     - CHIME-only
+   * - ``CK``
+     - (25″, 2″, 12°)
+     - CHIME-KKO
+   * - ``CKG``
+     - (15″, 0.05″, 5°)
+     - CHIME-KKO-GBO
+   * - ``CKGH``
+     - (0.1″, 0.05″, 10°)
+     - CHIME-KKO-GBO-HCRO
+   * - ``1arcsec``
+     - (1″, 1″, 0°)
+     - Generic 1″
+
+The simulations are organised in groups, each a block of ``run_sim``
+calls:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Group
+     - Simulations
+   * - ``default-*``
+     - All five localizations, ``inverse`` magnitude prior
+   * - ``user-*``
+     - All five localizations, ``user`` magnitude prior (the simulated
+       host *m*\ :sub:`r` distribution; see :ref:`cli`)
+   * - ``updateddriver-*``
+     - ``C`` and ``CK`` with the ``updated_driver`` and
+       ``updated_driver_diff`` priors (DECaLs script only)
+   * - ``mismatch-CKGH``, ``ident-1arcsec``
+     - ``CKGH`` with a ``uniform_1d`` intrinsic offset distribution
+       (scale 8.0) against the ``exp`` prior; ``1arcsec`` with the
+       ``identical`` magnitude prior
+   * - ``ident-*``
+     - All five localizations, ``identical`` magnitude prior
+   * - ``PU-*``
+     - All five localizations, ``inverse`` prior, P(U) swept from 0.0 to
+       0.9 in steps of 0.1, with 10,000 FRBs per run
+
+Each simulation's label (e.g. ``default-CK_pu0.10``) is passed as
+``--tag``, so it heads the output filenames (see :ref:`andersen26`).
+
+To run the suite:
+
+1. In the configuration block at the top of the shell script, set
+   ``FRB_APATH`` (exported to the CLI) to your base simulation directory,
+   the one containing ``catalogs/``.  Outputs are written to
+   ``OUTPUT_DIR = $FRB_APATH/sim_paper``, where the Reproducing notebook
+   expects them.
+2. Edit the rest of the configuration block if needed (``N_FRBS``, ``NCPU``, ``SEED``, the global ``pu``, and
+   ``PU_VALUES`` for the ``PU-*`` sweep).
+3. Uncomment the groups you want to run; the others are commented out.
+   ``TOTAL`` only sets the progress counter printed for each run.
+4. Run the script from ``astropath/simulations/``, or set ``CLI`` to the
+   path of the CLI script::
+
+       cd astropath/simulations
+       bash run_all_simulations_final.sh
+
+       # or, from elsewhere
+       CLI=/path/to/run_path_simulation_cli_final.py bash run_all_simulations_final.sh
+
+The script stops at the first failed run (``set -euo pipefail``).  Each
+run writes a digest and, by default, the raw PATH results to
+``OUTPUT_DIR``.

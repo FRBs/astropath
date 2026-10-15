@@ -64,7 +64,7 @@ class TestSampling:
 
         samples = sample_dm_from_catalog(
             dm_catalog, n_samples=1000,
-            dm_range=(0., 1500.), seed=42
+            seed=42
         )
 
         assert len(samples) == 1000

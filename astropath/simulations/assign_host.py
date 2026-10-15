@@ -36,13 +36,21 @@ LocalizationLike = Union[
 ]
 
 
-def load_galaxy_catalog(catalog_fn: str = 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'):
+def load_galaxy_catalog(catalog_fn: str = 'combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet'):
     """
-    Load possible host galaxy catalog with filename catalog_fn located
-    in the directory indicated by the FRB_APATH environmental variable.
+    Load a galaxy catalog (host or PATH catalog) with filename catalog_fn from
+    the `catalogs` subdirectory of the directory indicated by the FRB_APATH
+    environment variable, i.e. $FRB_APATH/catalogs/<catalog_fn>.
 
     Args:
-        catalog_fn (str): filename of the catalog of possible hosts
+        catalog_fn (str): filename of the parquet catalog. Default: the
+            DECaLs host catalog, combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet
+
+    Returns:
+        pd.DataFrame: the catalog
+
+    Raises:
+        ValueError: If FRB_APATH is not set or the file does not exist
     """
     frb_apath = os.environ.get('FRB_APATH')
 
@@ -58,7 +66,10 @@ def load_galaxy_catalog(catalog_fn: str = 'combined_HSC_DECaLs_HECATE_galaxies_h
         else:
             raise ValueError(f"Catalog not found at {catalog_path}")
     else:
-        raise ValueError("FRB_APATH not set")
+        raise ValueError(
+            "FRB_APATH is not set. Set it to your base simulation directory, the one "
+            "containing the 'catalogs' subdirectory (e.g. export FRB_APATH=/path/to/sims/)."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -83,8 +94,8 @@ def localizations_from_errors(
     The convention matches `_apply_localization_error`: `a` is the offset scale
     along position angle `PA` (degrees East of North) and `b` is the scale along
     PA + 90.  With the default ``pa=90``, `a` runs East-West and `b` runs
-    North-South.  Both are treated as 1-sigma Gaussian widths, truncated at
-    3 sigma, exactly as for a scalar localization.
+    North-South.  Both are treated as 1-sigma Gaussian widths (not truncated),
+    exactly as for a scalar localization.
 
     Args:
         a_err (array): semi-major uncertainty per FRB (arcsec), already sky-projected
@@ -95,7 +106,7 @@ def localizations_from_errors(
             shape as `a_err` and gives each FRB its own PA. Rows with a
             non-finite PA are dropped. Default 90, pairing `a` with RA.
         dm (array, optional): Dispersion measure of each real FRB, on the SAME
-            scale as the simulated `frb_df['DM']` -- i.e. EXTRAGALACTIC DM, with
+            scale as the simulated `frb_df['DMeg']` -- i.e. EXTRAGALACTIC DM, with
             the Milky Way disk and halo contributions already subtracted. If
             given, the returned array has 4 columns (DM, a, b, PA) and enables
             joint DM-localization sampling in `assign_frbs_to_hosts`, which
@@ -430,7 +441,6 @@ def assign_frbs_to_hosts(
     mag_range: Tuple[float, float] = None,  # (17., 28.),
     offset_function: str = 'exponential',
     scale: float = 0.5,
-    trim_catalog: units.Quantity = 1 * units.arcmin,
     dm_neighbors: int = 25,
     dm_match_scale: str = 'log',
     seed: Optional[int] = None,
@@ -440,9 +450,12 @@ def assign_frbs_to_hosts(
     Assign FRBs to host galaxies based on apparent magnitude matching.
 
     This function assigns each FRB to a host galaxy by matching their apparent
-    magnitudes (m_r). The matching algorithm uses a "fake coordinate" approach
-    where magnitudes are encoded as declinations, allowing sky coordinate
-    matching to effectively match by brightness.
+    magnitudes (m_r), in a single pass without replacement (see
+    `_match_by_magnitude_fast`): each FRB takes the unused galaxy closest to
+    its m_r, with the most oversubscribed magnitudes (FRBs per galaxy, in
+    0.25-mag bins) served first. Where no unused galaxy lies within 0.05 mag of
+    the ideal match, the FRB re-uses the least-used galaxy within that
+    tolerance.
 
     Each FRB is randomly placed within the host galaxy according to the indicated
     offset distribution (exponential by default), then the observed coordinates are offset
@@ -472,8 +485,9 @@ def assign_frbs_to_hosts(
               matched to real FRBs of similar DM (see `dm_neighbors`) and given
               one of their localizations, so the simulated sample inherits the
               observed correlation between DM and localization quality. Requires
-              a 'DM' column in `frb_df`, holding EXTRAGALACTIC DM on the same
-              scale as the population's DM column.
+              a 'DMeg' column in `frb_df` (as produced by `generate_frbs`),
+              holding EXTRAGALACTIC DM on the same scale as the population's DM
+              column.
             Use `localizations_from_errors` to build either population from an
             observed catalog's RA/Dec uncertainties.
             The realized per-FRB values are returned in the 'a', 'b' and 'PA'
@@ -481,12 +495,11 @@ def assign_frbs_to_hosts(
         mag_range (tuple, optional): (min, max) magnitude range for FRB selection.
             FRBs outside this range are filtered out. Default: None (no cut)
         offset_function (str, optional): Function to use for generating galaxy positions (exponential, exponential_incorrect, uniform_1d, uniform_2d)
-        scale (float, optional): Scale factor for exponential half-light radius or uniform distribution
-            outer cutoff when offsetting FRBs due to intrinsic distribution.
+        scale (float, optional): Scale of the intrinsic offset distribution, in
+            units of the host half-light radius: the exponential scale length, or
+            the outer cutoff of the uniform distributions.
             Smaller values concentrate FRBs closer to galaxy centers.
             Default: 0.5
-        trim_catalog (units.Quantity, optional): Buffer to trim from catalog edges
-            to ensure FRBs stay within analysis region. Default: 1 arcmin
         dm_neighbors (int, optional): Only used for joint (DM, a, b, PA)
             sampling. Number of real FRBs, nearest in DM, from which the
             localization is drawn uniformly. 1 is strict nearest-neighbour
@@ -526,7 +539,7 @@ def assign_frbs_to_hosts(
         >>> locs = localizations_from_errors(cat['RA Error (arcsec)'],
         ...                                  cat['Dec Error (arcsec)'])
         >>> assignments = assign_frbs_to_hosts(frbs, galaxies, localization=locs)
-        >>> # Joint DM-localization sampling (frbs must have a 'DM' column)
+        >>> # Joint DM-localization sampling (frbs must have a 'DMeg' column)
         >>> locs = localizations_from_errors(cat['RA Error (arcsec)'],
         ...                                  cat['Dec Error (arcsec)'], dm=dm_ex)
         >>> assignments = assign_frbs_to_hosts(frbs, galaxies, localization=locs)
@@ -562,12 +575,12 @@ def assign_frbs_to_hosts(
         dm_neighbors=dm_neighbors, dm_match_scale=dm_match_scale, debug=debug,
     )
 
-    # Trim catalog edges to maintain analysis region
-    # Edit: not needed for iter7 catalog
-    galaxy_cut = galaxy_catalog # _trim_catalog(galaxy_catalog, trim_catalog)
+    # No edge trim here: the host catalogs are built to sit inside the PATH
+    # catalog footprint (see the catalog-construction notebooks).
+    galaxy_cut = galaxy_catalog
 
     if len(galaxy_cut) == 0:
-        raise ValueError("No galaxies remain after trimming catalog edges")
+        raise ValueError("Galaxy catalog is empty")
 
     # Match FRBs to galaxies by magnitude
     galaxy_indices = _match_by_magnitude_fast(cut_frbs, galaxy_cut, debug=debug)
@@ -977,14 +990,14 @@ def _extract_dm(frb_df: pd.DataFrame, localization: LocalizationLike):
     ignored unless it is needed.
 
     Raises:
-        ValueError: If joint sampling is requested but `frb_df` has no 'DM'
+        ValueError: If joint sampling is requested but `frb_df` has no 'DMeg'
             column.
     """
     if not _needs_dm(localization):
         return None
     if 'DMeg' not in frb_df.columns:
         raise ValueError(
-            "Joint (DM, a, b, PA) localization sampling requires a 'DM' column in the FRB "
+            "Joint (DM, a, b, PA) localization sampling requires a 'DMeg' column in the FRB "
             f"DataFrame (extragalactic DM), but columns are {list(frb_df.columns)}. "
             "Pass a 3-column (a, b, PA) population to sample localizations independently."
         )
@@ -1412,13 +1425,18 @@ def _generate_galaxy_positions(
     Generate random FRB positions within host galaxies.
 
     FRB positions are sampled from a distribution with
-    width proportional to the galaxy's half-light radius.
+    width proportional to the galaxy's half-light radius, in a uniformly
+    random direction.
 
     Args:
         galaxy_sample: Selected host galaxies
-        scale: Scale factor for exponential half-light radius (smaller = more concentrated), or for the
-               outer cutoff for the uniform function (arcseconds)
-        function: Function to use for generating galaxy positions (exponential, uniform)
+        scale: In units of the host half-light radius. For 'exponential', the
+               scale of Gamma(2, scale), i.e. p(r) ~ r exp(-r/scale), truncated
+               at 6 half-light radii (smaller = more concentrated). For
+               'uniform_1d' / 'uniform_2d', the outer cutoff of the uniform
+               distribution ('uniform_1d' draws from at most 10).
+        function: Function to use for generating galaxy positions
+               ('exponential', 'exponential_incorrect', 'uniform_1d', 'uniform_2d')
         seed: Random seed
 
     Returns:
@@ -1491,8 +1509,8 @@ def _apply_localization_error(
     """
     Apply per-FRB localization error to true FRB coordinates.
 
-    Offsets are drawn from a truncated (3-sigma) normal distribution
-    along each FRB's own error ellipse axes.
+    Offsets are drawn from a normal distribution (not truncated) along each
+    FRB's own error ellipse axes: 1-sigma `a` along PA and `b` along PA + 90.
 
     Args:
         true_coords: True FRB coordinates (SkyCoord array or list of SkyCoord)
