@@ -18,27 +18,27 @@ What the notebook covers
 
 **Step 1 — Generate an FRB population**
 
-1,000 CHIME FRBs are generated using the CHIME Catalog 1
-DM\ :sub:`EG` distribution (S/N > 12) as the DM prior, matching the
-subsample used in Andersen+26.  See
+10,000 CHIME FRBs are generated using the DM\ :sub:`EG` distribution of
+the non-repeating CHIME/FRB Catalog 2 bursts with S/N > 12 (with a 30
+pc cm\ :sup:`−3` Milky Way halo contribution subtracted) as the DM
+prior, matching the subsample used in Andersen+26.  See
 :doc:`notebook_generate_frbs` for details of this step.
 
 **Step 2 — Load the possible host galaxy catalog**
 
-The combined HECATE (10 < *m*\ :sub:`r` < 14) + Pan-STARRS/DECaLs
-(14 < *m*\ :sub:`r` < 22) + HSC (22 < *m*\ :sub:`r` < 28) catalog is
+The combined SGA-2020 + Pan-STARRS/DECaLs + HSC-SSP Wide catalog is
 loaded with ``load_galaxy_catalog()``.  Two versions are available from
 the `Google Drive link <https://drive.google.com/drive/folders/1PKqh8tnDLbtqIuGeoPFEEh60ovs8Zjw8?usp=drive_link>`_
-(~264 MB each):
+(~150 MB each):
 
-* ``combined_HSC_PS1_HECATE_galaxies_hecatecut.parquet`` — use when
+* ``combined_HSC_PS1_SGA_hosts_clean_ps1_iter10.parquet`` — use when
   running PATH with the Pan-STARRS catalog
-* ``combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet`` — use when
-  running PATH with the DECaLs catalog
+* ``combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet`` — use when
+  running PATH with the DECaLs catalog (used in the notebook)
 
-The catalog is loaded from the directory given by ``$FRB_APATH``.  If
-the real catalog is unavailable a mock catalog is generated
-automatically for illustration purposes.
+The catalog is loaded from ``$FRB_APATH/catalogs/``.  If the real
+catalog is unavailable a mock catalog is generated automatically for
+illustration purposes.
 
 The notebook also visualises the catalog sky distribution, magnitude
 distribution, and angular-size distribution.
@@ -61,8 +61,8 @@ parameters:
 
 * *Intrinsic offset distributions* — 2-D (RA vs Dec) and 1-D (radial)
   host-normalised offset scatter for all three
-  ``offset_function`` choices (``'exponential'``, ``'uniform_1d'``,
-  ``'uniform_2d'``).
+  ``offset_function`` choices (``'exponential'`` with ``scale = 1``,
+  and ``'uniform_1d'`` and ``'uniform_2d'`` with ``scale = 6``).
 
 * *Effect of scale* — exponential offsets with scale = 2.0, 1.0, and
   0.5 overlaid, showing how the concentration around galaxy centres
@@ -81,8 +81,9 @@ Prerequisites
 =============
 
 * ``astropath`` installed
-* ``$FRB_APATH`` pointing to the directory containing the host-galaxy
-  catalog (or accept the mock catalog fallback)
+* ``$FRB_APATH`` pointing to the directory whose ``catalogs/``
+  subdirectory contains the host-galaxy catalog (or accept the mock
+  catalog fallback)
 * A completed ``generate_frbs()`` run, or generate FRBs within the
   notebook
 
@@ -91,7 +92,7 @@ Key functions used
 
 * ``generate_frbs(n_frbs, survey, dm_catalog=None, seed=None)``
 * ``load_galaxy_catalog(catalog_fn=...)``
-* ``assign_frbs_to_hosts(frb_df, galaxy_catalog, localization, offset_function, scale, trim_catalog, seed)``
+* ``assign_frbs_to_hosts(frb_df, galaxy_catalog, localization, offset_function, scale, seed)``
 
 See :doc:`simulations` for the full API reference and output column
 descriptions.

@@ -13,7 +13,8 @@ Pipeline
 
 Quick example
 -------------
-python run_path_simulation_cli.py --survey CHIME --n-frbs 500 --loc-a 25 --loc-b 2 --loc-pa 12 --offset-dist exponential --offset-scale 0.5 --mag-prior inverse --unseen-prior 0.15 --offset-prior exp --prior-scale 0.5 --theta-max 6.0 --ncpu 4 --output-dir ./results
+export FRB_APATH=/path/to/simulation/base/dir/   # contains catalogs/
+python run_path_simulation_cli_final.py --survey CHIME --n-frbs 500 --loc-a 25 --loc-b 2 --loc-pa 12 --offset-dist exponential --offset-scale 0.5 --mag-prior inverse --unseen-prior 0.15 --offset-prior exp --prior-scale 0.5 --theta-max 6.0 --ncpu 4 --output-dir ./results
 """
 
 import argparse
@@ -31,8 +32,9 @@ from astropath import priors as pathpriors
 import multiprocessing
 from scipy.interpolate import UnivariateSpline
 
-# Set FRB_APATH to access catalog files
-os.environ['FRB_APATH'] = '/arc/projects/chime_frb/bandersen/path-simulations/catalogs/'
+# FRB_APATH must be set by the user to the BASE simulation directory: catalogs
+# are read from $FRB_APATH/catalogs/ (the same convention as
+# astropath.simulations.load_galaxy_catalog). main() exits if it is not set.
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -45,7 +47,7 @@ VALID_SURVEYS = [
 ]
 
 VALID_OFFSET_DISTS   = ["exponential", "exponential_incorrect", "uniform_1d", "uniform_2d"]
-VALID_MAG_PRIORS     = ["inverse", "inverse_diff", "identical", "p_host", "user", "updated_driver", "updated_driver_diff"]
+VALID_MAG_PRIORS     = ["inverse", "inverse_diff", "identical", "user", "updated_driver", "updated_driver_diff"]
 VALID_OFFSET_PRIORS  = ["exp", "core", "uniform"]
 
 # DEFAULT_HOST_CATALOG  = "combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet"
@@ -88,7 +90,7 @@ DEFAULT_LOCDM_CATALOG = "basecat2_dmloc_catalog.parquet"
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="run_path_simulation.py",
+        prog=Path(sys.argv[0]).name,
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -128,7 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILENAME",
         help=(
             "Filename of the wide-field galaxy catalog used to assign FRBs to hosts. "
-            "Looked up in $FRB_APATH. "
+            "Looked up in $FRB_APATH/catalogs/. "
             f"Default: {DEFAULT_HOST_CATALOG}"
         ),
     )
@@ -140,9 +142,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="FILENAME",
         help=(
-            "Filename of DataFrame CSV containing the localization ellipse and DM catalog to emulate. Should have columns: 'a_err', 'b_err', 'DM_ex'."
-            "Looked up in $FRB_APATH. "
-            f"Default: {DEFAULT_LOCDM_CATALOG}"
+            "Parquet or CSV file of real FRBs whose DMs AND localization ellipses "
+            "are emulated. Must have columns 'DM_ex' (extragalactic DM), 'a_err', "
+            "'b_err' (arcsec) and 'pa' (deg). DMs are drawn from a KDE of 'DM_ex' and "
+            "each FRB gets the localization of a real FRB of similar DM; overrides "
+            "--loc-a/--loc-b/--loc-pa. Looked up in $FRB_APATH/catalogs/. "
+            f"Example: {DEFAULT_LOCDM_CATALOG}. Default: None."
+        ),
+    )
+    loc.add_argument(
+        "--dm-catalog",
+        default=None,
+        metavar="FILENAME",
+        help=(
+            "Parquet or CSV file of observed extragalactic DMs (column 'DM_ex') to "
+            "emulate. DMs are drawn from a KDE of these values; localizations still "
+            "come from --loc-a/--loc-b/--loc-pa. Cannot be combined with "
+            "--locdm-catalog. Looked up in $FRB_APATH/catalogs/. Default: None "
+            "(CHIME: Catalog 2 DMs with S/N > 12; other surveys: the full P(DM,z) grid)."
         ),
     )
 
@@ -260,7 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILENAME",
         help=(
             "Filename of the pre-queried galaxy catalog used by PATH. "
-            "Looked up in $FRB_APATH. "
+            "Looked up in $FRB_APATH/catalogs/. "
             f"Default: {DEFAULT_PATH_CATALOG}"
         ),
     )
@@ -278,9 +295,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--random-locs",
-        type=bool,
+        type=_str2bool,
+        nargs="?",
+        const=True,
         default=False,
-        help="Place FRBs randomly on the sky instead of within particular host galaxies.",
+        metavar="BOOL",
+        help=(
+            "Place FRBs randomly on the sky (in the XMM-LSS HSC-SSP field) instead of "
+            "within host galaxies. '--random-locs' alone or '--random-locs True' "
+            "turns it on. Default: False."
+        ),
     )
 
     # ---- Output ----
@@ -318,9 +342,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     out.add_argument(
         "--save-full-output",
-        type=bool,
+        type=_str2bool,
+        nargs="?",
+        const=True,
         default=True,
-        help="Whether to save the full_path output for each simulated FRB (can produce large files).",
+        metavar="BOOL",
+        help=(
+            "Whether to save the raw PATH results for every simulated FRB (can "
+            "produce large files). Use '--save-full-output False' to skip. Default: True."
+        ),
     )
 
     return p
@@ -342,6 +372,18 @@ def _positive_float(val: str) -> float:
     if v <= 0.0:
         raise argparse.ArgumentTypeError(f"{val!r} must be a positive float.")
     return v
+
+
+def _str2bool(val) -> bool:
+    """Parse a command-line boolean ('True'/'False', 'yes'/'no', '1'/'0')."""
+    if isinstance(val, bool):
+        return val
+    v = str(val).strip().lower()
+    if v in ("true", "t", "yes", "y", "1"):
+        return True
+    if v in ("false", "f", "no", "n", "0"):
+        return False
+    raise argparse.ArgumentTypeError(f"{val!r} is not a boolean (use True or False).")
 
 
 def _unit_float(val: str) -> float:
@@ -427,13 +469,13 @@ def _make_mock_path_catalog(n: int = 20000, seed: int = 99) -> pd.DataFrame:
 
 def _load_catalog(filename: str, kind: str) -> pd.DataFrame:
     """
-    Try to load a catalog from $FRB_APATH/<filename>.
+    Try to load a catalog from $FRB_APATH/catalogs/<filename>.
     Falls back to an appropriate mock catalog when the file is absent.
     Prints a clear message either way.
     """
     frb_apath = os.environ.get("FRB_APATH")
     if frb_apath:
-        path = Path(frb_apath) / filename
+        path = Path(frb_apath) / "catalogs" / filename
         if path.exists():
             print(f"[catalog] Loading {kind} catalog from:\n  {path}")
             return pd.read_parquet(path)
@@ -452,6 +494,24 @@ def _load_catalog(filename: str, kind: str) -> pd.DataFrame:
         return _make_mock_host_catalog()
     else:  # path
         return _make_mock_path_catalog()
+
+
+def _load_table(filename: str, kind: str) -> pd.DataFrame:
+    """
+    Load a DM or localization/DM table (parquet or CSV) from
+    $FRB_APATH/catalogs/<filename>. Unlike _load_catalog there is no mock
+    fallback: a missing file raises FileNotFoundError.
+    """
+    frb_apath = os.environ.get("FRB_APATH")
+    if not frb_apath:
+        raise FileNotFoundError(f"$FRB_APATH is not set; cannot locate {kind} table {filename}")
+    path = Path(frb_apath) / "catalogs" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"{kind} table not found at {path}")
+    print(f"[catalog] Loading {kind} table from:\n  {path}")
+    if path.suffix.lower() == ".csv":
+        return pd.read_csv(path)
+    return pd.read_parquet(path)
 
 
 # ---------------------------------------------------------------------------
@@ -475,13 +535,19 @@ def run_simulation(args: argparse.Namespace) -> None:
     # Step 1 – Generate FRB population
     # ------------------------------------------------------------------
     print("\n[step 1] Generating FRB population ...")
+    dm_catalog = None
     if args.locdm_catalog is not None:
         print('Reading catalog: {}'.format(args.locdm_catalog))
-        locdm_catalog = _load_catalog(args.locdm_catalog, kind='host')
+        locdm_catalog = _load_table(args.locdm_catalog, kind='localization/DM')
         dm_catalog = locdm_catalog['DM_ex'].values
+    elif args.dm_catalog is not None:
+        print('Reading DM catalog: {}'.format(args.dm_catalog))
+        dm_catalog = _load_table(args.dm_catalog, kind='DM')['DM_ex'].values
     elif args.survey == "CHIME":
         print("  Using CHIME Catalog-2 DM distribution (S/N > 12).")
         dm_catalog = load_chime_cat2_DMeg(cut_snr=12., dm_halo=30.)
+    else:
+        print("  No DM catalog given: sampling DM and z jointly from the survey P(DM,z) grid.")
 
     frbs = generate_frbs(
         n_frbs     = args.n_frbs,
@@ -658,6 +724,8 @@ def _print_config(args: argparse.Namespace) -> None:
     if args.locdm_catalog is not None:
         print(f"  Localization/DM catalog     : {args.locdm_catalog}")
     else:
+        if args.dm_catalog is not None:
+            print(f"  DM catalog       : {args.dm_catalog}")
         print(f"  Localization     : a={args.loc_a}\", b={args.loc_b}\", PA={args.loc_pa}°")
     print(f"  Offset dist.     : {args.offset_dist}  (scale={args.offset_scale})")
     print(f"  Magnitude prior  : {args.mag_prior}")
@@ -674,6 +742,13 @@ def _print_config(args: argparse.Namespace) -> None:
 def main(argv=None):
     parser = build_parser()
     args   = parser.parse_args(argv)
+    if not os.environ.get("FRB_APATH"):
+        parser.error("FRB_APATH is not set. Set it to your base simulation directory, "
+                     "the one containing the 'catalogs' subdirectory, e.g.\n"
+                     "  export FRB_APATH=/path/to/simulation/base/dir/")
+    if args.dm_catalog is not None and args.locdm_catalog is not None:
+        parser.error("--dm-catalog and --locdm-catalog cannot be combined "
+                     "(--locdm-catalog already supplies the DMs).")
 
     # Ensure output directory exists
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)

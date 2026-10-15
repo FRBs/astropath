@@ -65,25 +65,26 @@ def kde_dm(data, c=60., npts=1400, dm_max=5000.):
     return x, pdf
 
 
-def sample_dm_from_catalog(dm_values, n_samples, dm_range:tuple=None,
+def sample_dm_from_catalog(dm_values, n_samples,
                            n_kde_points=2000, seed=None, rng=None):
     """
     Sample DM values from a KDE fit to observed catalog DMs.
 
+    The KDE is built in log10(DM + 60) space and evaluated from 0 to
+    5000 pc/cm^3 (see `kde_dm`).
+
     Args:
         dm_values (np.ndarray): Observed DM values from a catalog
         n_samples (int): Number of samples to generate
-        dm_range (tuple): (min, max) DM range for KDE evaluation
-        n_kde_points (int): Number of points for KDE evaluation
-        seed (int, optional): Random seed for reproducibility
+        n_kde_points (int): Number of geometric KDE evaluation points above 50 pc/cm^3
+        seed (int, optional): Random seed for reproducibility (ignored if `rng` is given)
+        rng (np.random.Generator, optional): Random generator to use
 
     Returns:
         np.ndarray: Sampled DM values
     """
     if rng is None:
         rng = np.random.default_rng(seed)
-    if dm_range is None:
-        dm_range=(0., dm_values.max())
 
     # Build KDE from observed DMs
     dm_grid, dm_pdf = kde_dm(dm_values, c=60., npts=n_kde_points)
@@ -253,15 +254,19 @@ def sample_host_Mr(n_samples, Mr_pdf=None,
     """
     Sample host galaxy absolute r-band magnitudes.
 
-    Can use either a provided (Mr, PDF) distribution or fit a KDE
-    to provided Mr_values.
+    Uses the provided (Mr, PDF) distribution if given. Otherwise fits a
+    Gaussian KDE (bandwidth 0.3) to the absolute magnitudes of the published
+    FRB host sample in data/simulations/published_frb_hosts_100726.csv
+    (Dong+26), computed from their r-band magnitudes and redshifts with
+    Planck18 luminosity distances.
 
     Args:
         n_samples (int): Number of samples to generate
         Mr_pdf (tuple, optional): (Mr_array, pdf_array) pre-computed distribution
         Mr_range (tuple): (min, max) Mr range for KDE evaluation
         n_kde_points (int): Number of points for KDE evaluation
-        seed (int, optional): Random seed for reproducibility
+        rng (np.random.Generator, optional): Random generator to use
+        seed (int, optional): Random seed for reproducibility (ignored if `rng` is given)
 
     Returns:
         np.ndarray: Sampled absolute magnitude values
@@ -273,7 +278,7 @@ def sample_host_Mr(n_samples, Mr_pdf=None,
         # Use provided PDF
         Mr_grid, pdf = Mr_pdf
     else:
-        print("Using Lz values to sample host galaxy absolute magnitudes")
+        print("Building a KDE of published FRB host absolute magnitudes")
         # Load up Lz values
         # Old file of 44 hosts from Alexa Gordon, complete up to Shannon+24
         # print("Using Gordon host sample")
@@ -323,29 +328,35 @@ def calculate_apparent_mag(Mr, z, cosmo=None):
 
 
 def generate_frbs(n_frbs, survey, dm_catalog=None, 
-    cosmo=None, seed=None, dm_range=None):
+    cosmo=None, seed=None):
     """
     Generate a population of simulated FRBs with DM, z, Mr, and mr.
 
     This function generates FRBs by:
     1. Sampling DM from a KDE fit to observed catalog DMs (if provided)
-       or directly from the P(DM,z) grid
-    2. Sampling redshifts from survey-specific P(z|DM) grids
-    3. Sampling host galaxy absolute magnitudes from known FRB host distribution
+       or jointly with z directly from the P(DM,z) grid
+    2. Sampling redshifts from the survey-specific P(z|DM) grid (when DMs
+       come from the catalog)
+    3. Sampling host galaxy absolute magnitudes from the published FRB host
+       distribution (see `sample_host_Mr`)
     4. Computing apparent magnitudes from z and Mr
+
+    For 'CHIME' the P(DM,z) grid is the James+23 best-fit grid in
+    data/simulations/CHIME_progenitors_james23_case_bestfit.npz; for the other
+    surveys it is taken from the frb package (frb.dm.prob_dmz).
 
     Args:
         n_frbs (int): Number of FRBs to generate
-        survey (str): Survey name ('CHIME', 'DSA', 'ASKAP', etc.)
-        dm_catalog (np.ndarray, optional): Observed DM values from catalog.
-            If None, samples directly from the P(DM,z) grid.
-        cosmo (astropy.cosmology, optional): Cosmology for calculations.
-            Defaults to Planck18.
+        survey (str): Survey name; one of the keys of SURVEY_GRIDS
+        dm_catalog (np.ndarray, optional): Observed extragalactic DM values.
+            If None, samples DM and z jointly from the P(DM,z) grid.
+        cosmo (astropy.cosmology, optional): Cosmology for the distance
+            modulus. Defaults to Planck18.
         seed (int, optional): Random seed for reproducibility
 
     Returns:
         pandas.DataFrame: DataFrame with columns:
-            - 'DM': Extragalactic dispersion measure (pc/cm^3)
+            - 'DMeg': Extragalactic dispersion measure (pc/cm^3)
             - 'z': Redshift
             - 'M_r': Host galaxy absolute r-band magnitude
             - 'm_r': Host galaxy apparent r-band magnitude
@@ -387,7 +398,6 @@ def generate_frbs(n_frbs, survey, dm_catalog=None,
         # Sample from KDE of observed DMs
         dm_samples = sample_dm_from_catalog(
             dm_catalog, n_frbs,
-            dm_range=dm_range,
             rng=rng_dm,
         )
     else:
@@ -484,13 +494,22 @@ def gen_random_FRBs(grid:dict, nFRBs:int, seed:int=None, rng=None):
 
 def load_chime_cat2_DMeg(cut_snr=12., dm_halo=30.):
     """ 
-    Load the DM_extra galactic component from CHIME Catalog 1
+    Load the extragalactic DMs of the non-repeating CHIME/FRB Catalog 2 bursts
+    with bonsai S/N > cut_snr.
+
+    DM_EG is the mean of the NE2001 and YMW16 Galactic-ISM-subtracted DMs,
+    minus a Milky Way halo contribution of dm_halo; bursts with DM_EG <= 0
+    are dropped.
+
+    Args:
+        cut_snr (float): Keep bursts with bonsai_snr > cut_snr. Default: 12
+        dm_halo (float): Milky Way halo DM to subtract (pc/cm^3). Default: 30
 
     Returns:
     --------
-    np.ndarray: DM_extra galactic component
+    np.ndarray: extragalactic DMs (pc/cm^3)
     """
-    # Load CHIME Catalog 1
+    # Load CHIME Catalog 2
     chime_cat_file = files('astropath.data') / 'frb_surveys' / 'chimefrbcat2.csv'
     df_dr2 = pandas.read_csv(chime_cat_file)
 

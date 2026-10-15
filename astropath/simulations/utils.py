@@ -32,7 +32,7 @@ from reproject.mosaicking import reproject_and_coadd
 from scipy.special import i0e, j0
 
 
-def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, output_fn:str=None, thresh_cross_match:float=1.):
+def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, output_fn:str=None):
     """
     Combines together the pandas.DataFrame from each simulation step into a "digest"
     DataFrame that can be easily parsed to make informative plots about the simulation results
@@ -43,9 +43,6 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         hosts (pandas.DataFrame): The hosts dataframe
         combined_catalog (pandas.DataFrame): The combined catalog dataframe
         output_fn (str): The filename to save the digest to
-        thresh_cross_match (float): A factor that sets the cross-matching threshold
-            that determines whether an association is "correct" or not. Specifically,
-            it is a multiple of the galaxy half-light radius.
 
     Returns:
         pandas.DataFrame: The digest dataframe with the following columns:
@@ -79,12 +76,11 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
             - `ang_size_cand`: Angular size of the best candidate galaxy (arcsec)
             - `cand_ID`: ID of assigned host galaxy within the galaxy catalog used to run PATH (see `run_path` step)
             - `P_O`: Value of the PATH prior P(Oi) for the best candidate
-            - `p_xO`: Value of the PATH likelihood p(x|Oi) for the best candidate
             - `P_Ox`: Value of the PATH posterior P(Oi|x) for the best candidate
             - `P_Ux`: Value of the PATH posterior P(U|x)
-            - `correct_association`: A boolean indicating whether the best candidate matches the true host (a "correct" association), based on a spatial cross-match
+            - `correct_association`: A boolean indicating whether the best candidate is the true host (a "correct" association): by ID where the host's ID is among the candidates PATH searched, otherwise by a spatial cross-match
             - `unseen`: A boolean indicating whether the true host is visible in the catalog used to run PATH
-            - `host_catalog`: A string indicating which catalog ("HSC", "DECaLs", "Pan-STARRS", or "SGA") the host was selected from
+            - `host_catalog`: A string indicating which catalog the host was selected from ("SGA", "DECaL_ID", "Pan-STARRS_ID", "HSC_ID", "HECATE_ID", or "No Match")
     """
 
     print("Get parameters from the simulation results dataframe")
@@ -197,7 +193,7 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     # else:
     #     df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
     
-    print('Determine which catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") the host was selected from')
+    print('Determine which catalog ("SGA", "DECaL_ID", "Pan-STARRS_ID", "HSC_ID", or "HECATE_ID") the host was selected from')
     df_unseen_hostcat = extract_host_catalog_sga(df_unseen, combined_catalog)
 
     if output_fn is not None:

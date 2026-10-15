@@ -77,16 +77,28 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
     - theta_PDF (str): The PDF to use for the prior on the theta
     - theta_max (float): The maximum value of the theta prior
 
+    Each FRB is run in PATH's 'local' likelihood mode with a relative step
+    size of 0.05, against the catalog galaxies within its own search radius,
+    max(10 a, 3 arcmin), from `astropath.run.set_anly_sizes`.
+
     Args:
-        frbs(pandas.DataFrame): The FRBs dataframe
+        frbs(pandas.DataFrame): The FRBs dataframe (output of
+            assign_frbs_to_hosts; needs 'ra', 'dec', 'a', 'b', 'PA')
         catalog(pandas.DataFrame): The catalog dataframe
         prior_dict (dict): The dictionary of PATH priors
         multi (bool): Whether to run the simulation in multiprocessing mode
         ncpu (int): The number of CPUs to use
-        debug (bool): Whether to run the simulation in debug mode
+        frb_chunk (int): Number of FRBs cross-matched against the catalog at a
+            time when building each FRB's candidate list
+        debug (bool): Whether to run the simulation in debug mode (first 100
+            FRBs only)
 
     Returns:
-        pandas.DataFrame: The simulation results dataframe
+        pandas.DataFrame: One row per PATH candidate per FRB, with columns
+            'ra', 'dec', 'ang_size', 'mag', 'ID', 'sep', 'P_O', 'P_Ox', 'P_Ux',
+            'gal_ID' and 'iFRB' (the FRB's row index in `frbs`). Each FRB's
+            candidates are sorted by descending P_Ox, so its first row is the
+            best candidate. FRBs with no candidates are absent.
     """
 
     # FRBs 
