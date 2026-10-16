@@ -208,7 +208,7 @@ def full(frbs:pandas.DataFrame, catalog:pandas.DataFrame,
     # Now create the pool - workers will fork from a much smaller parent
     # Run PATH
     print("PATH time")
-    print("Will take a while, ~1 hr for 10,000 FRBs, depending on your computing setup and ncpu.")
+    print("Will take a while, depending on the number of FRBs, the localization size, and ncpu.")
     if multi:
         chunksize = max(1, nFRB // (ncpu * 8))
         args_iter = ((i, FRB_dicts[i], list_candidates[i]) for i in range(nFRB))

@@ -51,9 +51,12 @@ and saved to ``$FRB_APATH/catalogs/``:
 
 ``run_path.full()`` is called with the prior dictionary shown below.
 Each simulated FRB is an independent PATH run so the workload is
-parallelised with Python's ``multiprocessing`` module.  As a reference:
-5,000 FRBs took ~50 minutes on an Apple M3 MacBook Pro (16 GB RAM,
-``ncpu = 6``).
+parallelised with Python's ``multiprocessing`` module.  As a reference
+point: 10,000 FRBs with a 50 × 100 mas localization took ~2 minutes on an
+Apple M3 MacBook Pro (16 GB RAM, ``ncpu = 6``), and ~6 minutes for a
+25″ × 25″ localization.  Memory usage also increases rapidly with
+localization size and number of FRBs.  For example, 100,000 FRBs
+processing on 10 CPU cores on CANFAR can take >100 GB of RAM.
 
 .. code-block:: python
 
@@ -100,8 +103,8 @@ Prerequisites
 * ``$FRB_APATH`` pointing to the directory whose ``catalogs/``
   subdirectory contains both the host-galaxy catalog and the
   pre-queried PATH catalog
-* Sufficient RAM and CPU for the PATH step (~16 GB RAM recommended for
-  large runs)
+* Sufficient RAM and CPU for the PATH step (see the reference points in
+  Step 4)
 
 Key functions used
 ==================

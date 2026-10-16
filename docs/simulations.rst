@@ -278,8 +278,8 @@ API
    * - *offset_function*
      - ``'exponential'``
      - Intrinsic galactocentric offset distribution.
-       One of ``'exponential'``, ``'uniform_1d'``, ``'uniform_2d'``
-       *(str)*
+       One of ``'exponential'``, ``'exponential_incorrect'``,
+       ``'uniform_1d'``, ``'uniform_2d'``; see below *(str)*
    * - *scale*
      - ``0.5``
      - Scale parameter for the chosen offset distribution, in units of
@@ -312,8 +312,13 @@ Intrinsic offset distributions
      - :math:`p(r) \propto r\,\exp(-r/s)` — Gamma(2, scale) in units of
        the host half-light radius, truncated at 6 half-light radii.
        Matches the PATH exponential prior.
+   * - ``'exponential_incorrect'``
+     - :math:`p(r) \propto \exp(-r/s)` — exponential in *r* in units of
+       the host half-light radius, truncated at 6 half-light radii.  Does
+       not match the PATH exponential prior.
    * - ``'uniform_1d'``
-     - Uniform in *r*, truncated at *scale* × half-light radius.
+     - Uniform in *r*, truncated at *scale* × half-light radius (at most
+       10 half-light radii).
    * - ``'uniform_2d'``
      - Uniform per unit solid angle over a disk of radius *scale* ×
        half-light radius.  Matches the PATH uniform prior.
@@ -389,8 +394,12 @@ Step 3 — Run PATH
 
 ``run_path.full()`` runs PATH on every simulated FRB scenario.  The
 computation is embarrassingly parallel and is distributed across CPUs
-with Python's ``multiprocessing`` module.  As a reference point: 5,000
-FRBs took ~50 minutes on an Apple M3 MacBook Pro (16 GB RAM, ``ncpu = 6``).
+with Python's ``multiprocessing`` module.  As a reference point: 10,000
+FRBs with a 50 × 100 mas localization took ~2 minutes on an Apple M3
+MacBook Pro (16 GB RAM, ``ncpu = 6``), and ~6 minutes for a 25″ × 25″
+localization.  Memory usage also increases rapidly with localization size
+and number of FRBs.  For example, 100,000 FRBs processing on 10 CPU cores
+on CANFAR can take >100 GB of RAM.
 
 Each FRB is run in PATH's ``'local'`` likelihood mode with a relative
 step size of 0.05, against the PATH-catalog galaxies within a search
@@ -474,11 +483,12 @@ Prior dictionary
      - Values
      - Description
    * - ``'P_O_method'``
-     - ``'inverse'``, ``'identical'``, ``'updated_driver'``,
-       ``'updated_driver_diff'``, ``'user'``
+     - ``'inverse'``, ``'inverse_diff'``, ``'identical'``,
+       ``'updated_driver'``, ``'updated_driver_diff'``, ``'user'``
      - Magnitude prior :math:`P(O_i)`.  ``'inverse'`` weights by the
        inverse of the cumulative galaxy surface density brighter than the
-       candidate; ``'identical'`` gives equal weight to all candidates;
+       candidate; ``'inverse_diff'`` by the inverse of the differential
+       galaxy counts at the candidate's magnitude; ``'identical'`` gives equal weight to all candidates;
        ``'updated_driver'`` and ``'updated_driver_diff'`` use a fit to the
        Driver+16 r-band counts (cumulative and differential,
        respectively); ``'user'`` calls the user-defined function
@@ -530,6 +540,10 @@ row for each ``iFRB`` is the best candidate.  Key columns:
    * - ``ID``
      - int
      - ID of the candidate galaxy in the PATH catalog
+   * - ``sep``
+     - float
+     - Separation between the candidate and the observed FRB position
+       (arcsec)
    * - ``P_O``
      - float
      - PATH prior :math:`P(O_i)`
@@ -541,7 +555,7 @@ row for each ``iFRB`` is the best candidate.  Key columns:
      - PATH unseen-host posterior :math:`P(U | x)`
    * - ``iFRB``
      - int
-     - Index of the FRB in the ``frbs`` DataFrame
+     - Row position (0-based) of the FRB in the ``frbs`` DataFrame
 
 Usage example::
 
@@ -605,7 +619,7 @@ API
 
 An association is "correct" when the best candidate is the true host:
 by ID where the true host's ID appears among the candidates PATH
-searched, and otherwise when the two are separated by less than
+searched (for any FRB in the run), and otherwise when the two are separated by less than
 max(*φ*\ :sub:`host`, *φ*\ :sub:`cand`, 0.5″), the larger of the two
 half-light radii with a 0.5″ floor.  A host is "unseen" when its ID is
 not among the searched candidates and the nearest searched candidate
@@ -693,7 +707,8 @@ Digest column reference
    * - ``host_catalog``
      - Catalog the true host was drawn from: ``'SGA'``, ``'DECaL_ID'``,
        ``'Pan-STARRS_ID'``, ``'HSC_ID'``, or ``'HECATE_ID'``
-       (``'No Match'`` if the host ID is found in none of them)
+       (``'No Match'`` if the host ID is found in none of them, and
+       ``'Random'`` for FRBs placed at random positions)
 
 Usage example::
 
@@ -880,15 +895,28 @@ Default catalog filenames (looked up in ``$FRB_APATH/catalogs/``):
   ``combined_HSC_PS1_SGA_hosts_clean_ps1_iter10.parquet``, PATH catalog
   ``catalog_hscwide_SGA_PS1_clean_ps1_iter10.parquet``
 
-Auto-generated output filenames follow the pattern::
+The suite scripts (:ref:`full_suite`) pass ``--tag
+<table1_label>_<unseen_prior>``, so their auto-generated output filenames
+follow the pattern::
 
-    digest_<tag>_<loc>_<offset_dist>_<offset_prior>_<mag_prior>_<path_catalog_stem>_<n_frbs>_seed<seed>.parquet
-    full_path_results_<tag>_<loc>_<offset_dist>_<offset_prior>_<mag_prior>_<path_catalog_stem>_<n_frbs>_seed<seed>.parquet
+    digest_<table1_label>_<unseen_prior>_<loc>_<intrinsic_offset_distribution>_<offset_prior>_<magnitude_prior>_<path_catalog>_<NFRBs>_<random_seed>.parquet
+    full_path_results_<table1_label>_<unseen_prior>_<loc>_<intrinsic_offset_distribution>_<offset_prior>_<magnitude_prior>_<path_catalog>_<NFRBs>_<random_seed>.parquet
 
-where ``<loc>`` is ``a<a>b<b>pa<PA>`` with two decimals each.  P(U)
-does not appear in the pattern, so include it in ``--tag`` when
-comparing runs that differ only in P(U); the suite scripts
-(:ref:`full_suite`) use ``--tag <table1_label>_<unseen_prior>``.
+where:
+
+* ``<table1_label>`` is the simulation label from Table 1 of Andersen+26
+  (e.g. ``default-CK``) and ``<unseen_prior>`` is ``pu<P(U)>`` (e.g.
+  ``pu0.10``).  Together they form ``--tag``; a run with a different
+  ``--tag`` starts its filenames with that tag instead.  P(U) appears in
+  the filename only through ``--tag``.
+* ``<loc>`` is ``a<a>b<b>pa<PA>`` built from ``--loc-a/b/pa`` with two
+  decimals each (also when ``--locdm-catalog`` is used).
+* ``<intrinsic_offset_distribution>``, ``<offset_prior>`` and
+  ``<magnitude_prior>`` are ``--offset-dist``, ``--offset-prior`` and
+  ``--mag-prior``.
+* ``<path_catalog>`` is the ``--path-catalog`` filename without
+  ``.parquet``, ``<NFRBs>`` is ``--n-frbs``, and ``<random_seed>`` is
+  ``seed<seed>`` (e.g. ``seed57822``).
 
 Run ``python run_path_simulation_cli_final.py --help`` for the complete
 argument list.
@@ -914,11 +942,22 @@ CHIME-KKO localization, P(U) = 0.10, an exponential intrinsic offset
 distribution, an exponential PATH offset prior, and an inverse magnitude
 prior, run with the DECaLs PATH catalog.
 
-Figure 7 (estimation of P(U)) additionally requires the pre-queried PATH
-catalogs and the matching host catalogs, saved to
-``$FRB_APATH/catalogs/``; see :ref:`step2` and :ref:`step3` for download
-instructions.  These files are large: 1.1 GB for Pan-STARRS and 5.1 GB
-for DECaLs.
+Some figures need further files:
+
+* Figures 4 and 5 read the DECaLs host catalog, Figure 5 also the DECaLs
+  PATH catalog, and Figure 7 the DECaLs and Pan-STARRS PATH catalogs, all
+  from ``$FRB_APATH/catalogs/``; see :ref:`step2` and :ref:`step3` for
+  download instructions.  The PATH catalogs are large: 1.1 GB for
+  Pan-STARRS and 5.1 GB for DECaLs.
+* Figures 10, 13, and 16 read the raw PATH results
+  (``full_path_results_<...>.parquet``, named like the digests) of the
+  ``default-CK`` and ``mismatch-CKGH`` simulations from
+  ``$FRB_APATH/sim_paper/``.
+* Figure 7 reads the generated DSA and CRAFT FRB populations
+  ``generated_frbs_dsa_redo.parquet`` and
+  ``generated_frbs_craft_redo.parquet`` from ``$FRB_APATH/sim_paper/``.
+
+Figures are saved to ``$FRB_APATH/paper_figures/``, which must exist.
 
 
 Complete Example
@@ -1065,8 +1104,11 @@ To run the suite:
    expects them.
 2. Edit the rest of the configuration block if needed (``N_FRBS``, ``NCPU``, ``SEED``, the global ``pu``, and
    ``PU_VALUES`` for the ``PU-*`` sweep).
-3. Uncomment the groups you want to run; the others are commented out.
-   ``TOTAL`` only sets the progress counter printed for each run.
+3. Comment out the groups you do not want to run.  In
+   ``run_all_simulations_final.sh`` every group is active; in
+   ``run_all_simulations_final_ps1.sh`` only ``default-*`` is active and
+   the other groups are commented out.  ``TOTAL`` only sets the progress
+   counter printed for each run.
 4. Run the script from ``astropath/simulations/``, or set ``CLI`` to the
    path of the CLI script::
 

@@ -21,7 +21,9 @@ What the notebook covers
 Prints the full set of supported survey names from ``SURVEY_GRIDS``,
 each of which has its own P(z, DM\ :sub:`EG`) grid.  For ``CHIME`` the
 grid is the James+23 best-fit grid shipped with astropath; the other
-grids are taken from the ``frb`` package (``frb.dm.prob_dmz``).
+grids are taken from the ``frb`` package (``frb.dm.prob_dmz``).  The
+notebook then generates 10,000 CHIME FRBs and saves them to
+``$FRB_APATH/catalogs/generated_frbs_chime.parquet``.
 
 **2. Generating FRBs directly from the P(z, DM) grid**
 
@@ -68,6 +70,8 @@ Prerequisites
 
 * ``astropath`` installed with the ``frb`` package dependency
 * No catalog downloads required for this notebook
+* ``$FRB_APATH`` set to a directory with a ``catalogs/`` subdirectory,
+  where the notebook saves its 10,000 generated CHIME FRBs
 
 Key functions used
 ==================
