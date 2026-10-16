@@ -8,10 +8,8 @@ applying a chosen intrinsic galactocentric offset distribution, and
 adding a localization error ellipse to produce the observed FRB
 position.  For a full description see Section 3.2 of Andersen+26.
 
-.. note::
-
-   The notebook is located at ``docs/nb/Simulate_Assign_Hosts.ipynb``
-   in the astropath repository.
+The notebook is located at ``docs/nb/Simulate_Assign_Hosts.ipynb``
+in the astropath repository.
 
 What the notebook covers
 ========================
