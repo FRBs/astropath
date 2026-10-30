@@ -91,5 +91,8 @@ def test_gw():
     P_Ox, P_Ux = Path.calc_posteriors('local', box_hwidth=30.)
 
     # Calculate p(x|O)
-    assert np.isclose(np.max(Path.p_xOi), 0.0002810125426532622)
+    # Reference value at the current default step_size=0.05 (the old
+    # 0.0002810125426532622 was tied to the prior default step_size=0.1;
+    # the finer 0.05 grid is more accurate and converges toward ~2.853e-4).
+    assert np.isclose(np.max(Path.p_xOi), 0.0002833731343742291)
     assert np.isclose(P_Ox.max(), 0.9999929552509278)

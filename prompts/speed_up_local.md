@@ -40,6 +40,11 @@ As we will be making a number of significant changes to the code, we will need t
 
 3. Proceed with the change to the test_run.py tests that you proposed (pmode="local").  Log your work and findings in the Logs section below.
  
+4. One of the tests in test_path.py is failing.  Please:
+   - Examine the code
+   - Find a fix
+   - Implement it
+   - Log your work in the "Logs" section below.
 
 ## Development
 
@@ -131,6 +136,7 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 - Include tables summarizing the accuracy and profiling results
 
 
+
 ## Prompts
 
 1. Read this doc.  Proceed with the 1st item under Testing.
@@ -146,6 +152,7 @@ Consider the above and Log a plan in the "Logs" section below.  Do not generate 
 11. Read this doc.  Proceed with the 2nd item under Docs
 12. Read this doc.  Proceed with the 2nd item under Testing.
 13. Read this doc.  Proceed with the 3rd item under Testing.
+14. Read this doc.  Proceed with the 4th item under Testing.
 
 ## Logging
 
@@ -973,3 +980,51 @@ GitHub Actions runners.
 I left the `run.py` memory guard and the `tests_local.py` naming
 (secondary findings from the investigation) unchanged, as they were not
 part of this task.
+
+### 2026-06-15 (Fixed the failing test_path.py::test_gw)
+
+**Done** (Testing item 4).  `test_path.py::test_gw` was the failing
+test.  It exercises the `local` method on the GW170817 **healpix**
+localization (the generic, non-eellipse `calc_LWx` path).  Two distinct
+problems were nested here; I fixed both.
+
+**Bug 1 -- `step_size_mode=None` crashed every `local` posterior call.**
+`px_Oi_local` (bayesian.py) defaults `step_size_mode='relative'` and
+validates it (`else: raise ValueError`).  But `PATH.calc_posteriors`
+(path.py:170) defaulted `step_size_mode:str=None` and passed it straight
+through, OVERRIDING the function's own default.  So any
+`calc_posteriors('local', ...)` call that did not explicitly set the
+mode reached `px_Oi_local` with `None` and raised
+`ValueError: Invalid step_size_mode: None`.  This was the first error
+surfaced by the test.
+- **Fix:** changed the `calc_posteriors` default to
+  `step_size_mode:str='relative'`, so it matches `px_Oi_local`'s default
+  and the documented behavior in its own docstring ('relative' /
+  'absolute').
+
+**Bug 2 -- stale hardcoded reference value (the second failure once Bug 1
+was fixed).**  With the call working, the test then failed its
+`np.isclose(np.max(Path.p_xOi), 0.0002810125426532622)` assertion,
+getting `0.0002833731343742291` (~+0.8%).  I confirmed this is NOT a
+regression but the expected effect of the **default `step_size` having
+been reduced from 0.1 to 0.05** earlier in this work (Development item
+3).  Convergence run (healpix GW case, varying step):
+
+| step  | max(p_xOi)              |
+|-------|-------------------------|
+| 0.10  | 0.0002810125426532621   |  <- old default == old hardcoded value
+| 0.05  | 0.0002833731343742291   |  <- new default
+| 0.02  | 0.0002848216784445618   |
+| 0.01  | 0.0002852986787862072   |
+
+At step 0.1 the method reproduces the old hardcoded value EXACTLY, proving
+that value was simply baked in at the old default step.  The 0.05 value is
+finer/more accurate and converges toward ~2.853e-4.
+- **Fix:** updated the expected value to the current-default (0.05) result
+  `0.0002833731343742291`, with a comment explaining the provenance.  The
+  `P_Ox.max()` assertion (`0.9999929552509278`) was left untouched -- it
+  is stable across step (max(P_Ox) varies only at the 1e-8 level) and
+  still passes at `np.isclose`'s default rtol.
+
+**Verification:** `pytest astropath/tests/test_path.py` -> 2 passed.
+Wider run (`test_path`, `test_bayesian`, `tests_local`) -> 19 passed.
