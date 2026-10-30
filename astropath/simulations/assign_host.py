@@ -2,49 +2,447 @@
 Module for assigning simulated FRBs to host galaxies by apparent magnitude (m_r).
 
 This module implements magnitude-based host assignment that matches FRBs to
-galaxies from a catalog by their apparent r-band magnitudes, ensuring realistic
-associations where brighter FRBs tend to be assigned to brighter galaxies.
+galaxies from a catalog by their apparent r-band magnitudes, and then simulates
+galactocentric offsets due to both the intrinsic FRB distribution and the
+localization region.
+
+Localization regions may be specified either as a single (a, b, PA) ellipse
+applied to every FRB, or as a POPULATION of ellipses from which one is drawn at
+random (with replacement) per FRB.  See `_resolve_localizations` and
+`localizations_from_errors`.
 """
 
 import os
 import numpy as np
 import random
 import pandas as pd
+import warnings
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List, Union, Sequence
+
+from scipy.spatial import cKDTree
 
 from astropy import units
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 
 from IPython import embed
 
-def load_galaxy_catalog():
-    # Try to load real catalog
+# (a, b, PA) triple, an (N, 3) array, or a DataFrame with a/b/PA columns
+LocalizationLike = Union[
+    Tuple[float, float, float],
+    Sequence[Tuple[float, float, float]],
+    np.ndarray,
+    pd.DataFrame,
+]
+
+
+def load_galaxy_catalog(catalog_fn: str = 'combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet'):
+    """
+    Load a galaxy catalog (host or PATH catalog) with filename catalog_fn from
+    the `catalogs` subdirectory of the directory indicated by the FRB_APATH
+    environment variable, i.e. $FRB_APATH/catalogs/<catalog_fn>.
+
+    Args:
+        catalog_fn (str): filename of the parquet catalog. Default: the
+            DECaLs host catalog, combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet
+
+    Returns:
+        pd.DataFrame: the catalog
+
+    Raises:
+        ValueError: If FRB_APATH is not set or the file does not exist
+    """
     frb_apath = os.environ.get('FRB_APATH')
-    
+
     if frb_apath is not None:
-        catalog_path = Path(frb_apath) / 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'
-        
+        catalog_path = Path(frb_apath) / 'catalogs' / catalog_fn
+
         if catalog_path.exists():
             print(f"Loading real galaxy catalog from:")
             print(f"  {catalog_path}")
             galaxies = pd.read_parquet(catalog_path)
-            
+
             return galaxies
         else:
             raise ValueError(f"Catalog not found at {catalog_path}")
     else:
-        raise ValueError("FRB_APATH not set")
+        raise ValueError(
+            "FRB_APATH is not set. Set it to your base simulation directory, the one "
+            "containing the 'catalogs' subdirectory (e.g. export FRB_APATH=/path/to/sims/)."
+        )
 
 
+# ---------------------------------------------------------------------------
+# Localization handling
+# ---------------------------------------------------------------------------
+
+def localizations_from_errors(
+    a_err: np.ndarray,
+    b_err: np.ndarray,
+    pa: float | np.ndarray = 90.0,
+    dm: np.ndarray = None,
+    min_err: float = 0.0,
+    max_err: float = np.inf,
+    drop_nonpositive: bool = True,
+) -> np.ndarray:
+    """
+    Build a localization population array from per-FRB localization uncertainties.
+
+    Intended for turning an observed catalog (e.g. BaseCat2) into the
+    `localization` argument of `assign_frbs_to_hosts`.
+
+    The convention matches `_apply_localization_error`: `a` is the offset scale
+    along position angle `PA` (degrees East of North) and `b` is the scale along
+    PA + 90.  With the default ``pa=90``, `a` runs East-West and `b` runs
+    North-South.  Both are treated as 1-sigma Gaussian widths (not truncated),
+    exactly as for a scalar localization.
+
+    Args:
+        a_err (array): semi-major uncertainty per FRB (arcsec), already sky-projected
+            (i.e. including any cos(dec) factor).
+        b_err (array): semi-minor uncertainty per FRB (arcsec).
+        pa (float or array): Position angle(s) of the ellipses (deg E of N).
+            A scalar is applied to every ellipse; an array must have the same
+            shape as `a_err` and gives each FRB its own PA. Rows with a
+            non-finite PA are dropped. Default 90, pairing `a` with RA.
+        dm (array, optional): Dispersion measure of each real FRB, on the SAME
+            scale as the simulated `frb_df['DMeg']` -- i.e. EXTRAGALACTIC DM, with
+            the Milky Way disk and halo contributions already subtracted. If
+            given, the returned array has 4 columns (DM, a, b, PA) and enables
+            joint DM-localization sampling in `assign_frbs_to_hosts`, which
+            preserves the real correlation between burst DM and localization
+            quality. If omitted, the returned array has 3 columns and
+            localizations are drawn independently of DM.
+        min_err (float): Discard rows with either axis below this (arcsec).
+            Useful for stripping sentinels such as -99.99.
+        max_err (float): Discard rows with either axis above this (arcsec).
+        drop_nonpositive (bool): Discard non-finite or non-positive rows.
+
+    Returns:
+        np.ndarray: (N, 3) array of (a, b, PA), or (N, 4) array of
+        (DM, a, b, PA) when `dm` is supplied. Ready to pass as `localization`.
+
+    Example:
+        >>> cat = pd.read_csv('basecat2_results.csv')
+        >>> a_e  = pd.to_numeric(cat['a_err'], errors='coerce')
+        >>> b_e  = pd.to_numeric(cat['b_err'], errors='coerce')
+        >>> pa_e = pd.to_numeric(cat['PA'], errors='coerce')
+        >>> # single PA for all ellipses
+        >>> locs = localizations_from_errors(a_e, b_e)
+        >>> # per-FRB PAs, joint (DM, a, b, PA) sampling -- DM must be EXTRAGALACTIC
+        >>> locs = localizations_from_errors(a_e, b_e, pa=pa_e, dm=dm_ex)
+        >>> df = assign_frbs_to_hosts(frbs, galaxies, localization=locs, seed=42)
+    """
+    a = np.asarray(a_err, dtype=float)
+    b = np.asarray(b_err, dtype=float)
+
+    if a.shape != b.shape:
+        raise ValueError(f"a_err and b_err must have the same shape, got {a.shape} and {b.shape}")
+
+    # Accept a scalar PA (broadcast to all rows) or a per-FRB array
+    pa_arr = np.asarray(pa, dtype=float)
+    if pa_arr.ndim == 0:
+        pa_arr = np.full(a.shape, float(pa_arr))
+    elif pa_arr.shape != a.shape:
+        raise ValueError(
+            f"pa must be a scalar or have the same shape as a_err/b_err, "
+            f"got {pa_arr.shape} and {a.shape}"
+        )
+
+    keep = np.ones(a.shape, dtype=bool)
+    if drop_nonpositive:
+        keep &= np.isfinite(a) & np.isfinite(b) & (a > 0) & (b > 0)
+    keep &= (a >= min_err) & (b >= min_err)
+    keep &= (a <= max_err) & (b <= max_err)
+    keep &= np.isfinite(pa_arr)
+
+    dm_arr = None
+    if dm is not None:
+        dm_arr = np.asarray(dm, dtype=float)
+        if dm_arr.shape != a.shape:
+            raise ValueError(
+                f"dm must have the same shape as a_err/b_err, got {dm_arr.shape} and {a.shape}"
+            )
+        keep &= np.isfinite(dm_arr) & (dm_arr > 0)
+
+    n_drop = int((~keep).sum())
+    if n_drop:
+        print(f"localizations_from_errors: dropped {n_drop}/{len(a)} invalid rows")
+
+    a, b, pa_arr = a[keep], b[keep], pa_arr[keep]
+    if len(a) == 0:
+        raise ValueError("No valid localizations remain after filtering")
+
+    if dm_arr is None:
+        return np.column_stack([a, b, pa_arr])
+
+    dm_arr = dm_arr[keep]
+    print(
+        f"localizations_from_errors: DM column supplied "
+        f"(median {np.median(dm_arr):.0f} pc/cm3) -> joint (DM, a, b, PA) sampling enabled"
+    )
+    return np.column_stack([dm_arr, a, b, pa_arr])
+
+
+def _check_localization_values(arr: np.ndarray):
+    """Validate an (N, 3) (a, b, PA) array; raise on non-finite or non-positive axes."""
+    if not np.all(np.isfinite(arr)):
+        bad = int((~np.isfinite(arr)).any(axis=1).sum())
+        raise ValueError(f"Localization contains non-finite values in {bad} row(s)")
+    if np.any(arr[:, :2] <= 0):
+        bad = int((arr[:, :2] <= 0).any(axis=1).sum())
+        raise ValueError(
+            f"Localization semi-axes must be positive; {bad} row(s) have a<=0 or b<=0. "
+            "Check for sentinel values such as -99.99 (localizations_from_errors "
+            "strips these for you)."
+        )
+
+
+def _resolve_localizations(
+    localization: LocalizationLike,
+    n_frbs: int,
+    dm: np.ndarray = None,
+    dm_neighbors: int = 25,
+    dm_match_scale: str = 'log',
+    debug: bool = False,
+) -> np.ndarray:
+    """
+    Normalize the `localization` argument to a per-FRB (n_frbs, 3) array of
+    (a, b, PA).
+
+    Three input forms are accepted:
+
+    1. A single (a, b, PA) triple -> broadcast unchanged to every FRB. This is
+       the original behaviour and involves no randomness.
+
+    2. A population of ellipses with shape (N, 3), or a DataFrame with columns
+       'a', 'b', 'PA' -> one whole row drawn at random WITH REPLACEMENT per FRB,
+       independently of any FRB property.
+
+    3. A population with shape (N, 4) as (DM, a, b, PA), or a DataFrame that
+       additionally has a 'DM' column -> JOINT (DM, a, b, PA) SAMPLING. For each
+       simulated FRB, the `dm_neighbors` real FRBs closest in DM are found and
+       one of them is drawn uniformly, so the simulated sample inherits the real
+       correlation between burst DM and localization quality (brighter, better
+       localized bursts sit preferentially at low DM). Requires `dm`.
+
+    In all population cases whole rows are sampled, so correlations among a, b
+    and PA are preserved. Draws use the global numpy RNG, so seeding via
+    `np.random.seed` in the calling function makes the result reproducible.
+
+    Args:
+        localization: Ellipse or ellipse population (see above).
+        n_frbs (int): Number of FRBs needing a localization.
+        dm (array, optional): Extragalactic DM of each simulated FRB, length
+            n_frbs. Required for form 3, ignored otherwise.
+        dm_neighbors (int): Size of the DM neighbourhood sampled from in form 3.
+            1 gives strict nearest-neighbour matching (tightest correlation, but
+            heavy reuse of individual real FRBs); larger values loosen the
+            correlation and increase diversity. Default 25.
+        dm_match_scale (str): 'log' (default) or 'linear'. DM spans more than a
+            decade, so matching in log DM gives neighbourhoods of roughly
+            constant fractional width rather than ones that are far too wide at
+            low DM and too narrow at high DM.
+        debug (bool): Print extra diagnostics.
+
+    Returns:
+        np.ndarray: (n_frbs, 3) float array of (a, b, PA) in (arcsec, arcsec, deg).
+        The DM column, if supplied, is used for matching and then dropped.
+
+    Raises:
+        ValueError: If the input cannot be interpreted, is empty, contains
+            non-finite or non-positive axes, or a 4-column population is given
+            without `dm`.
+    """
+    # --- DataFrame: pull DM/a/b/PA columns (case-insensitive) ---
+    if isinstance(localization, pd.DataFrame):
+        cols = {c.lower(): c for c in localization.columns}
+        missing = [k for k in ('a', 'b', 'pa') if k not in cols]
+        if missing:
+            raise ValueError(
+                f"localization DataFrame missing columns {missing}; "
+                f"expected 'a', 'b', 'PA' (any case, plus optional 'DM'), "
+                f"got {list(localization.columns)}"
+            )
+        want = ([cols['dm']] if 'dm' in cols else []) + [cols['a'], cols['b'], cols['pa']]
+        arr = localization[want].to_numpy(dtype=float)
+    else:
+        arr = np.asarray(localization, dtype=float)
+
+    # --- Single triple -> broadcast (original behaviour) ---
+    if arr.ndim == 1:
+        if arr.size != 3:
+            raise ValueError(
+                f"Scalar localization must be (a, b, PA) with 3 elements, got {arr.size}"
+            )
+        _check_localization_values(arr[None, :])
+        print(
+            f"Localization: fixed ellipse a={arr[0]:.2f}\" b={arr[1]:.2f}\" PA={arr[2]:.1f} deg "
+            f"for all {n_frbs} FRBs"
+        )
+        return np.repeat(arr[None, :], n_frbs, axis=0)
+
+    # --- Population ---
+    if arr.ndim != 2 or arr.shape[1] not in (3, 4):
+        raise ValueError(
+            f"Localization population must have shape (N, 3) for (a, b, PA) or "
+            f"(N, 4) for (DM, a, b, PA), got {arr.shape}"
+        )
+    if arr.shape[0] == 0:
+        raise ValueError("Localization population is empty")
+
+    joint = arr.shape[1] == 4
+    pop_dm = arr[:, 0] if joint else None
+    ellipses = arr[:, 1:] if joint else arr
+
+    _check_localization_values(ellipses)
+
+    if joint:
+        if not np.all(np.isfinite(pop_dm)) or np.any(pop_dm <= 0):
+            raise ValueError(
+                "Localization DM column contains non-finite or non-positive values; "
+                "strip sentinels before passing (localizations_from_errors does this)."
+            )
+        if dm is None:
+            raise ValueError(
+                "A 4-column (DM, a, b, PA) localization population was supplied, but no "
+                "simulated DM array was passed. The FRB DataFrame needs a 'DM' column "
+                "(extragalactic DM) for joint sampling. Pass a 3-column population "
+                "instead to sample localizations independently of DM."
+            )
+        idx = _sample_by_dm(
+            pop_dm, np.asarray(dm, dtype=float), dm_neighbors, dm_match_scale, debug=debug
+        )
+    else:
+        if dm is not None and debug:
+            print(
+                "  (localization population has no DM column; sampling independently of DM)"
+            )
+        idx = np.random.randint(0, ellipses.shape[0], size=n_frbs)
+        print(
+            f"Localization: sampling {n_frbs} ellipses with replacement from a population "
+            f"of {ellipses.shape[0]}, independently of FRB properties"
+        )
+
+    out = ellipses[idx]
+
+    med_a, med_b = np.median(out[:, 0]), np.median(out[:, 1])
+    area = np.pi * out[:, 0] * out[:, 1]
+    print(
+        f"  sampled median a={med_a:.1f}\"  b={med_b:.1f}\"  "
+        f"area percentiles (sq arcsec) [10,50,90] = "
+        f"{np.percentile(area, [10, 50, 90]).round(0)}"
+    )
+    if ellipses.shape[0] < n_frbs / 10:
+        warnings.warn(
+            f"Localization population ({ellipses.shape[0]}) is much smaller than the number "
+            f"of FRBs ({n_frbs}); sampled ellipses will repeat heavily and the effective "
+            f"variance of the localization distribution will be underestimated.",
+            stacklevel=2,
+        )
+
+    return out
+
+
+def _sample_by_dm(
+    pop_dm: np.ndarray,
+    frb_dm: np.ndarray,
+    k: int,
+    scale: str = 'log',
+    debug: bool = False,
+) -> np.ndarray:
+    """
+    Draw one real-FRB index per simulated FRB, matched in dispersion measure.
+
+    For each simulated DM, the `k` nearest real FRBs in DM are located and one is
+    chosen uniformly at random. This preserves the observed relationship between
+    DM and localization quality while keeping the draw stochastic.
+
+    Args:
+        pop_dm (np.ndarray): DM of each real FRB in the localization population.
+        frb_dm (np.ndarray): Extragalactic DM of each simulated FRB.
+        k (int): Neighbourhood size; clipped to the population size.
+        scale (str): 'log' or 'linear' matching space.
+        debug (bool): Print the realized DM-matching residuals.
+
+    Returns:
+        np.ndarray: Integer indices into the localization population, one per
+        simulated FRB.
+    """
+    if frb_dm.ndim != 1:
+        raise ValueError(f"Simulated DM array must be 1-D, got shape {frb_dm.shape}")
+    if not np.all(np.isfinite(frb_dm)) or np.any(frb_dm <= 0):
+        n_bad = int((~np.isfinite(frb_dm)).sum() + (frb_dm <= 0).sum())
+        raise ValueError(
+            f"Simulated DM contains {n_bad} non-finite or non-positive values; "
+            "joint DM-localization sampling needs a clean extragalactic DM for every FRB."
+        )
+    if scale not in ('log', 'linear'):
+        raise ValueError(f"dm_match_scale must be 'log' or 'linear', got {scale!r}")
+
+    k_eff = int(np.clip(k, 1, len(pop_dm)))
+    if k_eff != k:
+        warnings.warn(
+            f"dm_neighbors={k} exceeds the localization population size "
+            f"({len(pop_dm)}); using {k_eff}.",
+            stacklevel=3,
+        )
+
+    xf = np.log10(frb_dm) if scale == 'log' else frb_dm
+    xp = np.log10(pop_dm) if scale == 'log' else pop_dm
+
+    tree = cKDTree(xp[:, None])
+    _, nbr = tree.query(xf[:, None], k=k_eff)
+    nbr = np.atleast_2d(nbr.T).T if k_eff > 1 else nbr.reshape(-1, 1)
+
+    pick = np.random.randint(0, k_eff, size=len(xf))
+    idx = nbr[np.arange(len(xf)), pick]
+
+    # --- Diagnostics: how well does the real DM distribution cover the simulated one? ---
+    lo, hi = pop_dm.min(), pop_dm.max()
+    frac_out = float(np.mean((frb_dm < lo) | (frb_dm > hi)))
+    print(
+        f"Localization: joint (DM, a, b, PA) sampling -- {len(xf)} FRBs matched to a "
+        f"population of {len(pop_dm)} real FRBs, {k_eff} nearest in {scale} DM"
+    )
+    print(
+        f"  simulated DM median {np.median(frb_dm):.0f}, real DM median "
+        f"{np.median(pop_dm):.0f} pc/cm3"
+    )
+    if frac_out > 0.01:
+        print(
+            f"  NOTE: {100 * frac_out:.1f}% of simulated FRBs fall outside the real DM range "
+            f"[{lo:.0f}, {hi:.0f}]; these are matched to the nearest DM edge and their "
+            f"localizations are extrapolated."
+        )
+    if debug:
+        resid = np.abs(frb_dm - pop_dm[idx])
+        print(
+            f"  |DM_sim - DM_matched| percentiles [50,90,99] = "
+            f"{np.percentile(resid, [50, 90, 99]).round(1)} pc/cm3"
+        )
+        n_used = len(np.unique(idx))
+        print(f"  {n_used}/{len(pop_dm)} distinct real FRBs used")
+        if np.std(pop_dm) > 0:
+            r = np.corrcoef(frb_dm, np.pi * 1.0 * pop_dm[idx])[0, 1]
+            print(f"  corr(DM_sim, DM_matched) = {r:.3f}")
+
+    return idx
+
+
+# ---------------------------------------------------------------------------
+# Host assignment
+# ---------------------------------------------------------------------------
 
 def assign_frbs_to_hosts(
     frb_df: pd.DataFrame,
     galaxy_catalog: pd.DataFrame,
-    localization: Tuple[float, float, float],
-    mag_range: Tuple[float, float] = None, #(17., 28.),
+    localization: LocalizationLike,
+    mag_range: Tuple[float, float] = None,  # (17., 28.),
+    offset_function: str = 'exponential',
     scale: float = 0.5,
-    trim_catalog: units.Quantity = 1 * units.arcmin,
+    dm_neighbors: int = 25,
+    dm_match_scale: str = 'log',
     seed: Optional[int] = None,
     debug: bool = False
 ) -> pd.DataFrame:
@@ -52,12 +450,15 @@ def assign_frbs_to_hosts(
     Assign FRBs to host galaxies based on apparent magnitude matching.
 
     This function assigns each FRB to a host galaxy by matching their apparent
-    magnitudes (m_r). The matching algorithm uses a "fake coordinate" approach
-    where magnitudes are encoded as declinations, allowing sky coordinate
-    matching to effectively match by brightness.
+    magnitudes (m_r), in a single pass without replacement (see
+    `_match_by_magnitude_fast`): each FRB takes the unused galaxy closest to
+    its m_r, with the most oversubscribed magnitudes (FRBs per galaxy, in
+    0.25-mag bins) served first. Where no unused galaxy lies within 0.05 mag of
+    the ideal match, the FRB re-uses the least-used galaxy within that
+    tolerance.
 
-    Each FRB is randomly placed within the host galaxy according to an
-    exponential offset distribution, then the observed coordinates are offset
+    Each FRB is randomly placed within the host galaxy according to the indicated
+    offset distribution (exponential by default), then the observed coordinates are offset
     according to the localization error ellipse.
 
     Args:
@@ -67,21 +468,47 @@ def assign_frbs_to_hosts(
         galaxy_catalog (pd.DataFrame): Galaxy catalog with columns:
             - 'ra': Right ascension (degrees)
             - 'dec': Declination (degrees)
-            - 'mag_best': Apparent r-band magnitude
+            - 'mag': Apparent r-band magnitude
             - 'half_light': Half-light radius (arcsec)
             - 'ID': Unique galaxy identifier
-        localization (tuple): Error ellipse parameters (a, b, PA) where:
-            - a: Semi-major axis (arcsec)
-            - b: Semi-minor axis (arcsec)
-            - PA: Position angle (degrees, East of North)
+        localization: Error ellipse specification, in one of three forms:
+            - a single (a, b, PA) triple applied to every FRB, where
+              a = semi-major axis (arcsec), b = semi-minor axis (arcsec),
+              PA = position angle (degrees East of North). Original behaviour,
+              no randomness;
+            - a POPULATION of ellipses -- an (N, 3) array, a sequence of
+              triples, or a DataFrame with columns 'a', 'b', 'PA' -- from which
+              one whole row is drawn at random WITH REPLACEMENT per FRB,
+              independently of any FRB property;
+            - a JOINT population -- an (N, 4) array of (DM, a, b, PA), or a
+              DataFrame that also has a 'DM' column. Each simulated FRB is then
+              matched to real FRBs of similar DM (see `dm_neighbors`) and given
+              one of their localizations, so the simulated sample inherits the
+              observed correlation between DM and localization quality. Requires
+              a 'DMeg' column in `frb_df` (as produced by `generate_frbs`),
+              holding EXTRAGALACTIC DM on the same scale as the population's DM
+              column.
+            Use `localizations_from_errors` to build either population from an
+            observed catalog's RA/Dec uncertainties.
+            The realized per-FRB values are returned in the 'a', 'b' and 'PA'
+            output columns.
         mag_range (tuple, optional): (min, max) magnitude range for FRB selection.
-            FRBs outside this range are filtered out. Default: (17., 28.)
-        scale (float, optional): Scale factor for galaxy half-light radius when
-            placing FRBs. Smaller values concentrate FRBs closer to galaxy centers.
+            FRBs outside this range are filtered out. Default: None (no cut)
+        offset_function (str, optional): Function to use for generating galaxy positions (exponential, exponential_incorrect, uniform_1d, uniform_2d)
+        scale (float, optional): Scale of the intrinsic offset distribution, in
+            units of the host half-light radius: the exponential scale length, or
+            the outer cutoff of the uniform distributions.
+            Smaller values concentrate FRBs closer to galaxy centers.
             Default: 0.5
-        trim_catalog (units.Quantity, optional): Buffer to trim from catalog edges
-            to ensure FRBs stay within analysis region. Default: 1 arcmin
-        seed (int, optional): Random seed for reproducibility
+        dm_neighbors (int, optional): Only used for joint (DM, a, b, PA)
+            sampling. Number of real FRBs, nearest in DM, from which the
+            localization is drawn uniformly. 1 is strict nearest-neighbour
+            matching; larger values trade correlation strength for diversity.
+            Default: 25
+        dm_match_scale (str, optional): 'log' (default) or 'linear'; the space in
+            which DM neighbours are found. Only used for joint sampling.
+        seed (int, optional): Random seed for reproducibility. Also seeds the
+            localization draw.
         debug (bool, optional): Enable debug output. Default: False
 
     Returns:
@@ -96,21 +523,26 @@ def assign_frbs_to_hosts(
             - 'half_light': Galaxy half-light radius (arcsec)
             - 'loc_off': Localization error offset (arcsec)
             - 'FRB_ID': Original FRB index in input DataFrame
-            - 'a': Localization semi-major axis (arcsec)
-            - 'b': Localization semi-minor axis (arcsec)
-            - 'PA': Localization position angle (degrees)
+            - 'a': Localization semi-major axis for THIS FRB (arcsec)
+            - 'b': Localization semi-minor axis for THIS FRB (arcsec)
+            - 'PA': Localization position angle for THIS FRB (degrees)
 
     Raises:
         ValueError: If required columns are missing from input DataFrames
 
     Example:
         >>> frbs = generate_frbs(1000, 'CHIME')
-        >>> # Load galaxy catalog
-        >>> galaxies = pd.read_csv('galaxy_catalog.csv')
-        >>> # Assign with 0.5" x 0.3" error ellipse at PA=45deg
-        >>> assignments = assign_frbs_to_hosts(
-        ...     frbs, galaxies, localization=(0.5, 0.3, 45)
-        ... )
+        >>> galaxies = pd.read_parquet('galaxy_catalog.parquet')
+        >>> # Fixed 25" circular localization
+        >>> assignments = assign_frbs_to_hosts(frbs, galaxies, localization=(25, 25, 0))
+        >>> # Realistic BaseCat2 localization distribution
+        >>> locs = localizations_from_errors(cat['RA Error (arcsec)'],
+        ...                                  cat['Dec Error (arcsec)'])
+        >>> assignments = assign_frbs_to_hosts(frbs, galaxies, localization=locs)
+        >>> # Joint DM-localization sampling (frbs must have a 'DMeg' column)
+        >>> locs = localizations_from_errors(cat['RA Error (arcsec)'],
+        ...                                  cat['Dec Error (arcsec)'], dm=dm_ex)
+        >>> assignments = assign_frbs_to_hosts(frbs, galaxies, localization=locs)
     """
     # Set random seed if provided
     if seed is not None:
@@ -136,33 +568,440 @@ def assign_frbs_to_hosts(
 
     print(f"Assigning {len(cut_frbs)} FRBs to hosts (filtered from {len(frb_df)})")
 
-    # Trim catalog edges to maintain analysis region
-    galaxy_cut = _trim_catalog(galaxy_catalog, trim_catalog)
+    # Draw a localization ellipse per FRB (or broadcast the single one given)
+    loc_arr = _resolve_localizations(
+        localization, len(cut_frbs),
+        dm=_extract_dm(cut_frbs, localization),
+        dm_neighbors=dm_neighbors, dm_match_scale=dm_match_scale, debug=debug,
+    )
+
+    # No edge trim here: the host catalogs are built to sit inside the PATH
+    # catalog footprint (see the catalog-construction notebooks).
+    galaxy_cut = galaxy_catalog
 
     if len(galaxy_cut) == 0:
-        raise ValueError("No galaxies remain after trimming catalog edges")
+        raise ValueError("Galaxy catalog is empty")
 
     # Match FRBs to galaxies by magnitude
-    galaxy_indices = _match_by_magnitude(cut_frbs, galaxy_cut, debug=debug)
+    galaxy_indices = _match_by_magnitude_fast(cut_frbs, galaxy_cut, debug=debug)
     galaxy_sample = galaxy_cut.loc[galaxy_indices]
 
     # Generate FRB positions within galaxies
     true_coords = _generate_galaxy_positions(
-        galaxy_sample, scale=scale, #seed=seed
+        galaxy_sample, scale=scale, function=offset_function,  # seed=seed
     )
 
     # Apply localization error
     obs_coords, loc_offsets = _apply_localization_error(
-        true_coords, localization, #seed=seed
+        true_coords, loc_arr,  # seed=seed
     )
 
     # Build output DataFrame
     df_out = _build_output_dataframe(
         obs_coords, true_coords, galaxy_sample,
-        loc_offsets, localization, cut_frbs.index.values
+        loc_offsets, loc_arr, cut_frbs.index.values
     )
 
     return df_out
+
+
+def assign_frbs_random(
+    frb_df: pd.DataFrame,
+    galaxy_catalog: pd.DataFrame,
+    localization: LocalizationLike,
+    mag_range: Tuple[float, float] = None,
+    offset_function: str = 'exponential',   # unused; kept for signature parity
+    scale: float = 0.5,                     # unused; kept for signature parity
+    trim_catalog: units.Quantity = 1 * units.arcmin,
+    dm_neighbors: int = 25,
+    dm_match_scale: str = 'log',
+    seed: Optional[int] = None,
+    debug: bool = False,
+    coverage_catalog: pd.DataFrame = None,
+    coverage_radius: units.Quantity = 0.5 * units.deg,
+    include_boxes: List[Tuple[Tuple[float, float], Tuple[float, float]]] = None,
+    max_batches: int = 200,
+) -> pd.DataFrame:
+    """
+    Place FRB localization regions at random positions on-sky WITHIN THE FULL
+    PRE-QUERIED FOOTPRINT, with NO association to a host galaxy.
+
+    Null-hypothesis twin of `assign_frbs_to_hosts`, for measuring the rate of spurious
+    high-confidence PATH associations (P(O|x) > 0.9) at random fields.
+
+    The valid footprint is the UNION of:
+        (1) disks of radius `coverage_radius` around the pre-queried Legacy Surveys /
+            Pan-STARRS centers (~1 deg around bright galaxies), AND
+        (2) any contiguous regions in `include_boxes` (e.g. the HSC-SSP XMM-LSS field).
+    A localization center is accepted if it lands in EITHER (1) OR (2) -- not either/or
+    at the call level, but a true combined footprint. Centers are drawn uniformly on the
+    sphere (RA uniform, Dec uniform in sin(Dec)) over an enclosing box and rejection-
+    tested against this union, so PATH always has catalog coverage over the analysis box.
+
+    Args (differences from `assign_frbs_to_hosts`):
+        localization: Single (a, b, PA) triple OR a population of ellipses
+            sampled with replacement per FRB, exactly as in
+            `assign_frbs_to_hosts`. Pass the SAME population you use for the
+            host-assignment run so the null test carries the same localization
+            distribution.
+        coverage_catalog (pd.DataFrame, optional): Centers of the pre-queried disk
+            patches (needs 'ra', 'dec'). Defaults to `galaxy_catalog`; pass the true
+            query-center list if it differs, else the disk footprint may be undersized.
+        coverage_radius (Quantity): Disk radius. Default 0.5 deg.
+        include_boxes (list of ((ra_min, ra_max), (dec_min, dec_max)), optional):
+            Contiguous fully-covered regions to ADD to the footprint, e.g.
+            XMM-LSS: [((33., 38.), (-7., -2.))]. Boxes are edge-shrunk by `trim_catalog`.
+            Boxes must not wrap RA=0 (a warning is issued if one appears to).
+        offset_function, scale: ignored (no host to place the FRB within).
+
+    Returns:
+        pd.DataFrame with the SAME columns as `assign_frbs_to_hosts`:
+            'ra','dec','a','b','PA','FRB_ID' -- POPULATED ('a','b','PA' now vary
+                per FRB when a population is supplied)
+            'true_ra','true_dec','gal_off','mag','half_light','loc_off' -- NaN
+            'gal_ID' -- -99 int sentinel (build_digest tests this to skip host lookup)
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    _validate_frb_columns(frb_df)
+    _validate_galaxy_columns(galaxy_catalog)
+
+    if coverage_catalog is None:
+        coverage_catalog = galaxy_catalog
+
+    # Mirror the FRB subset assign_frbs_to_hosts would use (default None -> all FRBs)
+    if mag_range is not None:
+        mag_cut = (frb_df['m_r'] >= mag_range[0]) & (frb_df['m_r'] <= mag_range[1])
+    else:
+        mag_cut = np.ones(len(frb_df), dtype=bool)
+    cut_frbs = frb_df[mag_cut].copy()
+
+    if len(cut_frbs) == 0:
+        raise ValueError(
+            f"No FRBs remain after magnitude cut [{mag_range[0]}, {mag_range[1]}]. "
+            f"Input m_r range: [{frb_df['m_r'].min():.2f}, {frb_df['m_r'].max():.2f}]"
+        )
+    n_needed = len(cut_frbs)
+    print(f"Placing {n_needed} random localizations within pre-queried footprint "
+          f"(filtered from {len(frb_df)})")
+
+    # Draw a localization ellipse per FRB (or broadcast the single one given)
+    loc_arr = _resolve_localizations(
+        localization, n_needed,
+        dm=_extract_dm(cut_frbs, localization),
+        dm_neighbors=dm_neighbors, dm_match_scale=dm_match_scale, debug=debug,
+    )
+
+    # --- Disk geometry -------------------------------------------------------
+    R = coverage_radius.to(units.deg).value
+    buf = trim_catalog.to(units.deg).value
+    R_eff = R - buf
+    if R_eff <= 0:
+        raise ValueError(
+            f"coverage_radius ({R} deg) must exceed trim_catalog ({buf} deg)."
+        )
+    chord_thresh = 2.0 * np.sin(np.radians(R_eff) / 2.0)  # chord length for ang sep R_eff
+
+    cov_xyz = _radec_to_unitvec(coverage_catalog['ra'].values,
+                                coverage_catalog['dec'].values)
+    tree = cKDTree(cov_xyz)
+
+    # --- Box geometry (edge-shrunk by trim buffer) ---------------------------
+    shrunk_boxes = []
+    if include_boxes:
+        for (ra_lo, ra_hi), (dec_lo, dec_hi) in include_boxes:
+            if ra_hi - ra_lo > 180.:
+                warnings.warn(
+                    f"include_box RA span ({ra_lo},{ra_hi}) may wrap RA=0; "
+                    "box membership test assumes no wrap."
+                )
+            # RA buffer scaled by cos(dec) so the shrink is a true angular buffer
+            cosd = np.cos(np.radians(0.5 * (dec_lo + dec_hi)))
+            ra_buf = buf / max(cosd, 1e-6)
+            shrunk_boxes.append((
+                (ra_lo + ra_buf, ra_hi - ra_buf),
+                (dec_lo + buf, dec_hi - buf),
+            ))
+
+    # --- Enclosing sampling box (covers disks AND boxes) ---------------------
+    # Full RA because the disk footprint wraps across RA=0; empty RA is rejected.
+    ra_lo_s, ra_hi_s = 0.0, 360.0
+    dec_lo_s = coverage_catalog['dec'].min() - R
+    dec_hi_s = coverage_catalog['dec'].max() + R
+    if shrunk_boxes:
+        dec_lo_s = min(dec_lo_s, min(b[1][0] for b in shrunk_boxes))
+        dec_hi_s = max(dec_hi_s, max(b[1][1] for b in shrunk_boxes))
+    dec_lo_s = max(-90.0, dec_lo_s)
+    dec_hi_s = min(90.0, dec_hi_s)
+    sin_lo, sin_hi = np.sin(np.radians(dec_lo_s)), np.sin(np.radians(dec_hi_s))
+
+    # --- Rejection sampling: uniform-on-sky within (disks UNION boxes) -------
+    accepted_ra, accepted_dec = [], []
+    n_acc, n_tried = 0, 0
+    batch = max(4 * n_needed, 2000)
+    for _ in range(max_batches):
+        if n_acc >= n_needed:
+            break
+        cand_ra = np.random.uniform(ra_lo_s, ra_hi_s, size=batch)
+        cand_dec = np.degrees(np.arcsin(np.random.uniform(sin_lo, sin_hi, size=batch)))
+        dist, _ = tree.query(_radec_to_unitvec(cand_ra, cand_dec), k=1)
+        keep = (dist <= chord_thresh) | _in_boxes(cand_ra, cand_dec, shrunk_boxes)
+        accepted_ra.append(cand_ra[keep])
+        accepted_dec.append(cand_dec[keep])
+        n_acc += int(keep.sum())
+        n_tried += batch
+        p = max(n_acc / max(n_tried, 1), 1e-4)          # adapt to measured acceptance
+        remaining = n_needed - n_acc
+        batch = int(np.clip(1.5 * remaining / p, 2000, 5_000_000)) if remaining > 0 else batch
+    else:
+        raise RuntimeError(
+            f"Only generated {n_acc}/{n_needed} localizations after {max_batches} batches "
+            f"(acceptance ~{n_acc/max(n_tried,1):.4f}). Footprint may be tiny relative to "
+            f"the sampling box, or coverage_radius/include_boxes too small."
+        )
+
+    rand_ra = np.concatenate(accepted_ra)[:n_needed]
+    rand_dec = np.concatenate(accepted_dec)[:n_needed]
+
+    if debug:
+        p = n_acc / max(n_tried, 1)
+        box_area = (ra_hi_s - ra_lo_s) * (sin_hi - sin_lo) * (180.0 / np.pi)  # sq deg
+        # Fraction of accepted points that came via a box (overlap counts as box)
+        if shrunk_boxes:
+            in_box_final = _in_boxes(rand_ra, rand_dec, shrunk_boxes)
+            print(f"{in_box_final.sum()}/{n_needed} localizations fell in include_boxes")
+        print(f"acceptance ~{p:.4f}  ->  footprint area ~{p * box_area:.1f} sq deg")
+        print(f"RA sampled [{ra_lo_s:.2f}, {ra_hi_s:.2f}], "
+              f"Dec [{dec_lo_s:.3f}, {dec_hi_s:.3f}], R_eff={R_eff:.4f} deg")
+
+    # --- Output (same columns / dummy scheme as assign_frbs_to_hosts) --------
+    nan_col = np.full(n_needed, np.nan)
+    return pd.DataFrame({
+        'ra':         rand_ra,
+        'dec':        rand_dec,
+        'true_ra':    nan_col,
+        'true_dec':   nan_col,
+        'gal_ID':     np.full(n_needed, -99, dtype=int),   # sentinel: no host
+        'gal_off':    nan_col,
+        'mag':        nan_col,
+        'half_light': nan_col,
+        'loc_off':    nan_col,
+        'FRB_ID':     cut_frbs.index.values,
+        'a':          loc_arr[:, 0],
+        'b':          loc_arr[:, 1],
+        'PA':         loc_arr[:, 2],
+    })
+
+
+def assign_frbs_random_box(
+    frb_df: pd.DataFrame,
+    galaxy_catalog: pd.DataFrame,
+    localization: LocalizationLike,
+    mag_range: Tuple[float, float] = None,
+    offset_function: str = 'exponential',   # unused; signature parity
+    scale: float = 0.5,                     # unused; signature parity
+    trim_catalog: units.Quantity = 1 * units.arcmin,
+    dm_neighbors: int = 25,
+    dm_match_scale: str = 'log',
+    seed: Optional[int] = None,
+    debug: bool = False,
+    coverage_catalog: pd.DataFrame = None,
+    coverage_box_width: units.Quantity = 0.7 * units.deg,
+    include_boxes: List[Tuple[Tuple[float, float], Tuple[float, float]]] = None,
+    max_batches: int = 200,
+) -> pd.DataFrame:
+    """
+    Place FRB localization regions at random positions on-sky within the PATH
+    footprint, with NO association to a host galaxy. Null-hypothesis twin of
+    `assign_frbs_to_hosts` for measuring the spurious high-confidence rate
+    (P(O|x) > 0.9).
+
+    Footprint = (union of `coverage_box_width` x `coverage_box_width` boxes in RAW
+    RA/Dec degrees around each `coverage_catalog` center, i.e. the HECATE hosts)
+    UNION (`include_boxes`, e.g. the XMM-LSS field). Boxes are NOT cos(dec)-scaled,
+    matching how the PATH catalog was queried. Centers are drawn uniformly on the
+    sphere (RA uniform, Dec uniform in sin Dec) and accepted only inside the
+    footprint, shrunk by `trim_catalog` so PATH always has coverage over the box.
+
+    Args (differences from assign_frbs_to_hosts):
+        localization: Single (a, b, PA) triple OR a population of ellipses
+            sampled with replacement per FRB, exactly as in
+            `assign_frbs_to_hosts`.
+        coverage_catalog: centers of the per-host query boxes ('ra','dec'); the
+            HECATE hosts. Defaults to galaxy_catalog. Pass the exact HECATE subset.
+        coverage_box_width: full box width per host (default 0.7 deg).
+        include_boxes: fully-covered regions to ADD, e.g. XMM-LSS
+            [((33.575, 37.795), (-6.103, -3.191))].
+        offset_function, scale: ignored (no host to place the FRB within).
+
+    Returns:
+        Same columns as assign_frbs_to_hosts:
+            'ra','dec','a','b','PA','FRB_ID' -- POPULATED
+            'true_ra','true_dec','gal_off','mag','half_light','loc_off' -- NaN
+            'gal_ID' -- -99 int sentinel (build_digest tests this)
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    _validate_frb_columns(frb_df)
+    _validate_galaxy_columns(galaxy_catalog)
+    if coverage_catalog is None:
+        coverage_catalog = galaxy_catalog
+
+    if mag_range is not None:
+        mag_cut = (frb_df['m_r'] >= mag_range[0]) & (frb_df['m_r'] <= mag_range[1])
+    else:
+        mag_cut = np.ones(len(frb_df), dtype=bool)
+    cut_frbs = frb_df[mag_cut].copy()
+    if len(cut_frbs) == 0:
+        raise ValueError(
+            f"No FRBs remain after magnitude cut [{mag_range[0]}, {mag_range[1]}]."
+        )
+    n_needed = len(cut_frbs)
+    print(f"Placing {n_needed} random localizations (filtered from {len(frb_df)})")
+
+    # Draw a localization ellipse per FRB (or broadcast the single one given)
+    loc_arr = _resolve_localizations(
+        localization, n_needed,
+        dm=_extract_dm(cut_frbs, localization),
+        dm_neighbors=dm_neighbors, dm_match_scale=dm_match_scale, debug=debug,
+    )
+
+    half = coverage_box_width.to(units.deg).value / 2.0
+    buf = trim_catalog.to(units.deg).value
+    half_eff = half - buf
+    if half_eff <= 0:
+        raise ValueError(
+            f"trim_catalog ({buf} deg) must be < box half-width ({half} deg)."
+        )
+
+    # Chebyshev (box) membership: nearest center in (ra,dec) coord space, p=inf
+    centers = np.column_stack([coverage_catalog['ra'].values,
+                               coverage_catalog['dec'].values])
+    tree = cKDTree(centers)
+
+    shrunk_boxes = []
+    if include_boxes:
+        for (ra_lo, ra_hi), (dec_lo, dec_hi) in include_boxes:
+            shrunk_boxes.append(((ra_lo + buf, ra_hi - buf),
+                                 (dec_lo + buf, dec_hi - buf)))
+
+    ra_lo_s, ra_hi_s = 0.0, 360.0
+    dec_lo_s = coverage_catalog['dec'].min() - half
+    dec_hi_s = coverage_catalog['dec'].max() + half
+    if shrunk_boxes:
+        dec_lo_s = min(dec_lo_s, min(b[1][0] for b in shrunk_boxes))
+        dec_hi_s = max(dec_hi_s, max(b[1][1] for b in shrunk_boxes))
+    dec_lo_s = max(-90.0, dec_lo_s)
+    dec_hi_s = min(90.0, dec_hi_s)
+    sin_lo, sin_hi = np.sin(np.radians(dec_lo_s)), np.sin(np.radians(dec_hi_s))
+
+    accepted_ra, accepted_dec = [], []
+    n_acc, n_tried = 0, 0
+    batch = max(8 * n_needed, 5000)
+    for _ in range(max_batches):
+        if n_acc >= n_needed:
+            break
+        cand_ra = np.random.uniform(ra_lo_s, ra_hi_s, size=batch)
+        cand_dec = np.degrees(np.arcsin(
+            np.random.uniform(sin_lo, sin_hi, size=batch)))
+        dist, _ = tree.query(np.column_stack([cand_ra, cand_dec]), k=1, p=np.inf)
+        keep = (dist <= half_eff) | _in_boxes(cand_ra, cand_dec, shrunk_boxes)
+        accepted_ra.append(cand_ra[keep])
+        accepted_dec.append(cand_dec[keep])
+        n_acc += int(keep.sum())
+        n_tried += batch
+        p = max(n_acc / max(n_tried, 1), 1e-5)
+        remaining = n_needed - n_acc
+        batch = int(np.clip(1.5 * remaining / p, 5000, 20_000_000)) if remaining > 0 else batch
+    else:
+        raise RuntimeError(
+            f"Only generated {n_acc}/{n_needed} localizations after {max_batches} "
+            f"batches (acceptance ~{n_acc/max(n_tried,1):.5f}). Footprint tiny vs box, "
+            f"or coverage_box_width/include_boxes too small."
+        )
+
+    rand_ra = np.concatenate(accepted_ra)[:n_needed]
+    rand_dec = np.concatenate(accepted_dec)[:n_needed]
+
+    if debug:
+        p = n_acc / max(n_tried, 1)
+        box_area = (ra_hi_s - ra_lo_s) * (sin_hi - sin_lo) * (180.0 / np.pi)
+        print(f"acceptance ~{p:.5f} -> footprint ~{p * box_area:.1f} sq deg")
+        if shrunk_boxes:
+            ib = _in_boxes(rand_ra, rand_dec, shrunk_boxes)
+            print(f"{ib.sum()}/{n_needed} localizations in include_boxes")
+
+    nan_col = np.full(n_needed, np.nan)
+    return pd.DataFrame({
+        'ra':         rand_ra,
+        'dec':        rand_dec,
+        'true_ra':    nan_col,
+        'true_dec':   nan_col,
+        'gal_ID':     np.full(n_needed, -99, dtype=int),
+        'gal_off':    nan_col,
+        'mag':        nan_col,
+        'half_light': nan_col,
+        'loc_off':    nan_col,
+        'FRB_ID':     cut_frbs.index.values,
+        'a':          loc_arr[:, 0],
+        'b':          loc_arr[:, 1],
+        'PA':         loc_arr[:, 2],
+    })
+
+
+def _radec_to_unitvec(ra_deg, dec_deg):
+    """RA/Dec (deg) -> 3D unit vectors, shape (N, 3). Wrap-safe by construction."""
+    ra = np.radians(np.asarray(ra_deg, dtype=float))
+    dec = np.radians(np.asarray(dec_deg, dtype=float))
+    cos_dec = np.cos(dec)
+    return np.column_stack([cos_dec * np.cos(ra),
+                            cos_dec * np.sin(ra),
+                            np.sin(dec)])
+
+
+def _in_boxes(ra_deg, dec_deg, boxes):
+    """Boolean mask: True where (ra, dec) falls in ANY box. Boxes already edge-shrunk."""
+    ra = np.asarray(ra_deg, dtype=float)
+    dec = np.asarray(dec_deg, dtype=float)
+    inside = np.zeros(ra.shape, dtype=bool)
+    for (ra_lo, ra_hi), (dec_lo, dec_hi) in boxes:
+        inside |= (ra >= ra_lo) & (ra <= ra_hi) & (dec >= dec_lo) & (dec <= dec_hi)
+    return inside
+
+
+def _needs_dm(localization: LocalizationLike) -> bool:
+    """True if `localization` is a joint (DM, a, b, PA) population needing simulated DMs."""
+    if isinstance(localization, pd.DataFrame):
+        return 'dm' in {c.lower() for c in localization.columns}
+    arr = np.asarray(localization, dtype=float)
+    return arr.ndim == 2 and arr.shape[1] == 4
+
+
+def _extract_dm(frb_df: pd.DataFrame, localization: LocalizationLike):
+    """
+    Pull the extragalactic DM column from the FRB table, but only when the
+    supplied localization actually calls for joint sampling.
+
+    Returns None for scalar or 3-column localizations, so the DM column is
+    ignored unless it is needed.
+
+    Raises:
+        ValueError: If joint sampling is requested but `frb_df` has no 'DMeg'
+            column.
+    """
+    if not _needs_dm(localization):
+        return None
+    if 'DMeg' not in frb_df.columns:
+        raise ValueError(
+            "Joint (DM, a, b, PA) localization sampling requires a 'DMeg' column in the FRB "
+            f"DataFrame (extragalactic DM), but columns are {list(frb_df.columns)}. "
+            "Pass a 3-column (a, b, PA) population to sample localizations independently."
+        )
+    return frb_df['DMeg'].values
 
 
 def _validate_frb_columns(frb_df: pd.DataFrame):
@@ -175,7 +1014,7 @@ def _validate_frb_columns(frb_df: pd.DataFrame):
 
 def _validate_galaxy_columns(galaxy_df: pd.DataFrame):
     """Validate that galaxy DataFrame has required columns."""
-    required_cols = ['ra', 'dec', 'mag_best', 'half_light', 'ID']
+    required_cols = ['ra', 'dec', 'mag', 'half_light', 'ID']
     missing = [col for col in required_cols if col not in galaxy_df.columns]
     if missing:
         raise ValueError(f"Galaxy catalog missing required columns: {missing}")
@@ -184,6 +1023,10 @@ def _validate_galaxy_columns(galaxy_df: pd.DataFrame):
 def _trim_catalog(galaxy_df: pd.DataFrame, trim: units.Quantity) -> pd.DataFrame:
     """
     Trim edges off catalog to maintain PATH analysis region.
+
+    NOTE: this trims only the GLOBAL RA/Dec bounding box of the catalog, so for a
+    footprint made of many separated islands it removes almost nothing and does
+    not protect the per-island edges.
 
     Args:
         galaxy_df: Galaxy catalog
@@ -203,6 +1046,257 @@ def _trim_catalog(galaxy_df: pd.DataFrame, trim: units.Quantity) -> pd.DataFrame
 
     return galaxy_df[cut_ra & cut_dec]
 
+def _match_by_magnitude_fast(frb_df, galaxy_df, allow_duplicates=True,
+                            duplicate_tol=0.05, order='scarcity', debug=True):
+    """Match FRBs to galaxies by magnitude, one pass, no replacement.
+
+    Args:
+        frb_df: FRB catalog with 'm_r'.
+        galaxy_df: Galaxy catalog with 'mag'.
+        allow_duplicates: permit reuse where the catalog cannot supply.
+        duplicate_tol: magnitude tolerance defining "cannot supply", mag.
+        order: FRB processing order. 'scarcity' serves the rarest magnitudes
+            first (best fidelity where supply is thin), 'bright', or 'random'.
+        debug: print a summary.
+
+    Returns:
+        Array of galaxy DataFrame index labels, one per FRB.
+    """
+    fm = frb_df['m_r'].to_numpy(float)
+    gm = galaxy_df['mag'].to_numpy(float)
+    glab = galaxy_df.index.to_numpy()
+    n, ng = len(fm), len(gm)
+
+    # Little magnitude dither. Only important for PS1 catalogs
+    # not impactful for DECaLs
+    gm = gm + np.random.uniform(-5e-5, 5e-5, ng)
+    
+    gs = np.argsort(gm, kind='stable')
+    smag = gm[gs]
+
+    if order == 'scarcity':
+        # supply/demand per 0.25 mag; serve the most oversubscribed FRBs first
+        e = np.arange(np.floor(min(fm.min(), smag[0])), fm.max() + 0.25, 0.25)
+        dem = np.histogram(fm, e)[0].astype(float)
+        sup = np.histogram(smag, e)[0].astype(float)
+        press = np.where(sup > 0, dem / np.maximum(sup, 1e-9), np.inf)
+        seq = np.argsort(-press[np.clip(np.searchsorted(e, fm) - 1, 0, len(press) - 1)],
+                         kind='stable')
+    elif order == 'bright':
+        seq = np.argsort(fm, kind='stable')
+    else:
+        seq = np.random.default_rng(0).permutation(n)
+
+    # path-compressed pointers: nxt[i] = smallest free slot >= i (ng = none);
+    # prv[i] = largest free slot <= i (-1 = none)
+    nxt = np.arange(ng + 1)
+    prv = np.arange(ng + 1)          # prv[i] == i means "i is free" (as in nxt)
+
+    def find_n(i):
+        r = i
+        while r < ng and nxt[r] != r:
+            r = nxt[r]
+        while i < ng and nxt[i] != i:
+            nxt[i], i = r, nxt[i]
+        return r
+
+    def find_p(i):
+        r = i
+        while r >= 0 and prv[r] != r:
+            r = prv[r]
+        while i >= 0 and prv[i] != i:
+            prv[i], i = r, prv[i]
+        return r
+
+    k0 = np.searchsorted(smag, fm)
+    out = np.empty(n, dtype=glab.dtype)
+    for i in seq:
+        r = find_n(min(k0[i], ng))
+        l = find_p(min(k0[i], ng) - 1)
+        if r >= ng and l < 0:
+            if not allow_duplicates:
+                raise RuntimeError(
+                    f"galaxy catalog exhausted: {n} FRBs, {ng} galaxies. "
+                    "Pass allow_duplicates=True.")
+            # every galaxy is taken; reuse the nearest in magnitude
+            kk = min(max(k0[i], 1), ng - 1)
+            j = kk if abs(smag[kk] - fm[i]) < abs(smag[kk - 1] - fm[i]) else kk - 1
+            out[i] = glab[gs[j]]
+            continue
+        if r >= ng or (l >= 0 and (fm[i] - smag[l]) <= (smag[r] - fm[i])):
+            j = l
+        else:
+            j = r
+        out[i] = glab[gs[j]]
+        nxt[j] = j + 1          # splice out
+        prv[j] = j - 1
+
+    err = np.abs(gm[pd.Index(glab).get_indexer(out)] - fm)
+    if allow_duplicates:
+        k = np.clip(np.searchsorted(smag, fm), 1, ng - 1)
+        d_ideal = np.minimum(np.abs(smag[k] - fm), np.abs(smag[k - 1] - fm))
+        starved = np.flatnonzero(err > d_ideal + duplicate_tol)
+        if len(starved):
+            n_use = np.zeros(ng, dtype=np.int64)
+            np.add.at(n_use, gs[np.argsort(gs)][:0], 0)   # no-op init
+            pos = pd.Index(glab).get_indexer(out)
+            cnt = np.bincount(pos, minlength=ng)
+            rad = np.maximum(duplicate_tol, d_ideal)
+            lo = np.searchsorted(smag, fm - rad, 'left')
+            hi = np.searchsorted(smag, fm + rad, 'right')
+            for i in starved:
+                w = gs[lo[i]:hi[i]]
+                if not len(w):
+                    continue
+                j = w[np.argmin(cnt[w])]
+                out[i] = glab[j]
+                cnt[j] += 1
+            err = np.abs(gm[pd.Index(glab).get_indexer(out)] - fm)
+        c = pd.Series(out).value_counts()
+        if debug:
+            print(f"Duplicates: {int((c[c>1]-1).sum())} FRBs share a host "
+                  f"({int((c[c>1]-1).sum())/n:.2%}); {int((c>1).sum())} galaxies "
+                  f"reused; max reuse {int(c.max())}x")
+    if debug:
+        print(f"|mag_host - m_r|: median {np.median(err):.4f}  "
+              f"90th {np.percentile(err,90):.3f}  frac>0.05 {(err>0.05).mean():.2%}")
+    return out
+
+
+def _match_by_magnitude_nodups(frb_df: pd.DataFrame,
+                        galaxy_df: pd.DataFrame,
+                        allow_duplicates: bool = True,
+                        duplicate_tol: float = 0.05,
+                        debug: bool = True) -> np.ndarray:
+    """Match FRBs to galaxies by apparent magnitude.
+
+    Args:
+        frb_df: FRB catalog with 'm_r'.
+        galaxy_df: Galaxy catalog with 'mag'.
+        allow_duplicates: If True, a galaxy may be assigned to more than one FRB,
+            but only where the without-replacement result misses the requested
+            magnitude by more than `duplicate_tol` while a galaxy within
+            `duplicate_tol` exists.  Default False (original behaviour).
+        duplicate_tol: Magnitude tolerance, mag.  An FRB is "starved" when its
+            assigned host is off by more than this AND the catalog holds an
+            unassignable galaxy that is within it.
+        debug: Extra output.
+
+    Returns:
+        Array of galaxy DataFrame index labels, one per FRB.
+    """
+    n_frbs = len(frb_df)
+    fake_frb_coords = SkyCoord(ra=np.ones(n_frbs), dec=frb_df['m_r'].values, unit='deg')
+    fake_galaxy_coords = SkyCoord(ra=np.ones(len(galaxy_df)),
+                                  dec=galaxy_df['mag'].values, unit='deg')
+
+    galaxy_used = np.zeros(len(galaxy_df), dtype=bool)
+    galaxy_indices = np.arange(len(galaxy_df))
+    galaxy_df_indices = galaxy_df.index.values.copy()
+    frb_assignments = -1 * np.ones(n_frbs, dtype=int)
+
+    iteration = 0
+    while np.any(frb_assignments < 0):
+        iteration += 1
+        n_remaining = np.sum(frb_assignments < 0)
+        if debug or (iteration == 1) or (n_remaining < 100) or (iteration % 10 == 0):
+            print(f"Iteration {iteration}: {n_remaining} FRBs remaining")
+            print(f"  Brightest unassigned FRB: m_r = "
+                  f"{np.min(fake_frb_coords[frb_assignments < 0].dec):.2f}")
+
+        unassigned_mask = frb_assignments < 0
+        available_mask = ~galaxy_used
+        sub_frb_coords = fake_frb_coords[unassigned_mask]
+        sub_frb_indices = np.where(unassigned_mask)[0]
+        sub_galaxy_coords = fake_galaxy_coords[available_mask]
+        sub_galaxy_df_indices = galaxy_df_indices[available_mask]
+        sub_galaxy_flag_indices = galaxy_indices[available_mask]
+
+        if np.max(sub_frb_coords.dec.deg) < np.min(sub_galaxy_coords.dec.deg):
+            print(f"Ran out of bright galaxies at iteration {iteration}")
+            print(f"  Brightest remaining galaxy: m_r = {np.min(sub_galaxy_coords.dec.deg):.2f}")
+            print(f"  Faintest remaining FRB: m_r = {np.max(sub_frb_coords.dec.deg):.2f}")
+            srt_galaxies = np.argsort(sub_galaxy_coords.dec.deg)
+            srt_frbs = np.argsort(sub_frb_coords.dec.deg)
+            n_to_assign = min(len(srt_frbs), len(srt_galaxies))
+            frb_assignments[sub_frb_indices[srt_frbs[:n_to_assign]]] = \
+                sub_galaxy_df_indices[srt_galaxies[:n_to_assign]]
+            if len(srt_frbs) > len(srt_galaxies):
+                print(f"WARNING: {len(srt_frbs) - len(srt_galaxies)} FRBs could not be assigned")
+            break
+
+        idx, d2d, _ = match_coordinates_sky(sub_frb_coords, sub_galaxy_coords, nthneighbor=1)
+        if debug or iteration == 1:
+            print(f"  Max magnitude separation: {d2d.max():.4f} deg")
+        unique_galaxies, unique_indices = np.unique(idx, return_index=True)
+        frb_assignments[sub_frb_indices[unique_indices]] = \
+            sub_galaxy_df_indices[unique_galaxies]
+        galaxy_used[sub_galaxy_flag_indices[unique_galaxies]] = True
+
+    print(f"Assignment complete after {iteration} iterations")
+
+    # ---- duplicate post-pass -------------------------------------------------
+    if allow_duplicates:
+        gal_mag = galaxy_df['mag'].values
+        frb_mag = frb_df['m_r'].values
+        pos = pd.Index(galaxy_df_indices)
+        order = np.argsort(gal_mag, kind='stable')
+        smag = gal_mag[order]
+        n_use = np.zeros(len(galaxy_df), dtype=np.int64)
+
+        assigned = frb_assignments >= 0
+        ppos = pos.get_indexer(frb_assignments[assigned])
+        np.add.at(n_use, ppos[ppos >= 0], 1)
+        err = np.full(n_frbs, np.inf)
+        err[assigned] = np.abs(gal_mag[ppos] - frb_mag[assigned])
+
+        # Best magnitude match the catalog can offer at all, ignoring usage.
+        k = np.clip(np.searchsorted(smag, frb_mag), 1, len(smag) - 1)
+        d_ideal = np.minimum(np.abs(smag[k] - frb_mag), np.abs(smag[k - 1] - frb_mag))
+
+        # Starved = the without-replacement result is meaningfully worse than the
+        # best the catalog could do.  That is "we ran out AT THIS MAGNITUDE",
+        # which the main loop never reports.
+        starved = np.flatnonzero(err > d_ideal + duplicate_tol)
+        if debug:
+            print(f"  post-pass: {len(starved)} starved FRBs "
+                  f"(assigned host worse than the best available by > {duplicate_tol})")
+
+        # Window: everything within tol of the request, widened to reach the
+        # nearest galaxy when the catalog holds nothing that close.  Reuse goes
+        # to the least-used galaxy in the window so it spreads.
+        rad = np.maximum(duplicate_tol, d_ideal)
+        lo = np.searchsorted(smag, frb_mag - rad, 'left')
+        hi = np.searchsorted(smag, frb_mag + rad, 'right')
+        for i in starved:
+            w = order[lo[i]:hi[i]]
+            if not len(w):
+                continue
+            j = w[np.argmin(n_use[w])]
+            frb_assignments[i] = galaxy_df_indices[j]
+            n_use[j] += 1
+
+        counts = pd.Series(frb_assignments).value_counts()
+        rep = counts[counts > 1]
+        n_dup_frbs = int((counts[counts > 1] - 1).sum())
+        print(f"Duplicates: {n_dup_frbs} FRBs share a host with another FRB "
+              f"({n_dup_frbs / n_frbs:.2%} of the sample); "
+              f"{len(rep)} distinct galaxies reused; max reuse {int(counts.max())}x")
+    else:
+        counts = pd.Series(frb_assignments[frb_assignments >= 0]).value_counts()
+        if (counts > 1).any():
+            print(f"WARNING: {int((counts[counts>1]-1).sum())} duplicate assignments "
+                  f"despite allow_duplicates=False")
+
+    if np.any(frb_assignments < 0):
+        n_unassigned = np.sum(frb_assignments < 0)
+        raise RuntimeError(
+            f"{n_unassigned} FRBs could not be assigned to galaxies. "
+            "Galaxy catalog may be too small or magnitude distribution mismatch."
+            + ("" if allow_duplicates else "  Try allow_duplicates=True."))
+
+    return frb_assignments
+
 
 def _match_by_magnitude(
     frb_df: pd.DataFrame,
@@ -212,18 +1306,16 @@ def _match_by_magnitude(
     """
     Match FRBs to galaxies by apparent magnitude using fake coordinates.
 
-    This implements the clever magnitude-matching algorithm from
-    frb.frb_surveys.mock.frbs_in_hosts(). It creates "fake" sky coordinates
-    where the declination encodes the magnitude, then uses astropy's
-    match_coordinates_sky to match by brightness.
+    This implements a magnitude-matching algorithm from that creates
+    "fake" sky coordinates where the declination encodes the magnitude,
+    then uses astropy's match_coordinates_sky to match by brightness.
 
     The algorithm iteratively matches FRBs to galaxies, ensuring each galaxy
-    is used only once. Brighter FRBs are preferentially matched to brighter
-    galaxies.
+    is used only once.
 
     Args:
         frb_df: FRB catalog with 'm_r' column
-        galaxy_df: Galaxy catalog with 'mag_best' column
+        galaxy_df: Galaxy catalog with 'mag' column
         debug: Enable debug output
 
     Returns:
@@ -241,7 +1333,7 @@ def _match_by_magnitude(
 
     fake_galaxy_coords = SkyCoord(
         ra=np.ones(len(galaxy_df)),
-        dec=galaxy_df['mag_best'].values,
+        dec=galaxy_df['mag'].values,
         unit='deg'
     )
 
@@ -326,19 +1418,25 @@ def _match_by_magnitude(
 def _generate_galaxy_positions(
     galaxy_sample: pd.DataFrame,
     scale: float = 0.5,
-    function:str='exponential',
+    function: str = 'exponential',
     seed: Optional[int] = None
 ) -> list:
     """
     Generate random FRB positions within host galaxies.
 
-    FRB positions are sampled from a truncated normal distribution with
-    width proportional to the galaxy's half-light radius.
+    FRB positions are sampled from a distribution with
+    width proportional to the galaxy's half-light radius, in a uniformly
+    random direction.
 
     Args:
         galaxy_sample: Selected host galaxies
-        scale: Scale factor for half-light radius (smaller = more concentrated)
-        function: Function to use for generating galaxy positions (exponential, uniform, truncated normal)
+        scale: In units of the host half-light radius. For 'exponential', the
+               scale of Gamma(2, scale), i.e. p(r) ~ r exp(-r/scale), truncated
+               at 6 half-light radii (smaller = more concentrated). For
+               'uniform_1d' / 'uniform_2d', the outer cutoff of the uniform
+               distribution ('uniform_1d' draws from at most 10).
+        function: Function to use for generating galaxy positions
+               ('exponential', 'exponential_incorrect', 'uniform_1d', 'uniform_2d')
         seed: Random seed
 
     Returns:
@@ -356,101 +1454,119 @@ def _generate_galaxy_positions(
         unit='deg'
     )
 
-    # Generate offsets from galaxy centers
-    # Use truncated normal distribution (within 6 sigma)
-    #theta_max = galaxy_sample.half_light.values / scale
-    #randn = np.random.normal(size=10 * n_frbs)
-    #good = np.abs(randn) < (6. * scale)
-    #randn = randn[good][:n_frbs]
-
     if function == 'exponential':
+        print(f"Distributing FRBs according to {function}")
+        # Gamma(2, scale) gives p(r) ∝ r·exp(-r/scale), matching the
+        # PATH per-solid-angle exponential prior
+        randn = np.random.gamma(shape=2, scale=scale, size=10 * n_frbs)
+        good = randn < 6.
+        randn = randn[good][:n_frbs]
+    elif function == 'exponential_incorrect':
+        print(f"Distributing FRBs according to {function}")
         randn = np.random.exponential(scale=scale, size=10 * n_frbs)
         good = np.abs(randn) < (6.)
         randn = randn[good][:n_frbs]
-    elif function == 'uniform':
-        randn = np.random.uniform(low=0., high=10., size=10*n_frbs)
-        good = np.abs(randn) < (6.)
+    elif function == 'uniform_1d':
+        print(f"Distributing FRBs according to {function}")
+        # Uniform when integrated over azimuth
+        randn = np.random.uniform(low=0., high=10., size=10 * n_frbs)
+        good = np.abs(randn) < scale
         randn = randn[good][:n_frbs]
-    #elif function == 'truncated normal':
-    #    randn = np.random.normal(size=10 * n_frbs)
-    #    good = np.abs(randn) < (6.)
-    #    randn = randn[good][:n_frbs]
+    elif function == 'uniform_2d':
+        print(f"Distributing FRBs according to {function}")
+        # scale * sqrt(U) gives p(r) ∝ r over [0, scale], matching the
+        # PATH per-solid-angle uniform prior (constant per pixel over a disk)
+        randn = scale * np.sqrt(np.random.uniform(low=0., high=1., size=n_frbs))
     else:
-        raise ValueError(f"Invalid function: {function}")
+        raise ValueError(f"Invalid offset function: {function} (options: 'exponential', 'exponential_incorrect', 'uniform_1d', uniform_2d'")
+
+    if len(randn) < n_frbs:
+        raise RuntimeError(
+            f"Offset function '{function}' produced only {len(randn)} of {n_frbs} required "
+            f"draws after truncation (scale={scale}). Increase the oversampling factor or "
+            f"loosen the truncation."
+        )
 
     # Generate offsets
     galaxy_offsets = randn * galaxy_sample.half_light.values * units.arcsec
     position_angles = np.random.uniform(size=n_frbs, low=0., high=360.)
-    #embed(header='assign_host 382')
 
     print("Generating FRB positions within galaxies...")
 
-    # Offset coordinates from galaxy centers
-    frb_coords = [
-        coord.directional_offset_by(position_angles[kk] * units.deg, galaxy_offsets[kk])
-        for kk, coord in enumerate(galaxy_coords)
-    ]
+    # Offset coordinates from galaxy centers (vectorized)
+    frb_coords = galaxy_coords.directional_offset_by(
+        position_angles * units.deg, galaxy_offsets
+    )
 
     return frb_coords
 
 
 def _apply_localization_error(
-    true_coords: list,
-    localization: Tuple[float, float, float],
+    true_coords,
+    localization: np.ndarray,
     seed: Optional[int] = None
-) -> Tuple[list, np.ndarray]:
+):
     """
-    Apply localization error to true FRB coordinates.
+    Apply per-FRB localization error to true FRB coordinates.
 
-    Offsets are drawn from a truncated (3-sigma) normal distribution
-    along the error ellipse axes.
+    Offsets are drawn from a normal distribution (not truncated) along each
+    FRB's own error ellipse axes: 1-sigma `a` along PA and `b` along PA + 90.
 
     Args:
-        true_coords: List of true FRB SkyCoord objects
-        localization: (a, b, PA) error ellipse parameters (arcsec, arcsec, deg)
+        true_coords: True FRB coordinates (SkyCoord array or list of SkyCoord)
+        localization (np.ndarray): (n_frbs, 3) array of (a, b, PA) in
+            (arcsec, arcsec, deg). Produced by `_resolve_localizations`; every
+            row may differ.
         seed: Random seed
 
     Returns:
-        Tuple of (observed coordinates list, offset magnitudes array)
+        Tuple of (observed SkyCoord array, offset magnitudes array in arcsec)
     """
     if seed is not None:
         np.random.seed(seed)
 
-    n_frbs = len(true_coords)
-    a, b, pa = localization
+    coords = true_coords if isinstance(true_coords, SkyCoord) else SkyCoord(true_coords)
+    n_frbs = len(coords)
+
+    loc = np.asarray(localization, dtype=float)
+    if loc.shape != (n_frbs, 3):
+        raise ValueError(
+            f"localization array must have shape ({n_frbs}, 3), got {loc.shape}. "
+            "Pass the output of _resolve_localizations."
+        )
+    a_ax, b_ax, pa = loc[:, 0], loc[:, 1], loc[:, 2]
 
     # Generate offsets along major and minor axes (truncated to 3 sigma)
-    randn = np.random.normal(size=10 * n_frbs)
-    good = np.abs(randn) < 3.
-    randn = randn[good]
+    randn = np.random.normal(size=10*n_frbs)
+    # BCA: removed truncation... why did this exist to begin with?
+    # good = np.abs(randn) < 3.
+    # randn = randn[good]
+    if len(randn) < 2 * n_frbs:
+        raise RuntimeError(
+            f"Truncated-normal draw produced only {len(randn)} of {2 * n_frbs} required values"
+        )
 
-    a_offsets = randn[:n_frbs] * a * units.arcsec
-    b_offsets = randn[n_frbs:2*n_frbs] * b * units.arcsec
+    a_offsets = randn[:n_frbs] * a_ax * units.arcsec
+    b_offsets = randn[n_frbs:2 * n_frbs] * b_ax * units.arcsec
 
     # Total offset magnitude
-    loc_offsets = np.sqrt(a_offsets**2 + b_offsets**2)
+    loc_offsets = np.sqrt(a_offsets ** 2 + b_offsets ** 2)
 
     print("Applying localization error...")
 
-    # Apply offsets along ellipse axes
-    obs_coords = [
-        coord.directional_offset_by(pa * units.deg, a_offsets[kk])
-        for kk, coord in enumerate(true_coords)
-    ]
-    obs_coords = [
-        coord.directional_offset_by((pa + 90) * units.deg, b_offsets[kk])
-        for kk, coord in enumerate(obs_coords)
-    ]
+    # Apply offsets along each FRB's own ellipse axes (vectorized)
+    obs_coords = coords.directional_offset_by(pa * units.deg, a_offsets)
+    obs_coords = obs_coords.directional_offset_by((pa + 90.) * units.deg, b_offsets)
 
     return obs_coords, loc_offsets.value
 
 
 def _build_output_dataframe(
-    obs_coords: list,
-    true_coords: list,
+    obs_coords,
+    true_coords,
     galaxy_sample: pd.DataFrame,
     loc_offsets: np.ndarray,
-    localization: Tuple[float, float, float],
+    localization: np.ndarray,
     frb_original_indices: np.ndarray
 ) -> pd.DataFrame:
     """
@@ -461,12 +1577,15 @@ def _build_output_dataframe(
         true_coords: True FRB coordinates (in galaxy)
         galaxy_sample: Assigned host galaxies
         loc_offsets: Localization offset magnitudes (arcsec)
-        localization: Error ellipse parameters
+        localization (np.ndarray): (n_frbs, 3) per-FRB (a, b, PA)
         frb_original_indices: Original indices from input FRB DataFrame
 
     Returns:
         DataFrame with assignment results
     """
+    obs = obs_coords if isinstance(obs_coords, SkyCoord) else SkyCoord(obs_coords)
+    true = true_coords if isinstance(true_coords, SkyCoord) else SkyCoord(true_coords)
+
     # Calculate galaxy offsets
     galaxy_coords = SkyCoord(
         ra=galaxy_sample.ra.values,
@@ -474,25 +1593,24 @@ def _build_output_dataframe(
         unit='deg'
     )
 
-    gal_offsets = [
-        coord.separation(galaxy_coords[kk]).to(units.arcsec).value
-        for kk, coord in enumerate(true_coords)
-    ]
+    gal_offsets = true.separation(galaxy_coords).to(units.arcsec).value
+
+    loc = np.asarray(localization, dtype=float)
 
     df = pd.DataFrame({
-        'ra': [coord.ra.deg for coord in obs_coords],
-        'dec': [coord.dec.deg for coord in obs_coords],
-        'true_ra': [coord.ra.deg for coord in true_coords],
-        'true_dec': [coord.dec.deg for coord in true_coords],
+        'ra': obs.ra.deg,
+        'dec': obs.dec.deg,
+        'true_ra': true.ra.deg,
+        'true_dec': true.dec.deg,
         'gal_ID': galaxy_sample.ID.values,
         'gal_off': gal_offsets,
-        'mag': galaxy_sample.mag_best.values,
+        'mag': galaxy_sample.mag.values,
         'half_light': galaxy_sample.half_light.values,
         'loc_off': loc_offsets,
         'FRB_ID': frb_original_indices,
-        'a': localization[0],
-        'b': localization[1],
-        'PA': localization[2]
+        'a': loc[:, 0],
+        'b': loc[:, 1],
+        'PA': loc[:, 2],
     })
 
     return df
@@ -501,7 +1619,7 @@ def _build_output_dataframe(
 def assign_frbs_to_hosts_from_files(
     frb_file: str,
     galaxy_catalog: pd.DataFrame,
-    localization: Tuple[float, float, float],
+    localization: LocalizationLike,
     outfile: str,
     **kwargs
 ) -> pd.DataFrame:
@@ -513,20 +1631,13 @@ def assign_frbs_to_hosts_from_files(
     Args:
         frb_file (str): Path to CSV file containing FRB data (output of generate_frbs)
         galaxy_catalog (pd.DataFrame): Galaxy catalog DataFrame
-        localization (tuple): (a, b, PA) error ellipse parameters (arcsec, arcsec, deg)
+        localization: (a, b, PA) triple or ellipse population; see
+            `assign_frbs_to_hosts`.
         outfile (str): Path to output CSV file
         **kwargs: Additional arguments passed to assign_frbs_to_hosts()
 
     Returns:
         pd.DataFrame: Assignment results (also saved to outfile)
-
-    Example:
-        >>> df = assign_frbs_to_hosts_from_files(
-        ...     'frbs_chime.csv',
-        ...     galaxy_catalog,
-        ...     localization=(0.5, 0.3, 45),
-        ...     outfile='frb_host_assignments.csv'
-        ... )
     """
     # Load FRBs
     frbs = pd.read_csv(frb_file)

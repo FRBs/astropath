@@ -1,11 +1,41 @@
 import pandas
+import numpy as np
+from astropy.coordinates import SkyCoord, match_coordinates_sky
+from scipy.signal import convolve
+from scipy.special import ellipe
+import time
+import matplotlib.pyplot as plt
+import matplotlib.pylab as pylab
+params = {'axes.labelsize':20,
+         'axes.titlesize':20,
+         'xtick.labelsize':20,
+         'ytick.labelsize':20}
+pylab.rcParams.update(params)
+import matplotlib
+import requests
+from PIL import Image
+from io import BytesIO
+from io import StringIO
+import aplpy
+from astropy.table import Table
+from astropy.table import unique, vstack
+import astropy.units as u
 from astropy.coordinates import SkyCoord
+from astropy.io import fits
+import glob
+import os
+from subprocess import Popen, PIPE, STDOUT
+import shutil
+from reproject.mosaicking import find_optimal_celestial_wcs
+from reproject import reproject_interp
+from reproject.mosaicking import reproject_and_coadd
+from scipy.special import i0e, j0
 
 
-def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, 
-    output_fn:str=None):
+def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=None, hosts:pandas.DataFrame=None, combined_catalog:pandas.DataFrame=None, output_fn:str=None):
     """
-    Construct a digest of the simulation results.
+    Combines together the pandas.DataFrame from each simulation step into a "digest"
+    DataFrame that can be easily parsed to make informative plots about the simulation results
 
     Args:
         raw_sim_results (pandas.DataFrame): The simulation results dataframe
@@ -15,44 +45,88 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
         output_fn (str): The filename to save the digest to
 
     Returns:
-        pandas.DataFrame: The digest dataframe
+        pandas.DataFrame: The digest dataframe with the following columns:
+            - `ra_loc`: Observed FRB RA (degrees) - includes localization error
+            - `dec_loc`: Observed FRB Dec (degrees) - includes localization error
+            - `true_ra`: True FRB RA in the galaxy (degrees)
+            - `true_dec`: True FRB Dec in the galaxy (degrees)
+            - `host_ID`: ID of assigned host galaxy within the possible host catalog (see `assign_host` step)
+            - `gal_off`: Offset from galaxy center (arcsec)
+            - `mag_host`: Apparent r-band magnitude of the true host galaxy
+            - `ang_size_host`: Angular size of the true host galaxy (arcsec)
+            - `loc_off`: Localization error offset (arcsec)
+            - `FRB_ID`: FRB index from the `generate_frbs` step
+            - `a`: Localization semi-major axis (arcsec)
+            - `b`: Localization semi-minor axis (arcsec)
+            - `PA`: Localization position angle (degrees)
+            - `ra_host`: RA of the host galaxy center (degrees)
+            - `dec_host`: DEC of the host galaxy center (degrees)
+            - `sep_best_host_arcsec`: Separation between the center of the best candidate and true host (arcsec)
+            - `sep_host_loc_arcsec`: Separation between the center of the true host and localization (arcsec)
+            - `sep_best_loc_arcsec`: Separation between the center of the best candidate and localization (arcsec)
+            - `sep_host_loc_norm`: Separation between the center of the true host and localization, normalized by the angular size of the true host
+            - `sep_best_loc_norm`: Separation between the center of the best candidate and localization, normalized by the angular size of the best candidate
+            - `z_host`: Simulated FRB redshift
+            - `dmex_host`: Simulated FRB extragalactic DM
+            - `frb_mr`: Simulated FRB host apparent r-band magnitude
+            - `frb_Mr`: Simulated FRB host absolute r-band magnitude
+            - `ra_cand`: RA of the best candidate galaxy center (degrees)
+            - `dec_cand`: DEC of the best candidate galaxy center (degrees)
+            - `mag_cand`: Apparent r-band magnitude of the best candidate galaxy
+            - `ang_size_cand`: Angular size of the best candidate galaxy (arcsec)
+            - `cand_ID`: ID of assigned host galaxy within the galaxy catalog used to run PATH (see `run_path` step)
+            - `P_O`: Value of the PATH prior P(Oi) for the best candidate
+            - `P_Ox`: Value of the PATH posterior P(Oi|x) for the best candidate
+            - `P_Ux`: Value of the PATH posterior P(U|x)
+            - `correct_association`: A boolean indicating whether the best candidate is the true host (a "correct" association): by ID where the host's ID is among the candidates PATH searched, otherwise by a spatial cross-match
+            - `unseen`: A boolean indicating whether the true host is visible in the catalog used to run PATH
+            - `host_catalog`: A string indicating which catalog the host was selected from ("SGA", "DECaL_ID", "Pan-STARRS_ID", "HSC_ID", "HECATE_ID", or "No Match")
     """
 
     print("Get parameters from the simulation results dataframe")
     # (like galaxy ID, ra, dec, angular size, magnitude, separation, PATH parameters, etc)
     # and append them to the hosts dataframe to construct a dataframe useful for plotting
-    best_cands_list = []
-    true_ras = []
-    true_decs = []
-    true_mags = []
-    true_ang_size = []
-    true_z = []
-    true_dmeg = []
-    true_dmhost = []
-    true_dmcosmic = []
-    true_mr = []
-    true_Mr = []
-    for ii in range(len(hosts)):
-        host_row = hosts[ii:ii+1]
-        cands = raw_sim_results[raw_sim_results['iFRB'] == ii]
-        frb = frbs.iloc[[ii]]
-        # if ii == 106:
-        #     print(cands)
-        if len(cands) == 0:
-            print(ii)
-        best_cand = cands[0:1]
-        best_cands_list.append(best_cand)
+    nhosts = len(hosts)
+    iFRB = raw_sim_results['iFRB'].to_numpy()
+    
+    order = np.argsort(iFRB, kind='stable')
+    s = iFRB[order]
+    starts = np.concatenate(([True], s[1:] != s[:-1]))
+    first_of_group, present = order[starts], s[starts]
+    
+    keep = (present >= 0) & (present < nhosts)
+    valid_idx = present[keep]
+    best_cands = raw_sim_results.iloc[first_of_group[keep]].reset_index(drop=True)
+    
+    for ii in np.setdiff1d(np.arange(nhosts), valid_idx, assume_unique=True):
+      print(f"FRB {ii} has no candidates — skipping")
+    
+    # One hash lookup instead of a full catalog scan per FRB
+    gal_ids = hosts['gal_ID'].to_numpy()[valid_idx]
+    true_ras = np.full(len(valid_idx), np.nan)
+    true_decs = np.full(len(valid_idx), np.nan)
+    real = gal_ids != -99
+    if real.any():
+      pos = pandas.Index(combined_catalog['ID']).get_indexer(gal_ids[real])
+      if (pos < 0).any():
+          raise ValueError(f"{int((pos < 0).sum())} host gal_ID values not found "
+                           f"in combined_catalog['ID']")
+      true_ras[real] = combined_catalog['ra'].to_numpy()[pos]
+      true_decs[real] = combined_catalog['dec'].to_numpy()[pos]
+    
+    true_z    = frbs['z'].to_numpy()[valid_idx]
+    true_dmeg = frbs['DMeg'].to_numpy()[valid_idx]
+    true_mr   = frbs['m_r'].to_numpy()[valid_idx]
+    true_Mr   = frbs['M_r'].to_numpy()[valid_idx]
+    
+    n_before = nhosts
+    valid_idx = list(valid_idx)
+    # best_cands = pandas.concat(best_cands_list, ignore_index=True)
 
-        orig_true_host = combined_catalog[combined_catalog['ID'] == host_row['gal_ID'].item()]
-        true_ras.append(orig_true_host.ra.item())
-        true_decs.append(orig_true_host.dec.item())
-        true_mags.append(orig_true_host.mag_best.item())
-        true_ang_size.append(orig_true_host.ang_size.item())
-        true_z.append(frb['z'].values[0])
-        true_dmeg.append(frb['DMeg'].values[0])
-        true_mr.append(frb['m_r'].values[0])
-        true_Mr.append(frb['M_r'].values[0])
-    best_cands = pandas.concat(best_cands_list, ignore_index=True)
+    # Filter hosts to only valid FRBs so shapes match
+    hosts = hosts.iloc[valid_idx].reset_index(drop=True)
+    frbs  = frbs.iloc[valid_idx].reset_index(drop=True)
+    print(f"Excluded {n_before - len(valid_idx)} FRBs with no candidates")
 
     print("Rename some columns to make concatenation cleaner")
     best_cands = best_cands.rename(
@@ -61,17 +135,16 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
             'dec': 'dec_cand',
             'mag': 'mag_cand',
             'ang_size': 'ang_size_cand',
-            'sep': 'sep_cand',
             'ID': 'cand_ID',
-            'gal_ID': 'gal_ind',
         },
     )
+    best_cands.drop(columns=['sep', 'iFRB', 'gal_ID'], inplace=True)
     hosts = hosts.rename(
         columns={
             'ra': 'ra_loc', 
             'dec': 'dec_loc',
             'mag': 'mag_host',
-            'half_light': 'half_light_host',
+            'half_light': 'ang_size_host',
             'gal_ID': 'host_ID',
         },
     )
@@ -79,14 +152,24 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     print("Calculate angular separation between true host and best candidate")
     true_host_coord = SkyCoord(ra=true_ras, dec=true_decs, unit='deg')
     best_cand_coord = SkyCoord(ra=best_cands.ra_cand.values, dec=best_cands.dec_cand.values, unit='deg')
-    sep = true_host_coord.separation(best_cand_coord).arcsec
-
+    sep_best_host_arcsec = true_host_coord.separation(best_cand_coord).arcsec
+ 
+    loc_coord = SkyCoord(ra=hosts.ra_loc.values, dec=hosts.dec_loc.values, unit='deg')
+    print("Calculate offset between localization and true host")
+    sep_host_loc_arcsec = true_host_coord.separation(loc_coord).arcsec
+    sep_host_loc_norm = sep_host_loc_arcsec / hosts.ang_size_host.values
+    print("Calculate offset between localization and best candidate")
+    sep_best_loc_arcsec = best_cand_coord.separation(loc_coord).arcsec
+    sep_best_loc_norm = sep_best_loc_arcsec / best_cands.ang_size_cand.values
+    
     print("Add the RA/Dec of the host *galaxy* from the original catalog")
     hosts['ra_host'] = true_ras
     hosts['dec_host'] = true_decs
-    hosts['mag_true_host'] = true_mags
-    hosts['ang_size_host'] = true_ang_size
-    hosts['sep_best_host'] = sep
+    hosts['sep_best_host_arcsec'] = sep_best_host_arcsec
+    hosts['sep_host_loc_arcsec'] = sep_host_loc_arcsec
+    hosts['sep_host_loc_norm'] = sep_host_loc_norm
+    hosts['sep_best_loc_arcsec'] = sep_best_loc_arcsec
+    hosts['sep_best_loc_norm'] = sep_best_loc_norm
     hosts['z_host'] = true_z
     hosts['dmex_host'] = true_dmeg
     hosts['frb_mr'] = true_mr
@@ -95,8 +178,862 @@ def build_digest(raw_sim_results:pandas.DataFrame=None, frbs:pandas.DataFrame=No
     print("Merge dataframes, to create a nice big cross-checked dataframe for plotting purposes")
     df = hosts.merge(best_cands, left_index=True, right_index=True)
 
+    print("Determine correct matches and calculate whether each host is seen or unseen in PATH catalog")
+    df_unseen = calculate_unseen_and_correct(df, raw_sim_results, mag_limit=None, thresh_cross_match=1., floor=0.5)
+
+    # print("Determine correct and incorrect matches")
+    # max_ang_size = np.maximum.reduce([df.ang_size_cand.values, df.ang_size_host.values], axis=0)
+    # match_criteria = (df.sep_best_host_arcsec.values < thresh_cross_match * max_ang_size)
+    # df['correct_association'] = match_criteria
+
+    # print("Calculate whether true host is seen or unseen in PATH catalog")
+    # if (df['host_ID'] == -99).all():             # whole run is random; no true host
+    #     df['unseen'] = np.nan                    # not meaningful for random fields
+    #     df_unseen = df
+    # else:
+    #     df_unseen = calculate_unseen(df, raw_sim_results, mag_limit=None)
+    
+    print('Determine which catalog ("SGA", "DECaL_ID", "Pan-STARRS_ID", "HSC_ID", or "HECATE_ID") the host was selected from')
+    df_unseen_hostcat = extract_host_catalog_sga(df_unseen, combined_catalog)
+
     if output_fn is not None:
         print("Saving to file: {}".format(output_fn))
-        df.to_parquet(output_fn)
+        df_unseen_hostcat.to_parquet(output_fn)
     
-    return df
+    return df_unseen_hostcat
+
+
+def calculate_unseen_and_correct(hosts, galaxy_catalog, mag_limit=None, thresh_cross_match=1., floor=0.5):
+    """Set `hosts['unseen']` and `hosts['correct_association']`.
+
+    Args:
+        hosts (pandas.DataFrame): digest under construction.  Needs
+            `ra_host`, `dec_host`, `ang_size_host`, `host_ID`,
+            `sep_best_host_arcsec`, `ang_size_cand`, `cand_ID`
+            (and `mag_host` if `mag_limit` is used).
+        galaxy_catalog (pandas.DataFrame): the table PATH actually searched --
+            i.e. the concatenated candidate rows.  Needs `ra`, `dec`,
+            `ang_size`, and `ID` for the ID path.
+        mag_limit (float, optional): drop hosts brighter than this before
+            testing.  Default None (no cut); note it SHORTENS the frame.
+        thresh_cross_match (float): multiple of the larger half-light radius.
+        floor (float): minimum match radius in arcsec.
+
+    Returns:
+        pandas.DataFrame: `hosts` with `unseen` and `correct_association` set.
+    """
+    if mag_limit is not None:
+        hosts = hosts[hosts['mag_host'] > mag_limit]
+
+    # The candidate table repeats each galaxy once per FRB that saw it (65%
+    # redundancy on the 100k run).  Same ID means same position, so collapsing
+    # first leaves the nearest-neighbour answer identical and cuts the tree ~3x.
+    if 'ID' in galaxy_catalog.columns:
+        galaxy_catalog = galaxy_catalog.drop_duplicates('ID')
+
+    # Nearest catalog source to each true host, at any distance.
+    idx, d2d, _ = match_coordinates_sky(
+        SkyCoord(ra=hosts.ra_host.values, dec=hosts.dec_host.values, unit='deg'),
+        SkyCoord(ra=galaxy_catalog.ra.values, dec=galaxy_catalog.dec.values,
+                 unit='deg'),
+        nthneighbor=1)
+    sep = d2d.arcsec
+
+    # Match radius: size-scaled, floored.  NaN sizes fall back to the floor.
+    size_host = np.nan_to_num(hosts.ang_size_host.values)
+    size_near = np.nan_to_num(galaxy_catalog.ang_size.values[idx])
+    size_cand = np.nan_to_num(hosts.ang_size_cand.values)
+    thr_unseen = np.maximum(thresh_cross_match *
+                            np.maximum(size_host, size_near), floor)
+    thr_corr = np.maximum(thresh_cross_match *
+                          np.maximum(size_host, size_cand), floor)
+
+    # Is this host's ID in the catalog's namespace?  A hit proves the host is
+    # in the catalog; a miss proves nothing (foreign namespace), so only the
+    # hit is allowed to override geometry.
+    host_id = hosts.host_ID.values
+    if 'ID' in galaxy_catalog.columns:
+        id_seen = np.isin(host_id, galaxy_catalog.ID.values)
+    else:
+        id_seen = np.zeros(len(hosts), dtype=bool)
+
+    unseen = (~id_seen) & (sep >= thr_unseen)
+
+    # Correct association: exact by ID where the namespace is shared, geometric
+    # otherwise.  `id_seen` marks precisely the rows where cand_ID is comparable.
+    correct = np.where(id_seen,
+                       host_id == hosts.cand_ID.values,
+                       hosts.sep_best_host_arcsec.values < thr_corr)
+
+    # A host that is not in the catalog cannot have been recovered from it.
+    correct = correct & (~unseen)
+
+    # Random-field localizations carry no true host.
+    no_host = host_id == -99
+    hosts['unseen'] = np.where(no_host, np.nan, unseen).astype(object) \
+        if no_host.any() else unseen
+    hosts['correct_association'] = correct & (~no_host)
+    return hosts
+    
+
+def calculate_unseen(hosts:pandas.DataFrame, galaxy_catalog:pandas.DataFrame,
+                     mag_limit:float=None, thresh_cross_match:float=1.):
+    """
+    Determines whether a set of FRB host galaxies (hosts) is "unseen" (not detected
+    as a source) in the given galaxy catalog of limited magnitude depths
+
+    Args:
+        hosts (pandas.DataFrame): Simulated FRB hosts, must contain columns:
+            `mag_host`, `ra_host`, `dec_host`, `ang_size_host`
+        galaxy_catalog (pandas.DataFrame): Galaxy catalog of limited depth,
+            must contain columns: `ra`, `dec`, `ang_size`
+        mag_limit (float): Lower limit to filter hosts catalog. This exists because we
+            make cuts in our galaxy_catalog samples mr < 14. Thus, below this threshold,
+            a simulated host will artificially not have a matching source in the galaxy_catalog.
+        thresh_cross_match (float): A factor that sets the cross-matching threshold
+            that determines whether an FRB host is "unseen" or not. Specifically,
+            it is a multiple of the galaxy half-light radius.
+
+    Returns:
+        pandas.DataFrame: Hosts catalog, but with an `unseen` column indicating
+            whether the host is visible in the galaxy catalog
+    """
+    if mag_limit is not None:
+        hosts = hosts[hosts['mag_host'] > mag_limit]
+    
+    host_coords = SkyCoord(ra=hosts.ra_host.values, dec=hosts.dec_host.values, unit='deg')
+    galaxy_catalog_coords = SkyCoord(ra=galaxy_catalog.ra.values, dec=galaxy_catalog.dec.values, unit='deg')
+
+    # Match hosts to galaxy catalog sources, finding the closest source at any distance
+    print("Starting cross-matching (will take a minute)...")
+    start_write = time.time()
+    idx, d2d, _ = match_coordinates_sky(host_coords, galaxy_catalog_coords, nthneighbor=1)
+    end_write = time.time()
+    print("Cross-matching finished. Time elapsed: {0:.3f} minutes".format((end_write-start_write)/60.))
+
+    # Filter by distance, finding those matching within the angular size of the galaxy
+    max_ang_size = thresh_cross_match * np.maximum.reduce([hosts['ang_size_host'], galaxy_catalog.iloc[idx]['ang_size']], axis=0)
+    dup = (d2d.arcsec <  max_ang_size)
+    # galaxy_catalog_keep = galaxy_catalog.iloc[idx[dup]]
+
+    # Add "unseen" status to hosts DataFrame
+    unseen = np.full(len(hosts), True)
+    unseen[dup] = False
+    hosts['unseen'] = unseen
+    
+    return hosts
+
+
+def extract_host_catalog(digest:pandas.DataFrame, combined_catalog:pandas.DataFrame): 
+    """
+    Determines which galaxy catalog ("HSC", "DECaLs", "Pan-STARRS", or "HECATE") each
+    true host was selected from.
+
+    Args:
+        digest (pandas.DataFrame): Simulation digest (see build_digest), must contain column: `host_ID`
+        combined_catalog (pandas.DataFrame): The combined catalog dataframe
+
+    Returns:
+        pandas.DataFrame: Hosts catalog, but with an `host_catalog` column indicating
+            which galaxy catalog the true host was selected from.
+    """
+    # Get unique IDs from digest to minimize search space
+    digest_ids = digest["host_ID"].unique()
+    
+    # Build a high-speed lookup dictionary from combined_catalog
+    id_to_source = {}
+    id_columns = ["DECaL_ID", "Pan-STARRS_ID", "HSC_ID", "SDSS_PHOTID"]
+    valid_columns = combined_catalog.columns.intersection(id_columns, sort=False).tolist()
+    
+    for col in valid_columns:
+        # Get valid, non-null IDs from this column that exist in digest
+        matched_ids = combined_catalog.loc[
+            combined_catalog[col].isin(digest_ids), col
+        ].dropna()
+    
+        # Bulk-add them to the dictionary pointing to the current column name
+        if col == 'SDSS_PHOTID':
+            col = 'HECATE_ID'
+        id_to_source.update({id_val: col for id_val in matched_ids})
+    
+    # Instantly map the dictionary to create your new column
+    digest["host_catalog"] = digest["host_ID"].map(id_to_source).astype(object)
+
+    # Random-field localizations (sentinel host_ID) have no true host by construction
+    digest.loc[digest["host_ID"] == -99, "host_catalog"] = "Random"
+    
+    # Optional: Fill IDs that didn't find a match anywhere
+    digest["host_catalog"] = digest["host_catalog"].fillna("No Match")
+    
+    return digest
+    
+
+def extract_host_catalog_sga(digest: pandas.DataFrame,
+                             combined_catalog: pandas.DataFrame,
+                             priority=("SGA", "DECaL_ID", "Pan-STARRS_ID",
+                                       "HSC_ID", "HECATE_ID")):
+    """
+    Determines which galaxy catalog ("SGA", "DECaLs", "Pan-STARRS", "HSC" or
+    "HECATE") each true host was selected from.
+
+    SGA membership is flagged by the boolean `is_sga` column rather than by a
+    dedicated ID column, so an SGA galaxy also carries an ID in one of the
+    survey columns (usually DECaL_ID).  It is therefore applied as an override
+    on top of whichever ID matched.
+
+    Args:
+        digest (pandas.DataFrame): Simulation digest (see build_digest), must
+            contain column: `host_ID`
+        combined_catalog (pandas.DataFrame): The combined catalog dataframe
+        priority (tuple): Labels ordered most- to least-specific.  When one
+            host_ID appears in several catalogs, the earliest label wins.
+
+    Returns:
+        pandas.DataFrame: digest with a `host_catalog` column indicating which
+            galaxy catalog the true host was selected from.
+    """
+    id_columns = ["DECaL_ID", "Pan-STARRS_ID", "HSC_ID", "SDSS_PHOTID"]
+    label_of = {"SDSS_PHOTID": "HECATE_ID"}
+
+    # Get unique IDs from digest to minimize search space
+    digest_ids = pandas.Index(digest["host_ID"].dropna().unique())
+    rank = {label: i for i, label in enumerate(priority)}
+
+    # is_sga may arrive as object/nullable-boolean with NaNs; NaN is truthy to
+    # numpy, so coerce explicitly rather than relying on the raw column.
+    if "is_sga" in combined_catalog.columns:
+        is_sga = combined_catalog["is_sga"].fillna(False).astype(bool).to_numpy()
+    else:
+        is_sga = np.zeros(len(combined_catalog), dtype=bool)
+
+    valid_columns = [c for c in id_columns if c in combined_catalog.columns]
+
+    # Build a lookup dictionary from combined_catalog, resolving multi-catalog
+    # membership by `priority` rather than by column processing order.
+    id_to_source = {}
+    for col in valid_columns:
+        # Get valid, non-null IDs from this column that exist in digest
+        ids = combined_catalog[col]
+        hit = (ids.notna() & ids.isin(digest_ids)).to_numpy()
+        if not hit.any():
+            continue
+
+        base_label = label_of.get(col, col)
+        labels = np.where(is_sga[hit], "SGA", base_label)
+
+        for id_val, label in zip(ids.to_numpy()[hit], labels):
+            previous = id_to_source.get(id_val)
+            if previous is None or rank.get(label, len(rank)) < rank.get(previous, len(rank)):
+                id_to_source[id_val] = label
+
+    # Map the dictionary to create the new column
+    digest["host_catalog"] = digest["host_ID"].map(id_to_source).astype(object)
+
+    # Random-field localizations (sentinel host_ID) have no true host by construction
+    digest.loc[digest["host_ID"] == -99, "host_catalog"] = "Random"
+
+    # Fill IDs that didn't find a match anywhere
+    digest["host_catalog"] = digest["host_catalog"].fillna("No Match")
+
+    return digest
+
+    
+def azimuthal_integrated_prior(u, theta_prior):
+    """
+    1D radial PDF p(u) where u = theta/phi, obtained by integrating
+    pw_Oi over azimuth.
+
+    For 'exp':     p(u) = u*exp(-u/s) / (s^2 * (1-(1+M)*exp(-M))),  M = max/s, u <= max
+    For 'uniform': p(u) = 2u / max^2  for u in [0, max]
+    For 'core':    p(u) = [u/(u+1)] / (max - ln(1+max))
+
+    The 'exp' cutoff is u <= max (theta <= max*phi), matching
+    bayesian._resolve_offset_prior, where theta_max = max*phi uses the
+    ORIGINAL phi and the normalisation uses max_eff = max/scale.
+    """
+    u = np.asarray(u, dtype=float)
+    p = np.zeros_like(u)
+
+    if theta_prior['PDF'] == 'exp':
+        s     = theta_prior.get('scale', 1.0)
+        max_u = theta_prior['max']
+        M     = max_u / s
+        ok    = u <= max_u
+        norm  = s**2 * (1 - (1 + M) * np.exp(-M))
+        p[ok] = u[ok] * np.exp(-u[ok] / s) / norm
+
+    elif theta_prior['PDF'] == 'uniform':
+        max_u = theta_prior['max']
+        ok    = u <= max_u
+        p[ok] = 2 * u[ok] / max_u**2
+
+    elif theta_prior['PDF'] == 'core':
+        max_u = theta_prior['max']
+        ok    = u <= max_u
+        norm  = max_u - np.log(1 + max_u)
+        p[ok] = u[ok] / (u[ok] + 1) / norm
+
+    return p
+
+
+def _prior_hankel(k, theta_prior, n_nodes=None):
+    """
+    2D Fourier (zeroth-order Hankel) transform of the radial prior:
+        P(k) = int_0^max p(u) J0(k u) du,   P(0) = 1.
+    """
+    k = np.asarray(k, dtype=float)
+    max_u = theta_prior['max']
+    if theta_prior['PDF'] == 'exp':
+        # Closed form of the untruncated transform, minus the u > max tail.
+        s = theta_prior.get('scale', 1.0)
+        M = max_u / s
+        norm = s**2 * (1 - (1 + M) * np.exp(-M))
+        a = 1. / s
+        full = a / (a**2 + k**2)**1.5
+        # Tail int_max^inf u e^{-u/s} J0(ku) du; its mass is (1+M)e^{-M} of the
+        # untruncated PDF (8e-5 for max=6, s=0.5), so 40 decay lengths suffice.
+        x, w = np.polynomial.legendre.leggauss(400)
+        lo, hi = max_u, max_u + 40 * s
+        ut = 0.5 * (hi - lo) * x + 0.5 * (hi + lo)
+        wt = 0.5 * (hi - lo) * w * ut * np.exp(-ut / s)
+        kk = k[k * (hi - lo) < 400]      # nodes resolve J0 only up to here
+        tail = np.zeros_like(k)
+        tail[:len(kk)] = j0(np.outer(kk, ut)) @ wt
+        return (full - tail) / norm
+    # Generic: Gauss-Legendre on [0, max] with enough nodes to resolve J0(k u).
+    if n_nodes is None:
+        n_nodes = int(np.max(k) * max_u / np.pi * 2) + 200
+    x, w = np.polynomial.legendre.leggauss(n_nodes)
+    us = 0.5 * max_u * (x + 1)
+    ws = 0.5 * max_u * w * azimuthal_integrated_prior(us, theta_prior)
+    out = np.empty_like(k)
+    for i in range(0, len(k), 2000):
+        out[i:i + 2000] = j0(np.outer(k[i:i + 2000], us)) @ ws
+    return out
+
+
+def _loc_char_fn(k, sig1, sig2):
+    """
+    Azimuthal average of the characteristic function of an elliptical
+    Gaussian with 1-sigma semi-axes sig1 >= sig2:
+        <exp(-k^2 (sig1^2 cos^2 psi + sig2^2 sin^2 psi)/2)>_psi
+          = exp(-k^2 sig2^2 / 2) * i0e(k^2 (sig1^2 - sig2^2) / 4)
+    Circular (sig1 = sig2 = sig): exp(-k^2 sig^2 / 2).
+    """
+    k2 = k**2
+    return np.exp(-0.5 * k2 * sig2**2) * i0e(0.25 * k2 * (sig1**2 - sig2**2))
+
+
+def stack_convolved_prior(u, theta_prior, frb_df, phi_col='ang_size_host',
+                        a_col='a', b_col='b', k_max=200., log_phi_bin=0.005,
+                        u_chunk=50):
+  """
+  Distribution of |x_obs - x_host| / phi stacked over a population of FRBs,
+  where the true offset follows the PATH offset prior and the localisation
+  error is an elliptical Gaussian with 1-sigma semi-axes (a, b), exactly as
+  assign_host._apply_localization_error draws it.
+
+  Because the true offset is isotropic, the PA drops out and the radial PDF
+  of the observed offset u for one FRB is the inverse Hankel transform
+
+      p_obs(u) = u * int_0^inf k J0(k u) P(k) G(k) dk
+
+  with P(k) the Hankel transform of the prior and G(k) the azimuthally
+  averaged characteristic function of the ellipse (in units of phi). The
+  stack over FRBs is linear, so G is averaged over FRBs first and a single
+  transform is done. To keep the oscillatory k integral convergent the
+  unconvolved prior is split off analytically:
+
+      p_obs(u) = p(u) + u * int_0^kmax k J0(k u) P(k) (<G>(k) - 1) dk
+
+  Cost scales as max(u)^2, so pass u only over the range you need.
+
+  Parameters
+  ----------
+  u : np.ndarray
+      Uniform grid of theta/phi at which to evaluate the stacked PDF.
+  theta_prior : dict
+      PATH offset prior, e.g. {'PDF': 'exp', 'scale': 0.5, 'max': 6.}.
+  frb_df : pd.DataFrame
+      Needs a_col, b_col (1-sigma localisation semi-axes, arcsec) and
+      phi_col (host angular size, arcsec). Use ALL rows; the cost depends
+      on the number of distinct (a, b, phi-bin) groups, not on len(frb_df).
+  phi_col, a_col, b_col : str
+  k_max : float
+      Upper limit of the k integral, in units of 1/phi. k_max=200 and 1000
+      agree to <1e-4 of the peak.
+  log_phi_bin : float
+      FRBs are grouped in log10(phi) bins of this width (0.005 dex = 1.2%).
+  u_chunk : int
+      Number of u points per J0 block (memory ~ u_chunk * n_k * 8 bytes).
+
+  Returns
+  -------
+  u : np.ndarray
+      The input grid.
+  p_stacked : np.ndarray
+      Stacked PDF of the observed normalised offset; integrates to the
+      fraction of probability inside [u.min(), u.max()].
+  """
+  u = np.asarray(u, dtype=float)
+  d = pandas.DataFrame({
+      'a': np.asarray(frb_df[a_col], float),
+      'b': np.asarray(frb_df[b_col], float),
+      'phi': np.asarray(frb_df[phi_col], float),
+  })
+  d = d[np.isfinite(d).all(axis=1) & (d.phi > 0)]
+  if len(d) == 0:
+      raise ValueError('stack_convolved_prior: no rows with finite a, b and phi > 0')
+  d['lnphi'] = np.log(d.phi)
+  d['lp'] = np.round(np.log10(d.phi) / log_phi_bin).astype(int)
+  g = d.groupby(['a', 'b', 'lp'], sort=False).agg(n=('phi', 'size'), lnphi=('lnphi', 'mean'))
+  g['phi'] = np.exp(g.lnphi)
+  a = g.index.get_level_values('a').to_numpy()
+  b = g.index.get_level_values('b').to_numpy()
+  sig1 = np.maximum(a, b) / g.phi.to_numpy()
+  sig2 = np.minimum(a, b) / g.phi.to_numpy()
+  wts = g.n.to_numpy() / g.n.sum()
+
+  # Uniform k grid: on a uniform grid the trapezoid rule for the oscillatory
+  # J0(k u) integrand is far more accurate than on a non-uniform one, so
+  # dk <= pi/(8 u_max) throughout. dk <= 1/sig1_max also resolves the widest
+  # localisation; the integrand vanishes at k = 0, so the first step
+  # contributes only O(dk^2).
+  u_max = max(np.max(u), 1.)
+  dk = min(np.pi / (8 * u_max), 1. / np.max(sig1))
+  k = np.arange(0., k_max + dk, dk)
+
+  Gbar = np.zeros_like(k)
+  for i in range(0, len(wts), 64):
+      Gbar += (wts[i:i + 64, None] *
+               _loc_char_fn(k[None, :], sig1[i:i + 64, None], sig2[i:i + 64, None])).sum(0)
+
+  # Prior transform on a coarse grid (it varies on a scale ~ 1/max), then interpolated.
+  kc = np.arange(0., k_max + 0.05, 0.05)
+  Pk = np.interp(k, kc, _prior_hankel(kc, theta_prior))
+
+  f = k * Pk * (Gbar - 1.)
+  wk = np.full_like(k, dk)
+  wk[0] = wk[-1] = 0.5 * dk                       # trapezoid
+  fw = f * wk
+  
+  p = azimuthal_integrated_prior(u, theta_prior).copy()
+  for i in range(0, len(u), u_chunk):
+      uu = u[i:i + u_chunk]
+      p[i:i + u_chunk] += uu * (j0(np.outer(uu, k)) @ fw)
+  return u, np.maximum(p, 0.)
+
+
+ps1filename = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
+ps1fitscut = "https://ps1images.stsci.edu/cgi-bin/fitscut.cgi"
+
+
+def get_color_image_table_panstarrs(ra, dec, size_arcmin=1., filters="grizy", format="fits"):
+    """Query ps1filenames.py service to get a list of images
+    
+    ra, dec = position in degrees
+    size = extracted image size in arcmins (0.25 arcsec/pixel)
+    filters = string with filters to include
+    format = data format (options are "jpg", "png" or "fits")
+    color = if True, creates a color image (only for jpg or png format).
+            Default is return a list of URLs for single-filter grayscale images.
+
+    Returns a table with the results
+    """
+    conversion_arcsec_to_pix = 0.25
+    size = int(size_arcmin * 60. / conversion_arcsec_to_pix)
+    
+    # Get the table for the given RA/Dec and filters
+    service = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
+    url = f"{service}?ra={ra}&dec={dec}&filters={filters}"
+    table = Table.read(url, format='ascii')
+    
+    # Add the query URLs into the table
+    url = (f"https://ps1images.stsci.edu/cgi-bin/fitscut.cgi?"
+           f"ra={ra}&dec={dec}&size={size}&format={format}")
+    # Sort filters from red to blue
+    flist = ["yzirg".find(x) for x in table['filter']]
+    table = table[np.argsort(flist)]
+    # If more than 3 filters listed, pick the 3 most spread out
+    if len(table) > 3:
+        table = table[[0, len(table)//2, len(table)-1]]
+    # Add colors to the urls and populate the table
+    table["url"] = None
+    for ii, param in enumerate(["red","green","blue"]):
+        table["url"][ii] = "{}&{}={}".format(url, param, table['filename'][ii])
+    
+    return table
+
+
+def get_images_panstarrs(ra,dec,filters="grizy"):
+    
+    """Query ps1filenames.py service to get a list of images
+    
+    ra, dec = position in degrees
+    size = image size in pixels (0.25 arcsec/pixel)
+    filters = string with filters to include
+    Returns a table with the results
+    """
+    service = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
+    url = f"{service}?ra={ra}&dec={dec}&filters={filters}"
+    table = Table.read(url, format='ascii')
+    return table
+
+
+def get_url_panstarrs(ra, dec, size=240, output_size=None, filters="grizy", format="jpg", color=False, scale=99.9):
+    
+    """Get URL for images in the table
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png" or "fits")
+    color = if True, creates a color image (only for jpg or png format).
+            Default is return a list of URLs for single-filter grayscale images.
+    Returns a string with the URL
+    """
+    
+    if color and format == "fits":
+        raise ValueError("color images are available only for jpg or png formats")
+    if format not in ("jpg","png","fits"):
+        raise ValueError("format must be one of jpg, png, fits")
+    table = get_images_panstarrs(ra,dec,filters=filters)
+    url = (f"https://ps1images.stsci.edu/cgi-bin/fitscut.cgi?"
+           f"ra={ra}&dec={dec}&size={size}&format={format}")
+    if output_size:
+        url = url + "&output_size={}".format(output_size)
+    # sort filters from red to blue
+    flist = ["yzirg".find(x) for x in table['filter']]
+    table = table[np.argsort(flist)]
+    if color:
+        if len(table) > 3:
+            # pick 3 filters
+            table = table[[0,len(table)//2,len(table)-1]]
+        for i, param in enumerate(["red","green","blue"]):
+            url = url + "&{}={}".format(param,table['filename'][i])
+    else:
+        urlbase = url + "&red="
+        url = []
+        for filename in table['filename']:
+            url.append(urlbase+filename)
+    
+    #Adjust contrast
+    url = url + "&autoscale={}".format(scale)
+    print(url)
+    
+    return url
+
+
+def get_color_png_panstarrs(ra, dec, size=240, output_size=None, filters="grizy", scale=99.9):
+    
+    """Get color image at a sky position
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png")
+    Returns the image
+    """
+    url = get_url_panstarrs(ra,dec,size=size,filters=filters,output_size=output_size,format="png",color=True, scale=scale)
+    r = requests.get(url)
+    im = Image.open(BytesIO(r.content))
+    return im
+
+desi_jpeg_url = 'https://www.legacysurvey.org/viewer/jpeg-cutout'
+desi_fits_url = 'https://www.legacysurvey.org/viewer/fits-cutout'
+
+def get_color_png_desi(ra, dec, size_pix=512, conversion_arcsec_to_pix = 0.262, filt="grz"):
+    
+    """Get color image at a sky position
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png")
+    Returns the image
+    """
+    url = '{}?ra={}&dec={}&width={}&height={}&layer=ls-dr9&pixscale={}&bands={}'.format(
+        desi_jpeg_url, ra, dec, 
+        size_pix, size_pix, 
+        conversion_arcsec_to_pix, filt
+    )
+
+    r = requests.get(url, stream=True, verify=True)
+    im = Image.open(BytesIO(r.content))
+    return im
+
+def get_color_fits_desi(ra, dec, size_pix=512, conversion_arcsec_to_pix = 0.262, filt="grz"):
+    
+    """Get color image at a sky position
+    
+    ra, dec = position in degrees
+    size = extracted image size in pixels (0.25 arcsec/pixel)
+    output_size = output (display) image size in pixels (default = size).
+                  output_size has no effect for fits format images.
+    filters = string with filters to include
+    format = data format (options are "jpg", "png")
+    Returns the image
+    """
+    url = '{}?ra={}&dec={}&width={}&height={}&layer=ls-dr9&pixscale={}&bands={}'.format(
+        desi_fits_url, ra, dec, 
+        size_pix, size_pix, 
+        conversion_arcsec_to_pix, filt
+    )
+
+    im = fits.open(url)
+    return im
+
+def get_color_images_HSC(ra, dec, size_arcmin):
+    """ Note that the username and password for an HSC account should be
+        set as environmental variables. The colorPostage.py HSC helper
+        tool should also be in the current directory
+        More info here:
+        https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/tree/master/pdr3/colorPostage
+    """
+    # Set up preliminaries for the query
+    coord_fn = './coord.txt'
+    coord_png = './coord.png'
+    coord_str = f"{ra}\t{dec}\t{coord_png}"
+    with open(coord_fn, "w") as text_file:
+        text_file.write(coord_str)      
+    output_dir = './temp_dir'
+    user = os.environ["HSC_SSP_CAS_USER"]
+    password = os.environ["HSC_SSP_CAS_PASSWORD"]
+    semiwidth_float = size_arcmin / 2 * 60 # Half-width of the postage stamp, arcsec
+    semiwidth_arg = '{0}asec'.format(semiwidth_float)
+
+    # Query for the png/fits to be saved to output_dir
+    command_list = ["python", "colorPostage.py", "--semiwidth", semiwidth_arg, "--user", user, "--outDir", output_dir,  coord_fn]
+    print(command_list)
+    p = Popen(command_list, stdout=PIPE, stdin=PIPE, stderr=PIPE, text=True)
+    stdout_data = p.communicate(input=password)
+
+    # Load png and fits from output_dir
+    png_fn = "{}/{}".format(output_dir, coord_png)
+    im_png = Image.open(png_fn)
+    fits_fn = png_fn.replace('.png', '.fits')
+    im_fs = fits.open(fits_fn)
+    
+    # Cleanup temporary files
+    #shutil.rmtree(output_dir)
+    
+    return im_png, im_fs
+
+def plot_color_image(
+    ra_true_host, dec_true_host,
+    mag_true_host, angsize_host,
+    ra_best_cand, dec_best_cand,
+    mag_best_cand, angsize_cand,
+    POx_best_cand, PUx,
+#     ras_catalog, decs_catalog,
+#     ra_frb, dec_frb,
+    ra_loc, dec_loc,
+    a_err, b_err,
+    theta,
+    sup_fig,
+    axes,
+    include_legend,
+    size_arcmin=4., 
+    filt="gri", 
+    survey_str='Pan-STARRS',
+    outfile : str = None,
+    scale=99.88,
+    all_cands = None,
+    ra_second_cand=None, dec_second_cand=None,
+    mag_second_cand=None, angsize_second_cand=None,
+    POx_second_cand=None, correct_association=None,
+):
+    """
+    Create diagnostic plot for a PATH analysis
+    
+    Parameter
+    ---------
+    path_obj : astropy.table.Table 
+        A table containing PATH results. Will have columns for:
+        ra, dec, angular size of the host in arcseconds, r-band magnitude, P(O), P(O|x)
+    ra : float
+        Right ascension (degrees)
+    a_err : float
+        The semi-major axis in arcseconds
+    dec : float
+        Declination (degrees)
+    b_err : float
+        The semi-major axis in arcseconds
+    theta : float
+        Angle of the ellipse in degrees. The angle is defined as the angle of the
+        semi-major axis, as degrees East from North
+    dm : float
+        The FRB dispersion measure in pc/cc
+    gal_dm : float
+        The Milky Way DM contribution for the given FRB
+    size_arcmin : float
+        Size of the image to query in arcminutes
+    filt : float
+        The optical filters to query for the image (should be one of "g", "r", "i", "z", "y")
+    survey_str : str
+        A string indicating which survey to run the PATH analysis on, should be
+        'Pan-STARRS' or 'DECaL' (Dark Energy Legacy Survey). Pan-STARRS is shallower,
+        to a depth of rmag ~ 23. DECaL is deeper, with a depth of rmag ~ 24. So DECaL
+        is preferred, but it is not always available (only covers ~1/2 of the CHIME FOV)
+    outfile : str
+        File path/filename where the PATH results will be output. Should be a .png file
+    scale : float
+        A parameter indicating how to scale the dynamic range of the image. The default
+        value will work for most Pan-STARRS and DECaLs images
+        
+    Return
+    ------
+    Path : astropy.table.Table 
+        A table containing PATH results. Will have columns for:
+        ra, dec, angular size of the host in arcseconds, r-band magnitude, P(O), P(O|x)
+    Will output the image to a png file in outfile
+    """
+    ra = ra_loc
+    dec = dec_loc
+    if survey_str == 'Pan-STARRS':
+        conversion_arcsec_to_pix = 0.25
+        size_pix = int(size_arcmin * 60. / conversion_arcsec_to_pix)
+
+        print('Get nice {} PNG of {} pixels'.format(survey_str, size_pix))
+        cim_png = get_color_png_panstarrs(ra, dec, size=size_pix, filters=filt, scale=scale)
+        print('Get available fits from {} at given location'.format(survey_str))
+        img_table = get_color_image_table_panstarrs(ra, dec, size_arcmin=size_arcmin, filters=filt, format="fits")
+
+        print('Load all the RGB fits images')
+        im_fits_orig = []
+        for ii in range(len(img_table)):
+            url = img_table[ii]['url']
+            print("Loading fits: {}".format(url))
+            im = fits.open(url)
+            im_fits_orig.append(im)
+        hdu_orig_fits = im_fits_orig[0][0].header
+    if survey_str == 'DECaL':
+        size_pix = 512
+        conversion_arcsec_to_pix = size_arcmin * 60. / size_pix
+
+        print('Get nice {} PNG of {} pixels with conversion scale of {} arcseconds per pixel'.format(survey_str, size_pix, conversion_arcsec_to_pix))
+        cim_png = get_color_png_desi(ra, dec, size_pix=size_pix, conversion_arcsec_to_pix=conversion_arcsec_to_pix, filt=filt)
+        print('Get available fits from {} at given location'.format(survey_str))
+        im_fits = get_color_fits_desi(ra, dec, size_pix=size_pix, conversion_arcsec_to_pix=conversion_arcsec_to_pix, filt=filt)
+        hdu_orig_fits = im_fits[0].header
+    if survey_str == 'HSC':
+        print('Get nice {} PNG of {} arcmins across, along with a fits image'.format(survey_str, size_arcmin))
+        cim_png, im_fits = get_color_images_HSC(ra, dec, size_arcmin)
+        hdu_orig_fits = im_fits[1].header
+        
+    print('Convert color png into fits')
+    xsize, ysize = cim_png.size
+    r, g, b = cim_png.split()
+    r_data = np.array(r.getdata()) # data is now an array of length ysize*xsize
+    g_data = np.array(g.getdata())
+    b_data = np.array(b.getdata())
+
+    r_data = r_data.reshape(xsize, ysize)[:,::-1] # data is now a matrix (xsize, ysize)
+    g_data = g_data.reshape(xsize, ysize)[:,::-1]
+    b_data = b_data.reshape(xsize, ysize)[:,::-1]
+    data = [r_data, g_data, b_data]
+
+    im_fits = []
+    for ii in range(len(data)):
+        hdu = fits.PrimaryHDU(data[ii], header=hdu_orig_fits)
+        im_fits.append(hdu)
+        
+    print('Calculate an optimal WCS to share between all the fits')
+    coord = SkyCoord(ra, dec, unit=(u.deg, u.deg), frame='icrs')
+    res = 0.25*u.arcsec
+    wcs_out, shape_out = find_optimal_celestial_wcs(
+        im_fits,
+        resolution = res,
+        reference = coord,
+    )
+    header_out = wcs_out.to_header()
+
+    print('Generate empty datacube, reprojecting each color to the new WCS')
+    image_cube = np.zeros((len(im_fits),) + shape_out, dtype=np.float32)
+    for ii, im in enumerate(im_fits):
+        array, footprint = reproject_interp(im, header_out, shape_out=shape_out)
+        image_cube[ii, :, :] = array[:,::-1]
+        
+    output_fn = 'rgb_2d.fits'
+    print('Write out collapsed version of cube for aplpy plotting purposes')
+    fits.writeto(
+        output_fn,
+        np.mean(image_cube, axis=0), 
+        hdu_orig_fits,
+        overwrite=True,
+    )
+    
+    print('Save the reprojected fits into a PNG, also for aplpy plotting purposes')
+    img = Image.merge("RGB", (
+        Image.fromarray(image_cube[0].astype(np.uint8)), 
+        Image.fromarray(image_cube[1].astype(np.uint8)), 
+        Image.fromarray(image_cube[2].astype(np.uint8)),
+    ))
+    img.save(output_fn.replace('_2d.fits', '.png'))
+    cim_png.save(output_fn.replace('_2d.fits', '.png'))
+    
+    print('Make plot!')
+
+    fig = aplpy.FITSFigure(output_fn, figure=sup_fig, subplot=axes)
+    fig.show_rgb(output_fn.replace('_2d.fits', '.png'))
+    fig.tick_labels.set_font(size=20)
+    fig.axis_labels.set_font(size=20)
+    fig.axis_labels.set_xtext('Right Ascension (J2000)')
+    fig.axis_labels.set_ytext('Declination (J2000)')
+    fig.add_grid()
+    fig.grid.set_color('white')
+    fig.grid.set_alpha(0.5)
+    fig.grid.set_linestyle('solid')
+    fig.grid.set_linewidth(1)
+    
+    # Plot all the markers
+    fig.show_ellipses(ra_best_cand, dec_best_cand, 8*angsize_cand/3600., 8*angsize_cand/3600., angle=0., edgecolor='xkcd:azure', linestyle='dashdot', lw=3, zorder=101)
+    fig.show_ellipses(ra_true_host, dec_true_host, 8*angsize_host/3600., 8*angsize_host/3600., angle=0., edgecolor='xkcd:light purple', lw=3, zorder=101)
+    label_str = "$P(O_1|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_best_cand*100, mag_best_cand)
+    label_offset = size_arcmin * 60. / 8. / 3600.
+    fig.add_label(ra_best_cand - label_offset, dec_best_cand + label_offset, label_str, relative=False, family='sans-serif', size=20, color='xkcd:azure', weight='bold')
+
+    # If second highest candidate provided
+    has_second_cand = all(v is not None for v in (
+        ra_second_cand, dec_second_cand, mag_second_cand,
+        angsize_second_cand, POx_second_cand,
+    ))
+    if has_second_cand:
+        fig.show_ellipses(ra_second_cand, dec_second_cand, 8*angsize_second_cand/3600., 8*angsize_second_cand/3600., angle=0., edgecolor='xkcd:green', linestyle='dotted', lw=3, zorder=101)
+        label_str = "$P(O_2|x)$ = {0:.2f}%\n$m_r$ = {1:.1f}".format(POx_second_cand*100, mag_second_cand)
+        fig.add_label(ra_second_cand - label_offset, dec_second_cand + label_offset, label_str, relative=False, family='sans-serif', size=20, color='xkcd:green', weight='bold')
+    label_str = "$P(U|x)$ = {0:.2f}%".format(PUx*100)
+    fig.add_label(0.04, 0.06, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold', horizontalalignment='left', verticalalignment='bottom')
+    label_str = "Incorrect Association"
+    if correct_association:
+        label_str = "Correct Association"
+    fig.add_label(0.04, 0.11, label_str, relative=True, family='sans-serif', size=20, color='white', weight='bold', horizontalalignment='left', verticalalignment='bottom')
+
+    # If list of candidates is provided, plot them all
+    if all_cands is not None:
+        fig.show_markers(all_cands['ra'], all_cands['dec'], edgecolor='xkcd:goldenrod', facecolor='None', marker='D', s=20, lw=1.5)
+    
+    # Note: width and height parameters should be 2 times semi-major/minor axes
+    rot = theta - 90
+    fig.show_ellipses(ra_loc, dec_loc, 2.*a_err, 2.*b_err, angle=rot, edgecolor='white', lw=2, zorder=31)
+    fig.show_ellipses(ra_loc, dec_loc, 2.*a_err*3, 2.*b_err*3, angle=rot, edgecolor='white', linestyle='dashed', lw=2, zorder=31)
+    
+    if include_legend:
+        legend = fig.ax.legend(fontsize=17, loc='lower left')
+
+    zoom_width = size_arcmin
+    print(ra, dec, size_arcmin, zoom_width/60.)
+    fig.recenter(ra, dec, width=zoom_width/60., height=zoom_width/60.)
+    
+    if outfile is not None:
+        plt.savefig(outfile, dpi=100, format="png", bbox_inches="tight")
+    
+    print('Remove temporary plotting files: {}, {}'.format(output_fn, output_fn.replace('_2d.fits', '.png')))
+    os.remove(output_fn)
+    os.remove(output_fn.replace('_2d.fits', '.png'))

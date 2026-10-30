@@ -180,8 +180,7 @@ def test_empty_catalog():
     result = run.run_on_dict(idict, catalog=empty_catalog, mag_key='mag')
 
     # Should return tuple with None values
-    assert result[0] is not None  # Empty catalog returned
-    assert len(result[0]) == 0
+    assert result[0] is None  # No candidates
     assert result[1] is None
     assert result[2] is None
 

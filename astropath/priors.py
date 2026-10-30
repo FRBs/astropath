@@ -22,7 +22,7 @@ theta_dmodel = {
 
 cand_dmodel = {
     'P_O_method': dict(dtype=(str),
-                options=['inverse', 'inverse_half', 'inverse_half2', 'identical','user'],
+                options=['inverse', 'inverse_half', 'inverse_half2', 'identical', 'user', 'updated_driver', 'updated_driver_diff'],
                 help='Method for prior assignment of detected candidates.'),
     'P_U': dict(dtype=(float, np.floating),
                 help='Prior for an unseen host.'),
@@ -43,6 +43,9 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
         - 'inverse_ang'   : 1 / (Sigma_m * ang_size)
         - 'inverse_ang2'  : 1 / (Sigma_m * ang_size^2)
         - 'identical'     : All priors set equal (1)
+        - 'updated_driver': 1 / Sigma_m, with Sigma_m from the Driver+16 Table 3 fit
+                              (chance.driver16_sigma) instead of PATH's spline
+        - 'updated_driver_diff': 1 / rho_m, differential Driver+16 Table 3 fit
         - 'user'          : Use the user-defined function USR_raw_prior_Oi
                 That function must take the arguments: mag, ang_size, rho_m
                 where rho_m is the differential sigma of the galaxy in mag/arcsec^2
@@ -90,6 +93,17 @@ def raw_prior_Oi(method, ang_size, mag=None, filter='r'):
     # Do it
     if method == 'inverse':
         return 1. / Sigma_m
+    elif method == 'updated_driver':
+        if filter != 'r':
+          raise IOError("'updated_driver' is defined for r-band only")
+        return 1. / chance.driver16_sigma(mag)
+    elif method == 'updated_driver_diff':
+        if filter != 'r':
+          raise IOError("'updated_driver_diff' is defined for r-band only")
+        return 1. / chance.differential_driver16_sigma(mag)
+    elif method == 'inverse_diff':
+        Sigma_diff_m = chance.differential_driver_sigma(mag)
+        return 1. / Sigma_diff_m
     elif method == 'inverse_ang':
         return 1. / Sigma_m / ang_size
     elif method == 'inverse_ang2':

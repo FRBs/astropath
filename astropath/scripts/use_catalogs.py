@@ -131,8 +131,8 @@ def main(pargs):
     p_O = Path.calc_priors()
 
     # Posterior
-    P_Ox, P_Ux = Path.calc_posteriors('local', box_hwidth=box_hwidth, 
-        max_radius=box_hwidth)
+    P_Ox, P_Ux = Path.calc_posteriors('local', box_hwidth=box_hwidth,
+        survey_radius=box_hwidth)
 
     # Finish
     Path.candidates.sort_values(by='P_Ox', ascending=False, inplace=True)

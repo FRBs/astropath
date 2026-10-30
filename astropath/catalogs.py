@@ -207,10 +207,11 @@ def _remove_gaia_stars(catalog: Table, coord: SkyCoord, ssize: float):
 
     Returns:
         np.ndarray: Boolean mask where True = not a Gaia star
-        astropy.table.Table: Gaia catalog
+        astropy.table.Table or None: Gaia catalog (None if the query failed)
     """
     Vizier.ROW_LIMIT = -1
     query_radius = ssize / 60. * units.deg
+    gaia_catalog = None
 
     try:
         vizier = Vizier(columns=["*", "+PSS", "+PGal"], catalog='I/355/gaiadr3')
