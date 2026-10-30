@@ -8,6 +8,7 @@ This verifies the basic functionality of the FRB-to-host assignment code.
 import os
 import numpy as np
 import pandas as pd
+import pytest
 from pathlib import Path
 from astropath.simulations import generate_frbs, assign_frbs_to_hosts
 
@@ -30,7 +31,7 @@ def create_mock_galaxy_catalog(n_galaxies=5000, seed=42):
     df = pd.DataFrame({
         'ra': ra,
         'dec': dec,
-        'mag_best': mag_best,
+        'mag': mag_best,
         'half_light': half_light,
         'ID': np.arange(n_galaxies)
     })
@@ -54,7 +55,7 @@ def test_basic_assignment():
     print("\n2. Creating mock galaxy catalog...")
     galaxies = create_mock_galaxy_catalog(n_galaxies=5000, seed=42)
     print(f"   Created {len(galaxies)} galaxies")
-    print(f"   Magnitude range: {galaxies['mag_best'].min():.2f} - {galaxies['mag_best'].max():.2f}")
+    print(f"   Magnitude range: {galaxies['mag'].min():.2f} - {galaxies['mag'].max():.2f}")
 
     # Assign FRBs to hosts
     print("\n3. Assigning FRBs to hosts...")
@@ -125,7 +126,8 @@ def test_real_galaxy_catalog():
     """
     Test assignment using real galaxy catalog if available.
 
-    Uses the combined HSC/DECaLs/HECATE catalog if FRB_APATH is set.
+    Uses the combined HSC/Legacy Surveys/SGA host catalog in
+    $FRB_APATH/catalogs/ if FRB_APATH is set.
     """
     print("\n" + "=" * 60)
     print("Testing with real galaxy catalog (if available)")
@@ -134,15 +136,13 @@ def test_real_galaxy_catalog():
     # Check for FRB_APATH environment variable
     frb_apath = os.environ.get('FRB_APATH')
     if frb_apath is None:
-        print("\n⚠ FRB_APATH not set, skipping real catalog test")
-        return None
+        pytest.skip("FRB_APATH not set")
 
-    catalog_path = Path(frb_apath) / 'combined_HSC_DECaLs_HECATE_galaxies_hecatecut.parquet'
+    catalog_path = (Path(frb_apath) / 'catalogs'
+                    / 'combined_HSC_DECaLs_SGA_hosts_clean_iter11.parquet')
 
     if not catalog_path.exists():
-        print(f"\n⚠ Catalog not found at {catalog_path}")
-        print("  Skipping real catalog test")
-        return None
+        pytest.skip(f"Catalog not found at {catalog_path}")
 
     print(f"\n✓ Found catalog at {catalog_path}")
 
@@ -155,18 +155,15 @@ def test_real_galaxy_catalog():
     print(f"\n   Catalog columns: {list(galaxies.columns)}")
 
     # Check for required columns
-    required_cols = ['ra', 'dec', 'mag_best', 'half_light', 'ID']
+    required_cols = ['ra', 'dec', 'mag', 'half_light', 'ID']
     missing_cols = [col for col in required_cols if col not in galaxies.columns]
 
     if missing_cols:
-        print(f"\n⚠ Missing required columns: {missing_cols}")
-        print("  Available columns:", list(galaxies.columns))
-        print("  Skipping test")
-        return None
+        pytest.skip(f"Catalog missing required columns: {missing_cols}")
 
     print(f"   RA range: {galaxies['ra'].min():.2f} - {galaxies['ra'].max():.2f} deg")
     print(f"   Dec range: {galaxies['dec'].min():.2f} - {galaxies['dec'].max():.2f} deg")
-    print(f"   Magnitude range: {galaxies['mag_best'].min():.2f} - {galaxies['mag_best'].max():.2f}")
+    print(f"   Magnitude range: {galaxies['mag'].min():.2f} - {galaxies['mag'].max():.2f}")
 
     # Generate FRBs in the catalog footprint
     print("\n2. Generating FRBs...")

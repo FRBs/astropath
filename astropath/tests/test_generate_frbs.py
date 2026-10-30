@@ -10,11 +10,12 @@ import pytest
 # Skip tests if frb package is not available
 pytest.importorskip("frb")
 
-from astropath.simulations import generate_frbs
 from astropath.simulations.generate_frbs import (
     SURVEY_GRIDS,
     _build_cumulative_interpolator,
-    _build_z_interpolators,
+    build_z_cdf,
+    sample_redshifts_from_grid,
+    generate_frbs,
     sample_dm_from_catalog,
     sample_host_Mr,
     calculate_apparent_mag,
@@ -39,19 +40,34 @@ class TestHelperFunctions:
         # Should map 1 to max value
         assert np.isclose(f(1.), 100., atol=1.)
 
-    def test_build_z_interpolators(self):
-        """Test z interpolator construction"""
-        zvals = np.linspace(0, 2, 50)
-        dmvals = np.linspace(0, 1000, 100)
+    def test_build_z_cdf(self):
+        """Test per-DM z CDF construction"""
+        zvals = np.linspace(0.01, 2., 200)
+        # Simple uniform pzdm for testing
+        pzdm = np.ones((len(zvals), 10))
 
+        z_edges, cdf, empty = build_z_cdf(pzdm, zvals)
+
+        assert len(z_edges) == len(zvals) + 1
+        assert cdf.shape == (len(zvals) + 1, 10)
+        assert np.allclose(cdf[0], 0.)
+        assert np.allclose(cdf[-1], 1.)
+        assert not empty.any()
+
+    def test_sample_redshifts_from_grid(self):
+        """Test sampling z from P(z|DM)"""
+        zvals = np.linspace(0.01, 2., 200)
+        dmvals = np.linspace(5., 995., 100)
         # Simple uniform pzdm for testing
         pzdm = np.ones((len(zvals), len(dmvals)))
 
-        interpolators = _build_z_interpolators(pzdm, zvals, dmvals)
+        zs = sample_redshifts_from_grid(np.full(5000, 500.), pzdm,
+                                        zvals, dmvals, seed=42)
 
-        assert len(interpolators) == len(dmvals)
-        # For uniform distribution, 0.5 should give middle z value
-        assert np.isclose(interpolators[50](0.5), 1., atol=0.1)
+        assert len(zs) == 5000
+        assert np.all(np.isfinite(zs))
+        # For uniform distribution, the median should be the middle z value
+        assert np.isclose(np.median(zs), 1., atol=0.05)
 
 
 class TestSampling:
@@ -127,13 +143,13 @@ class TestGenerateFRBs:
 
         assert isinstance(df, pandas.DataFrame)
         assert len(df) == 100
-        assert 'DM' in df.columns
+        assert 'DMeg' in df.columns
         assert 'z' in df.columns
         assert 'M_r' in df.columns
         assert 'm_r' in df.columns
 
         # Check reasonable value ranges
-        assert all(df['DM'] > 0)
+        assert all(df['DMeg'] > 0)
         assert all(df['z'] > 0)
         assert all(df['M_r'] < 0)  # Absolute mags are negative
         assert all(df['m_r'] > 0)  # Apparent mags are positive
@@ -174,7 +190,7 @@ class TestGenerateFRBs:
         assert len(df) == 100
         # DMs should be sampled from the provided catalog distribution
         # so mean should be roughly in the middle of the input range
-        assert 300 < df['DM'].mean() < 700
+        assert 300 < df['DMeg'].mean() < 700
 
     @pytest.mark.skipif(
         os.getenv('PATH_DATA') is None,
@@ -186,5 +202,5 @@ class TestGenerateFRBs:
         df2 = generate_frbs(50, 'CHIME', seed=999)
 
         # With same seed, should get identical results
-        np.testing.assert_array_equal(df1['DM'].values, df2['DM'].values)
+        np.testing.assert_array_equal(df1['DMeg'].values, df2['DMeg'].values)
         np.testing.assert_array_equal(df1['z'].values, df2['z'].values)
