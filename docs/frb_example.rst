@@ -93,6 +93,21 @@ Another simple call with the "fixed" approach::
 
     P_Ox, P_Ux = Path.calc_posteriors('fixed', box_hwidth=30.)
 
+.. warning::
+
+   ``box_hwidth`` (arcsec) must match the region your galaxy catalog
+   was queried over.  P(x|U) is normalised over the box, so if the
+   catalog covers a larger area than the box (or a smaller one), P(U|x)
+   is wrong, and since P(U|x) and the P(O_i|x) sum to one, every
+   P(O_i|x) is wrong too.  If your query region was larger, keep only
+   the candidates inside the box before calling ``init_candidates``::
+
+       box_hwidth = 30.
+       dra, ddec = frb_coord.spherical_offsets_to(
+           SkyCoord(candidates.ra.values, candidates.dec.values, unit='deg'))
+       inside = (abs(dra.arcsec) <= box_hwidth) & (abs(ddec.arcsec) <= box_hwidth)
+       candidates = candidates[inside]
+
 
 And we are all done!
 
